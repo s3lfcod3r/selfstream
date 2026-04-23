@@ -10,7 +10,7 @@
   :root {
     --bg: #0a0a0f; --bg2: #111118; --bg3: #1a1a24;
     --border: #2a2a3a; --border2: #3a3a50;
-    --accent: #00d4ff; --accent2: #7c3aed;
+    --accent: #00e5c8; --accent2: #1db8d4;
     --green: #00ff88; --red: #ff3366;
     --text: #e8e8f0; --text2: #8888aa;
     --mono: 'IBM Plex Mono', monospace;
@@ -41,7 +41,7 @@
     font-family: var(--mono);
     font-size: 11px;
     letter-spacing: 0.35em;
-    color: var(--accent);
+    color: var(--teal);
     text-transform: uppercase;
     margin-bottom: 12px;
   }
@@ -72,7 +72,7 @@
     transition: background 0.4s;
   }
 
-  .step-dot.done { background: var(--accent); }
+  .step-dot.done { background: var(--teal); }
 
   .card {
     background: var(--bg2);
@@ -88,7 +88,7 @@
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    background: linear-gradient(90deg, var(--blue), var(--teal));
   }
 
   .step { display: none; }
@@ -98,7 +98,7 @@
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.2em;
-    color: var(--accent);
+    color: var(--teal);
     text-transform: uppercase;
     margin-bottom: 20px;
   }
@@ -127,7 +127,7 @@
     transition: border-color 0.2s;
   }
 
-  input:focus { border-color: var(--accent); }
+  input:focus { border-color: var(--teal); }
 
   .hint {
     font-size: 12px;
@@ -141,7 +141,7 @@
     padding: 1px 6px;
     font-family: var(--mono);
     font-size: 11px;
-    color: var(--accent);
+    color: var(--teal);
   }
 
   .btn {
@@ -150,8 +150,8 @@
     gap: 8px;
     padding: 12px 24px;
     background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
+    border: 1px solid var(--teal);
+    color: var(--teal);
     cursor: pointer;
     font-family: var(--mono);
     font-size: 12px;
@@ -202,7 +202,7 @@
     padding: 12px 16px;
     font-family: var(--mono);
     font-size: 13px;
-    color: var(--accent);
+    color: var(--teal);
     text-align: center;
     margin-bottom: 20px;
     word-break: break-all;
@@ -212,7 +212,7 @@
 <body>
 <div class="wizard">
   <div class="wizard-header">
-    <div class="logo">▶ selfstream</div>
+    <div style="text-align:center;margin-bottom:12px;"><img src="/logo.png" style="height:72px;"></div>
     <h1>Ersteinrichtung</h1>
     <p class="subtitle">Richte deinen IPTV-Proxy in wenigen Schritten ein.</p>
   </div>
@@ -297,21 +297,25 @@ function step1Next() {
   document.getElementById('dot-2').classList.add('done');
 
   // Pre-fill base url with current host
-  const guessed = window.location.protocol + '//' + window.location.hostname + ':8000';
+  const guessed = window.location.protocol + '//' + window.location.hostname + ':8080';
+  const guessedProxy = window.location.protocol + '//' + window.location.hostname + ':8000';
+  document.getElementById('s2-proxy-url').value = guessedProxy;
   document.getElementById('s2-url').value = guessed;
 }
 
 async function step2Next() {
   hideError('err-2');
   const url = document.getElementById('s2-url').value.trim().replace(/\/$/, '');
+  const proxyUrl = document.getElementById('s2-proxy-url').value.trim().replace(/\/$/, '');
   if (!url.startsWith('http')) return showError('err-2', 'URL muss mit http:// oder https:// beginnen.');
+  if (!proxyUrl.startsWith('http')) return showError('err-2', 'Proxy URL muss mit http:// beginnen.');
   baseUrl = url;
 
   try {
     const r = await fetch('/api/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ admin_token: adminToken, base_url: baseUrl })
+      body: JSON.stringify({ admin_token: adminToken, base_url: baseUrl, proxy_url: proxyUrl })
     });
     if (!r.ok) {
       const d = await r.json();
