@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  selfstream:
+    image: ghcr.io/kabelsalatundklartext/selfstream:latest
+    container_name: selfstream
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - /mnt/user/appdata/selfstream/data:/data
+    environment:
+      # Optional: Wenn gesetzt, überschreibt das die Web-Einrichtung
+      # ADMIN_TOKEN: dein-token
+      # BASE_URL: http://192.168.1.69:8000
+      - DB_PATH=/data/selfstream.db
+
+volumes: {}

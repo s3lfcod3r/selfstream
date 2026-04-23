@@ -1,0 +1,23 @@
+# Secrets – NIEMALS committen!
+.env
+
+# Datenbank & Runtime-Daten
+data/
+*.db
+
+# Redis
+redis-data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
