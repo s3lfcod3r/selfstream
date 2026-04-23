@@ -245,13 +245,14 @@
     <div class="step" id="step-2">
       <div class="step-label">Schritt 2 von 3 · Server-Adresse</div>
       <div class="form-group">
-        <label>Deine Unraid IP + Port</label>
-        <input type="text" id="s2-url" placeholder="http://192.168.1.69:8000" />
-        <div class="hint">
-          Diese Adresse wird in die Playlist-URLs eingebaut.<br>
-          Beispiel: <code>http://192.168.1.69:8000</code><br>
-          Von außen erreichbar? Dann deine öffentliche Domain.
-        </div>
+        <label>Admin Panel URL (dieser Port, z.B. 8081)</label>
+        <input type="text" id="s2-url" placeholder="http://192.168.1.69:8081" />
+        <div class="hint">Adresse dieses Admin-Panels. Beispiel: <code>http://192.168.1.69:8081</code></div>
+      </div>
+      <div class="form-group">
+        <label>IPTV Proxy URL (Port 8000) – für Playlist-Links</label>
+        <input type="text" id="s2-proxy-url" placeholder="http://192.168.1.69:8000" />
+        <div class="hint">Wird in alle M3U-Playlist-URLs eingebaut. Immer Port 8000.</div>
       </div>
       <div class="error-msg" id="err-2"></div>
       <button class="btn" onclick="step2Next()">Weiter →</button>
@@ -297,7 +298,7 @@ function step1Next() {
   document.getElementById('dot-2').classList.add('done');
 
   // Pre-fill base url with current host
-  const guessed = window.location.protocol + '//' + window.location.hostname + ':8080';
+  const guessed = window.location.protocol + '//' + window.location.hostname + ':' + window.location.port;
   const guessedProxy = window.location.protocol + '//' + window.location.hostname + ':8000';
   document.getElementById('s2-proxy-url').value = guessedProxy;
   document.getElementById('s2-url').value = guessed;
