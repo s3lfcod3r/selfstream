@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  selfstream:
+    build: ./backend
+    container_name: selfstream
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      - ./frontend:/app/frontend:ro
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://selfstream-redis:6379
+      - DB_PATH=/data/iptv.db
+    depends_on:
+      - selfstream-redis
+    networks:
+      - selfstream-net
+
+  selfstream-redis:
+    image: redis:7-alpine
+    container_name: selfstream-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - selfstream-net
+    command: redis-server --appendonly yes
+
+volumes:
+  redis-data:
+
+networks:
+  selfstream-net:
+    driver: bridge
