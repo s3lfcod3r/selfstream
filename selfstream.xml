@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>selfstream</Name>
+  <Repository>selfstream</Repository>
+  <Registry></Registry>
+  <GitHub>https://github.com/kabelsalatundklartext/selfstream</GitHub>
+  <Project>https://github.com/kabelsalatundklartext/selfstream</Project>
+  <Overview>Selbst gehosteter IPTV-Proxy mit User-Management. Jedes Familienmitglied bekommt eine eigene M3U-URL mit Token. Nur 1 gleichzeitiger Stream pro User erlaubt. Admin-Dashboard mit Watch-Tracking inklusive.</Overview>
+  <Category>MediaServer: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8000]/admin</WebUI>
+  <TemplateURL></TemplateURL>
+  <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/main/frontend/icon.png</Icon>
+  <ExtraParams>--network selfstream-net</ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled></DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Requires>Redis Container (selfstream-redis) muss zuerst gestartet sein!</Requires>
+
+  <Config Name="Admin Token" Target="ADMIN_TOKEN" Default="changeme-bitte-aendern" Mode="" Description="Sicheres Passwort für das Admin Panel – UNBEDINGT ändern!" Type="Variable" Display="always" Required="true" Mask="true">changeme-bitte-aendern</Config>
+
+  <Config Name="Base URL" Target="BASE_URL" Default="http://192.168.1.100:8000" Mode="" Description="Deine Unraid IP + Port. Wird für die generierten Playlist-URLs verwendet." Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.100:8000</Config>
+
+  <Config Name="Redis URL" Target="REDIS_URL" Default="redis://selfstream-redis:6379" Mode="" Description="Redis Verbindung – nur ändern wenn du einen eigenen Redis nutzt." Type="Variable" Display="advanced" Required="true" Mask="false">redis://selfstream-redis:6379</Config>
+
+  <Config Name="DB Pfad" Target="DB_PATH" Default="/data/iptv.db" Mode="" Description="Pfad zur SQLite Datenbank im Container." Type="Variable" Display="advanced" Required="false" Mask="false">/data/iptv.db</Config>
+
+  <Config Name="Daten (DB)" Target="/data" Default="/mnt/user/appdata/selfstream/data" Mode="rw" Description="Hier wird die SQLite Datenbank gespeichert." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/selfstream/data</Config>
+
+  <Config Name="Frontend" Target="/app/frontend" Default="/mnt/user/appdata/selfstream/frontend" Mode="ro" Description="Pfad zum Admin-Dashboard (HTML-Dateien)." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/selfstream/frontend</Config>
+
+  <Config Name="Web UI Port" Target="8000" Default="8000" Mode="tcp" Description="Port für das Admin Panel und den IPTV-Proxy." Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+</Container>
