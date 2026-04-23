@@ -476,6 +476,18 @@ tr:hover td{background:var(--bg3);}
   </div>
 </div>
 
+
+<!-- Share Modal -->
+<div class="modal-bg" id="share-modal">
+  <div class="modal" style="width:560px">
+    <div class="modal-title" id="share-modal-title">🔗 Links teilen</div>
+    <div id="share-modal-content"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('share-modal')">Schließen</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -593,6 +605,7 @@ async function loadUsers() {
       <td class="mono">${hours}h</td>
       <td class="mono" style="font-size:10px;">${timeAgo(u.last_seen)}</td>
       <td style="white-space:nowrap;display:flex;gap:4px;">
+        <button class="btn sm primary" onclick="openShare(${u.id},'${esc(u.name)}','${esc(u.playlist_url)}','${esc(u.epg_url)}')">🔗 Teilen</button>
         <button class="btn sm" onclick="viewUserLogs(${u.id},'${esc(u.name)}')">Log</button>
         <button class="btn sm" onclick="toggleUser(${u.id},${u.active})">${u.active?'Sperren':'Freigeben'}</button>
         <button class="btn sm danger" onclick="deleteUser(${u.id},'${esc(u.name)}')">✕</button>
@@ -896,6 +909,77 @@ function showToast(msg, error=false) {
   t.className = 'show' + (error?' error':'');
   setTimeout(() => t.className = '', 2800);
 }
+
+// ── Share / Copy URLs ─────────────────────────────────────────────────────────
+function openShare(userId, name, playlistUrl, epgUrl) {
+  document.getElementById('share-modal-title').textContent = '🔗 ' + name + ' · Links';
+  document.getElementById('share-modal-content').innerHTML = `
+    <div style="margin-bottom:20px;">
+      <div class="form-label" style="margin-bottom:8px;">📺 Playlist URL (in IPTV-App eintragen)</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div style="flex:1;background:var(--bg3);border:1px solid var(--border);padding:10px 12px;
+          font-family:var(--mono);font-size:12px;color:var(--teal);word-break:break-all;">
+          ${playlistUrl}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <button class="btn primary" onclick="copyAndConfirm('${playlistUrl}', this)">📋 URL kopieren</button>
+        <button class="btn" onclick="openQr('${playlistUrl}', 'Playlist – ' + '${name}')">QR-Code</button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:20px;">
+      <div class="form-label" style="margin-bottom:8px;">📅 EPG URL (für Programmdaten)</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div style="flex:1;background:var(--bg3);border:1px solid var(--border);padding:10px 12px;
+          font-family:var(--mono);font-size:12px;color:var(--teal);word-break:break-all;">
+          ${epgUrl}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <button class="btn primary" onclick="copyAndConfirm('${epgUrl}', this)">📋 URL kopieren</button>
+        <button class="btn" onclick="openQr('${epgUrl}', 'EPG – ' + '${name}')">QR-Code</button>
+      </div>
+    </div>
+
+    <div style="background:var(--bg3);border:1px solid var(--border);padding:14px;
+      font-size:12px;color:var(--text2);line-height:1.7;">
+      <strong style="color:var(--text);">📱 Anleitung TiviMate:</strong><br>
+      Hinzufügen → M3U-Playlist → URL eingeben → Playlist URL einfügen<br>
+      Optional: EPG-URL unter Einstellungen → EPG → URL hinzufügen
+    </div>
+  `;
+  document.getElementById('share-modal').classList.add('open');
+}
+
+async function copyAndConfirm(url, btn) {
+  await navigator.clipboard.writeText(url);
+  const old = btn.textContent;
+  btn.textContent = '✓ Kopiert!';
+  btn.style.borderColor = 'var(--green)';
+  btn.style.color = 'var(--green)';
+  setTimeout(() => {
+    btn.textContent = old;
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }, 2000);
+}
+
+function openQr(url, title) {
+  const encoded = encodeURIComponent(url);
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encoded}`;
+  const win = window.open('', '_blank', 'width=320,height=360');
+  win.document.write(`
+    <html><head><title>QR – ${title}</title>
+    <style>body{background:#0d1117;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;min-height:100vh;margin:0;font-family:monospace;color:#e6edf3;}
+      img{border:8px solid white;border-radius:4px;}
+      p{font-size:11px;color:#8b949e;margin-top:12px;max-width:260px;text-align:center;word-break:break-all;}
+    </style></head>
+    <body><img src="${qrUrl}" width="250" height="250"><p>${url}</p></body></html>
+  `);
+}
+
 </script>
 </body>
 </html>
