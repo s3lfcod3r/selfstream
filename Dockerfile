@@ -1,13 +1,339 @@
-FROM python:3.12-slim
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>selfstream · Einrichten</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f; --bg2: #111118; --bg3: #1a1a24;
+    --border: #2a2a3a; --border2: #3a3a50;
+    --accent: #00e5c8; --accent2: #1db8d4;
+    --green: #00ff88; --red: #ff3366;
+    --text: #e8e8f0; --text2: #8888aa;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 30% 40%, #0d0d2a 0%, #0a0a0f 60%);
+  }
 
-WORKDIR /app
+  .wizard {
+    width: 480px;
+    max-width: 95vw;
+  }
 
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+  .wizard-header {
+    margin-bottom: 40px;
+  }
 
-COPY backend/ ./
-COPY frontend/ ./frontend/
+  .logo {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.35em;
+    color: var(--teal);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
 
-EXPOSE 8000
+  h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+  .subtitle {
+    color: var(--text2);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .steps {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 32px;
+  }
+
+  .step-dot {
+    flex: 1;
+    height: 3px;
+    background: var(--border2);
+    border-radius: 2px;
+    transition: background 0.4s;
+  }
+
+  .step-dot.done { background: var(--teal); }
+
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 32px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--blue), var(--teal));
+  }
+
+  .step { display: none; }
+  .step.active { display: block; }
+
+  .step-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--teal);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+
+  .form-group { margin-bottom: 20px; }
+
+  label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--text2);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  input {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  input:focus { border-color: var(--teal); }
+
+  .hint {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  .hint code {
+    background: var(--bg3);
+    padding: 1px 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--teal);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    background: transparent;
+    border: 1px solid var(--teal);
+    color: var(--teal);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    background: rgba(0,212,255,0.05);
+    width: 100%;
+    justify-content: center;
+  }
+
+  .btn:hover { background: rgba(0,212,255,0.15); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .error-msg {
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-top: 12px;
+    display: none;
+  }
+
+  /* Success */
+  .success-icon {
+    width: 56px; height: 56px;
+    border: 2px solid var(--green);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: var(--green);
+    margin: 0 auto 24px;
+    box-shadow: 0 0 24px rgba(0,255,136,0.2);
+  }
+
+  .success-text {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  .success-text h2 { font-size: 22px; margin-bottom: 8px; }
+  .success-text p { color: var(--text2); font-size: 14px; }
+
+  .url-display {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--teal);
+    text-align: center;
+    margin-bottom: 20px;
+    word-break: break-all;
+  }
+</style>
+</head>
+<body>
+<div class="wizard">
+  <div class="wizard-header">
+    <div style="text-align:center;margin-bottom:12px;"><img src="/logo.png" style="height:72px;"></div>
+    <h1>Ersteinrichtung</h1>
+    <p class="subtitle">Richte deinen IPTV-Proxy in wenigen Schritten ein.</p>
+  </div>
+
+  <div class="steps">
+    <div class="step-dot done" id="dot-1"></div>
+    <div class="step-dot" id="dot-2"></div>
+    <div class="step-dot" id="dot-3"></div>
+  </div>
+
+  <div class="card">
+
+    <!-- Step 1: Admin Password -->
+    <div class="step active" id="step-1">
+      <div class="step-label">Schritt 1 von 3 · Admin-Zugang</div>
+      <div class="form-group">
+        <label>Admin-Passwort</label>
+        <input type="password" id="s1-token" placeholder="Mindestens 8 Zeichen…" />
+        <div class="hint">Dieses Passwort schützt das Admin-Panel. Wähle etwas Sicheres.</div>
+      </div>
+      <div class="form-group">
+        <label>Passwort bestätigen</label>
+        <input type="password" id="s1-token2" placeholder="Nochmals eingeben…" />
+      </div>
+      <div class="error-msg" id="err-1"></div>
+      <button class="btn" onclick="step1Next()">Weiter →</button>
+    </div>
+
+    <!-- Step 2: Base URL -->
+    <div class="step" id="step-2">
+      <div class="step-label">Schritt 2 von 3 · Server-Adresse</div>
+      <div class="form-group">
+        <label>Deine Unraid IP + Port</label>
+        <input type="text" id="s2-url" placeholder="http://192.168.1.69:8000" />
+        <div class="hint">
+          Diese Adresse wird in die Playlist-URLs eingebaut.<br>
+          Beispiel: <code>http://192.168.1.69:8000</code><br>
+          Von außen erreichbar? Dann deine öffentliche Domain.
+        </div>
+      </div>
+      <div class="error-msg" id="err-2"></div>
+      <button class="btn" onclick="step2Next()">Weiter →</button>
+    </div>
+
+    <!-- Step 3: Done -->
+    <div class="step" id="step-3">
+      <div class="step-label">Schritt 3 von 3 · Abgeschlossen</div>
+      <div class="success-icon">✓</div>
+      <div class="success-text">
+        <h2>selfstream ist bereit!</h2>
+        <p>Dein IPTV-Proxy läuft. Öffne das Admin-Panel um Benutzer anzulegen.</p>
+      </div>
+      <div class="url-display" id="admin-url"></div>
+      <button class="btn" onclick="goToAdmin()">Admin Panel öffnen →</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let adminToken = '';
+let baseUrl = '';
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideError(id) {
+  document.getElementById(id).style.display = 'none';
+}
+
+function step1Next() {
+  hideError('err-1');
+  const t1 = document.getElementById('s1-token').value;
+  const t2 = document.getElementById('s1-token2').value;
+  if (t1.length < 8) return showError('err-1', 'Passwort muss mindestens 8 Zeichen haben.');
+  if (t1 !== t2) return showError('err-1', 'Passwörter stimmen nicht überein.');
+  adminToken = t1;
+  document.getElementById('step-1').classList.remove('active');
+  document.getElementById('step-2').classList.add('active');
+  document.getElementById('dot-2').classList.add('done');
+
+  // Pre-fill base url with current host
+  const guessed = window.location.protocol + '//' + window.location.hostname + ':8080';
+  const guessedProxy = window.location.protocol + '//' + window.location.hostname + ':8000';
+  document.getElementById('s2-proxy-url').value = guessedProxy;
+  document.getElementById('s2-url').value = guessed;
+}
+
+async function step2Next() {
+  hideError('err-2');
+  const url = document.getElementById('s2-url').value.trim().replace(/\/$/, '');
+  const proxyUrl = document.getElementById('s2-proxy-url').value.trim().replace(/\/$/, '');
+  if (!url.startsWith('http')) return showError('err-2', 'URL muss mit http:// oder https:// beginnen.');
+  if (!proxyUrl.startsWith('http')) return showError('err-2', 'Proxy URL muss mit http:// beginnen.');
+  baseUrl = url;
+
+  try {
+    const r = await fetch('/api/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ admin_token: adminToken, base_url: baseUrl, proxy_url: proxyUrl })
+    });
+    if (!r.ok) {
+      const d = await r.json();
+      return showError('err-2', d.detail || 'Fehler beim Speichern.');
+    }
+  } catch(e) {
+    return showError('err-2', 'Verbindungsfehler. Ist der Server erreichbar?');
+  }
+
+  document.getElementById('step-2').classList.remove('active');
+  document.getElementById('step-3').classList.add('active');
+  document.getElementById('dot-3').classList.add('done');
+  document.getElementById('admin-url').textContent = baseUrl + '/admin';
+}
+
+function goToAdmin() {
+  window.location.href = '/admin';
+}
+</script>
+</body>
+</html>
