@@ -16,6 +16,7 @@ class Database:
         con = sqlite3.connect(self.db_path, timeout=10)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA foreign_keys=ON")
         try:
             yield con
             con.commit()
@@ -68,8 +69,32 @@ class Database:
                     accessed_at TEXT DEFAULT (datetime('now'))
                 );
 
+                -- Global channel list parsed from source m3u
+                CREATE TABLE IF NOT EXISTS channels (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL,
+                    group_title TEXT DEFAULT '',
+                    tvg_id     TEXT DEFAULT '',
+                    tvg_logo   TEXT DEFAULT '',
+                    stream_url TEXT NOT NULL,
+                    enabled    INTEGER DEFAULT 1,
+                    sort_order INTEGER DEFAULT 0,
+                    raw_extinf TEXT DEFAULT ''
+                );
+
+                -- EPG sources
+                CREATE TABLE IF NOT EXISTS epg_sources (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL,
+                    url        TEXT NOT NULL,
+                    active     INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_user    ON watch_logs(user_id);
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_started ON watch_logs(started_at);
+                CREATE INDEX IF NOT EXISTS idx_channels_group     ON channels(group_title);
+                CREATE INDEX IF NOT EXISTS idx_channels_enabled   ON channels(enabled);
             """)
 
     # ── Settings ──────────────────────────────────────────────────────────────
@@ -86,6 +111,11 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, value)
             )
+
+    def get_all_settings(self) -> Dict:
+        with self.conn() as con:
+            rows = con.execute("SELECT key, value FROM settings").fetchall()
+            return {r["key"]: r["value"] for r in rows}
 
     def is_setup_done(self) -> bool:
         env_token = os.getenv("ADMIN_TOKEN", "")
@@ -104,11 +134,20 @@ class Database:
         env_url = os.getenv("BASE_URL", "")
         if env_url:
             return env_url.rstrip("/")
-        return self.get_setting("base_url", "http://localhost:8000")
+        return self.get_setting("base_url", "http://localhost:8000").rstrip("/")
 
-    # ── Sessions (replaces Redis) ─────────────────────────────────────────────
+    def get_proxy_url(self) -> str:
+        """Base URL for the IPTV proxy port (8000)."""
+        base = self.get_base_url()
+        # Replace admin port 8080 with proxy port 8000 if needed
+        proxy_url = self.get_setting("proxy_url", "")
+        if proxy_url:
+            return proxy_url.rstrip("/")
+        return base
 
-    SESSION_TTL = 14400  # 4 hours
+    # ── Sessions ──────────────────────────────────────────────────────────────
+
+    SESSION_TTL = 14400
 
     def session_start(self, token: str, channel: str) -> bool:
         now = int(time.time())
@@ -122,8 +161,7 @@ class Database:
             if existing:
                 return False
             con.execute(
-                "INSERT OR REPLACE INTO active_sessions (token, channel, started_at, updated_at) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO active_sessions (token, channel, started_at, updated_at) VALUES (?, ?, ?, ?)",
                 (token, channel, now, now)
             )
             return True
@@ -131,9 +169,7 @@ class Database:
     def session_refresh(self, token: str):
         now = int(time.time())
         with self.conn() as con:
-            con.execute(
-                "UPDATE active_sessions SET updated_at = ? WHERE token = ?", (now, token)
-            )
+            con.execute("UPDATE active_sessions SET updated_at = ? WHERE token = ?", (now, token))
 
     def session_end(self, token: str):
         with self.conn() as con:
@@ -162,8 +198,7 @@ class Database:
                     MAX(wl.started_at)                    as last_seen
                 FROM users u
                 LEFT JOIN watch_logs wl ON wl.user_id = u.id
-                GROUP BY u.id
-                ORDER BY u.name
+                GROUP BY u.id ORDER BY u.name
             """).fetchall()
             return [dict(r) for r in rows]
 
@@ -196,6 +231,86 @@ class Database:
             con.execute("DELETE FROM watch_logs WHERE user_id = ?", (user_id,))
             con.execute("DELETE FROM playlist_access WHERE user_id = ?", (user_id,))
             con.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    # ── Channels ──────────────────────────────────────────────────────────────
+
+    def get_channels(self, enabled_only: bool = False) -> List[Dict]:
+        with self.conn() as con:
+            q = "SELECT * FROM channels"
+            if enabled_only:
+                q += " WHERE enabled = 1"
+            q += " ORDER BY sort_order, name"
+            return [dict(r) for r in con.execute(q).fetchall()]
+
+    def get_channel_groups(self) -> List[str]:
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT DISTINCT group_title FROM channels ORDER BY group_title"
+            ).fetchall()
+            return [r["group_title"] for r in rows]
+
+    def upsert_channels(self, channels: List[Dict]):
+        """Replace all channels with fresh parsed list."""
+        with self.conn() as con:
+            con.execute("DELETE FROM channels")
+            for i, ch in enumerate(channels):
+                con.execute("""
+                    INSERT INTO channels (name, group_title, tvg_id, tvg_logo, stream_url, enabled, sort_order, raw_extinf)
+                    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """, (ch["name"], ch.get("group", ""), ch.get("tvg_id", ""),
+                      ch.get("tvg_logo", ""), ch["url"], i, ch.get("raw_extinf", "")))
+
+    def update_channel(self, channel_id: int, data: Dict):
+        allowed = {"enabled", "sort_order", "name", "group_title"}
+        fields = {k: v for k, v in data.items() if k in allowed}
+        if not fields:
+            return
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        vals = list(fields.values()) + [channel_id]
+        with self.conn() as con:
+            con.execute(f"UPDATE channels SET {sets} WHERE id = ?", vals)
+
+    def set_group_enabled(self, group: str, enabled: int):
+        with self.conn() as con:
+            con.execute("UPDATE channels SET enabled = ? WHERE group_title = ?", (enabled, group))
+
+    def get_channels_count(self) -> Dict:
+        with self.conn() as con:
+            row = con.execute("""
+                SELECT COUNT(*) as total,
+                       SUM(CASE WHEN enabled=1 THEN 1 ELSE 0 END) as enabled
+                FROM channels
+            """).fetchone()
+            return dict(row)
+
+    # ── EPG Sources ───────────────────────────────────────────────────────────
+
+    def get_epg_sources(self) -> List[Dict]:
+        with self.conn() as con:
+            return [dict(r) for r in con.execute(
+                "SELECT * FROM epg_sources ORDER BY name"
+            ).fetchall()]
+
+    def add_epg_source(self, name: str, url: str) -> Dict:
+        with self.conn() as con:
+            cur = con.execute(
+                "INSERT INTO epg_sources (name, url) VALUES (?, ?)", (name, url)
+            )
+            return {"id": cur.lastrowid, "name": name, "url": url, "active": 1}
+
+    def update_epg_source(self, epg_id: int, data: Dict):
+        allowed = {"name", "url", "active"}
+        fields = {k: v for k, v in data.items() if k in allowed}
+        if not fields:
+            return
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        vals = list(fields.values()) + [epg_id]
+        with self.conn() as con:
+            con.execute(f"UPDATE epg_sources SET {sets} WHERE id = ?", vals)
+
+    def delete_epg_source(self, epg_id: int):
+        with self.conn() as con:
+            con.execute("DELETE FROM epg_sources WHERE id = ?", (epg_id,))
 
     # ── Watch Logs ────────────────────────────────────────────────────────────
 
@@ -238,10 +353,9 @@ class Database:
 
     def get_logs_today_count(self) -> int:
         with self.conn() as con:
-            row = con.execute("""
-                SELECT COUNT(*) as cnt FROM watch_logs
-                WHERE date(started_at) = date('now')
-            """).fetchone()
+            row = con.execute(
+                "SELECT COUNT(*) as cnt FROM watch_logs WHERE date(started_at) = date('now')"
+            ).fetchone()
             return row["cnt"]
 
 
