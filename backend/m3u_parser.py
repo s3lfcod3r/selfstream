@@ -1,79 +1,82 @@
-"""M3U playlist parser."""
+"""M3U playlist parser – supports #EXTGRP and group-title attribute."""
 import re
 from typing import List, Dict
 
 
 def parse_m3u(content: str) -> List[Dict]:
-    """Parse M3U/M3U8 content into channel list."""
     channels = []
     lines = content.splitlines()
     current_extinf = None
+    current_group = ""
 
     for line in lines:
         line = line.strip()
         if not line:
             continue
 
-        if line.startswith("#EXTINF"):
+        if line.startswith("#EXTM3U"):
+            continue
+
+        elif line.startswith("#EXTGRP:"):
+            # Group line that follows an #EXTINF
+            current_group = line[8:].strip()
+
+        elif line.startswith("#EXTINF"):
             current_extinf = line
-        elif line.startswith("http") or line.startswith("rtmp"):
+            current_group = ""  # reset, may be overridden by #EXTGRP next
+
+        elif line.startswith("http") or line.startswith("rtmp") or line.startswith("rtp"):
             if current_extinf:
-                ch = _parse_extinf(current_extinf, line)
+                ch = _parse_extinf(current_extinf, line, current_group)
                 channels.append(ch)
             current_extinf = None
+            current_group = ""
 
     return channels
 
 
-def _parse_extinf(extinf: str, url: str) -> Dict:
-    """Parse a single #EXTINF line + URL into channel dict."""
+def _parse_extinf(extinf: str, url: str, extgrp: str = "") -> Dict:
     def attr(key: str) -> str:
-        m = re.search(rf'{key}="([^"]*)"', extinf)
+        m = re.search(rf'{key}="([^"]*)"', extinf, re.IGNORECASE)
         return m.group(1) if m else ""
 
     # Channel name: everything after the last comma
-    name_match = re.search(r',(.+)$', extinf)
+    name_match = re.search(r',([^,]+)$', extinf)
     name = name_match.group(1).strip() if name_match else "Unknown"
 
+    # Group: prefer group-title attribute, fallback to #EXTGRP
+    group = attr("group-title") or extgrp
+
     return {
-        "name": name,
-        "url": url,
-        "group": attr("group-title"),
-        "tvg_id": attr("tvg-id"),
-        "tvg_logo": attr("tvg-logo"),
-        "tvg_name": attr("tvg-name"),
+        "name":      name,
+        "url":       url,
+        "group":     group,
+        "tvg_id":    attr("tvg-id"),
+        "tvg_logo":  attr("tvg-logo"),
+        "tvg_name":  attr("tvg-name"),
         "raw_extinf": extinf,
     }
 
 
 def build_m3u(channels: List[Dict], proxy_base: str, user_token: str,
               epg_urls: List[str] = None) -> str:
-    """Build a proxied M3U playlist from channel list."""
     import urllib.parse
 
     lines = []
-
-    # Header with EPG
     epg_attr = ""
     if epg_urls:
-        combined = ",".join(epg_urls)
-        epg_attr = f' url-tvg="{combined}"'
-
+        epg_attr = f' url-tvg="{",".join(epg_urls)}"'
     lines.append(f"#EXTM3U{epg_attr}")
 
     for ch in channels:
-        # Reconstruct EXTINF with original attributes
-        extinf = ch.get("raw_extinf", "")
-        if not extinf:
-            extinf = (
-                f'#EXTINF:-1 tvg-id="{ch.get("tvg_id","")}" '
-                f'tvg-logo="{ch.get("tvg_logo","")}" '
-                f'group-title="{ch.get("group_title", ch.get("group",""))}",'
-                f'{ch["name"]}'
-            )
+        group = ch.get("group_title") or ch.get("group", "")
+        extinf = (
+            f'#EXTINF:-1 tvg-id="{ch.get("tvg_id","")}" '
+            f'tvg-logo="{ch.get("tvg_logo","")}" '
+            f'group-title="{group}",'
+            f'{ch["name"]}'
+        )
         lines.append(extinf)
-
-        # Proxied stream URL
         encoded = urllib.parse.quote(ch["stream_url"], safe="")
         lines.append(f"{proxy_base}/iptv/{user_token}/stream?url={encoded}")
 
