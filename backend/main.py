@@ -140,6 +140,7 @@ async def proxy_stream(token: str, url: str):
     """
     Entry point for a channel. Fetches the .m3u8, rewrites segment URLs,
     returns the rewritten playlist so the client fetches segments via /segment.
+    No session lock here – session starts only when first .ts segment is fetched.
     """
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
@@ -148,11 +149,7 @@ async def proxy_stream(token: str, url: str):
     decoded_url = urllib.parse.unquote(url)
     channel_name = decoded_url.split("/")[-2] if "/ch" in decoded_url else decoded_url.split("/")[-1].split("?")[0]
 
-    if not db.session_start(token, channel_name):
-        raise HTTPException(status_code=409, detail="Stream already active on another device")
-
     hls = get_hls_settings()
-    log_id = db.start_watch_log(user_id=user["id"], channel=channel_name, stream_url=decoded_url)
     proxy_url = db.get_proxy_url()
 
     try:
@@ -165,23 +162,23 @@ async def proxy_stream(token: str, url: str):
             resp.raise_for_status()
             content = resp.text
 
-        # It's a HLS playlist – rewrite and return
         rewritten = rewrite_hls_playlist(content, decoded_url, proxy_url, token)
-        logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
+        logger.info(f"HLS playlist served: {user["name"]} → {channel_name}")
         return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl")
 
     except Exception as e:
-        db.session_end(token)
-        db.end_watch_log(log_id, 0)
-        logger.error(f"Failed to fetch stream for {user['name']}: {e}")
+        logger.error(f"Failed to fetch stream for {user["name"]}: {e}")
         raise HTTPException(status_code=502, detail=f"Stream fetch failed: {e}")
 
+
+# In-memory store for active segment sessions {token: (channel, log_id, start_time)}
+_active_segment_sessions: dict = {}
 
 @proxy_app.get("/iptv/{token}/segment")
 async def proxy_segment(token: str, url: str):
     """
     Proxy individual HLS segments (.ts) or sub-playlists.
-    Also refreshes the session and handles sub-playlists transparently.
+    Session starts on first real .ts segment, refreshes on subsequent ones.
     """
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
@@ -190,9 +187,19 @@ async def proxy_segment(token: str, url: str):
     decoded_url = urllib.parse.unquote(url)
     hls = get_hls_settings()
     proxy_url = db.get_proxy_url()
+    is_ts = not (decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0])
 
-    # Refresh session on every segment request
-    db.session_refresh(token)
+    if is_ts:
+        if token not in _active_segment_sessions:
+            # First real segment – start session
+            channel_name = decoded_url.split("/")[-2] if "/ch" in decoded_url else "unknown"
+            if not db.session_start(token, channel_name):
+                raise HTTPException(status_code=409, detail="Stream already active on another device")
+            log_id = db.start_watch_log(user_id=user["id"], channel=channel_name, stream_url=decoded_url)
+            _active_segment_sessions[token] = (channel_name, log_id, time.time())
+            logger.info(f"Session started: {user['name']} → {channel_name}")
+        else:
+            db.session_refresh(token)
 
     async def stream_segment():
         try:
@@ -202,8 +209,8 @@ async def proxy_segment(token: str, url: str):
                 follow_redirects=hls["hls_follow_redirects"],
                 headers=make_headers(hls)
             ) as client:
-                # Check if it's a sub-playlist (quality levels etc.)
-                if decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0]:
+                if not is_ts:
+                    # Sub-playlist (quality levels etc.) – rewrite and return
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     rewritten = rewrite_hls_playlist(resp.text, decoded_url, proxy_url, token)
@@ -217,13 +224,13 @@ async def proxy_segment(token: str, url: str):
             pass
         except Exception as e:
             logger.error(f"Segment error: {e}")
+            # End session on persistent error
+            if token in _active_segment_sessions:
+                _, log_id, start_time = _active_segment_sessions.pop(token)
+                db.session_end(token)
+                db.end_watch_log(log_id, int(time.time() - start_time))
 
-    # Determine content type
-    if decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0]:
-        media_type = "application/vnd.apple.mpegurl"
-    else:
-        media_type = "video/mp2t"
-
+    media_type = "application/vnd.apple.mpegurl" if not is_ts else "video/mp2t"
     return StreamingResponse(stream_segment(), media_type=media_type,
                              headers={"Cache-Control": "no-cache"})
 
@@ -231,6 +238,9 @@ async def proxy_segment(token: str, url: str):
 @proxy_app.get("/iptv/{token}/stop")
 async def stop_stream(token: str):
     """Manually end a session."""
+    if token in _active_segment_sessions:
+        _, log_id, start_time = _active_segment_sessions.pop(token)
+        db.end_watch_log(log_id, int(time.time() - start_time))
     db.session_end(token)
     return {"ok": True}
 
