@@ -36,13 +36,15 @@ class Database:
                 );
 
                 CREATE TABLE IF NOT EXISTS users (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name       TEXT NOT NULL,
-                    token      TEXT UNIQUE NOT NULL,
-                    m3u_source TEXT NOT NULL,
-                    active     INTEGER DEFAULT 1,
-                    created_at TEXT DEFAULT (datetime('now')),
-                    notes      TEXT DEFAULT ''
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name        TEXT NOT NULL,
+                    token       TEXT UNIQUE NOT NULL,
+                    short_token TEXT UNIQUE,
+                    m3u_source  TEXT NOT NULL,
+                    active      INTEGER DEFAULT 1,
+                    max_streams INTEGER DEFAULT 1,
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    notes       TEXT DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS active_sessions (
@@ -90,7 +92,8 @@ class Database:
                     tvg_id     TEXT PRIMARY KEY,
                     name       TEXT NOT NULL,
                     enabled    INTEGER DEFAULT 1,
-                    sort_order INTEGER DEFAULT 0
+                    sort_order INTEGER DEFAULT 0,
+                    icon_url   TEXT DEFAULT ''
                 );
 
                 -- EPG sources
@@ -236,6 +239,27 @@ class Database:
         vals = list(fields.values()) + [user_id]
         with self.conn() as con:
             con.execute(f"UPDATE users SET {sets} WHERE id = ?", vals)
+
+    def get_user_by_short_token(self, short_token: str) -> Optional[Dict]:
+        with self.conn() as con:
+            row = con.execute(
+                "SELECT * FROM users WHERE short_token = ?", (short_token,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def generate_short_token(self, user_id: int) -> str:
+        """Generate a short 8-char alphanumeric token."""
+        import random, string
+        chars = string.ascii_letters + string.digits
+        while True:
+            short = ''.join(random.choices(chars, k=8))
+            with self.conn() as con:
+                exists = con.execute(
+                    "SELECT id FROM users WHERE short_token = ?", (short,)
+                ).fetchone()
+                if not exists:
+                    con.execute("UPDATE users SET short_token = ? WHERE id = ?", (short, user_id))
+                    return short
 
     def regenerate_token(self, user_id: int) -> str:
         import uuid
@@ -406,13 +430,17 @@ class Database:
     def upsert_epg_channels(self, channels: list):
         """Bulk insert/update EPG channels from parsed XML."""
         with self.conn() as con:
-            # Keep existing enabled state, insert new ones as enabled
             for i, ch in enumerate(channels):
+                sort_val = ch.get("sort_order", i)
+                icon = ch.get("icon_url", "")
                 con.execute("""
-                    INSERT INTO epg_channel_filter (tvg_id, name, enabled, sort_order)
-                    VALUES (?, ?, 1, ?)
-                    ON CONFLICT(tvg_id) DO UPDATE SET name=excluded.name
-                """, (ch["tvg_id"], ch["name"], i))
+                    INSERT INTO epg_channel_filter (tvg_id, name, enabled, sort_order, icon_url)
+                    VALUES (?, ?, 1, ?, ?)
+                    ON CONFLICT(tvg_id) DO UPDATE SET
+                        name=excluded.name,
+                        sort_order=excluded.sort_order,
+                        icon_url=excluded.icon_url
+                """, (ch["tvg_id"], ch["name"], sort_val, icon))
 
     def update_epg_channel(self, tvg_id: str, data: dict):
         allowed = {"enabled", "sort_order"}
@@ -443,10 +471,13 @@ class Database:
                 )
 
     def get_logs_today_count(self) -> int:
+        """Count distinct channel sessions today (min 10s duration or still active)."""
         with self.conn() as con:
-            row = con.execute(
-                "SELECT COUNT(*) as cnt FROM watch_logs WHERE date(started_at) = date('now')"
-            ).fetchone()
+            row = con.execute("""
+                SELECT COUNT(*) as cnt FROM watch_logs
+                WHERE date(started_at) = date('now')
+                AND (duration_seconds >= 10 OR duration_seconds IS NULL OR duration_seconds = 0)
+            """).fetchone()
             return row["cnt"]
 
 
