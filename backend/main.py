@@ -9,8 +9,6 @@ from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from database import Database
 from m3u_parser import parse_m3u, build_m3u
@@ -18,7 +16,7 @@ from m3u_parser import parse_m3u, build_m3u
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ── Two apps: proxy (8000) + admin (8080) ────────────────────────────────────
+from fastapi.middleware.cors import CORSMiddleware
 
 proxy_app = FastAPI(title="selfstream proxy")
 admin_app = FastAPI(title="selfstream admin")
@@ -36,21 +34,57 @@ async def startup():
     logger.info("selfstream started")
 
 
-# ── HLS Settings helpers ───────────────────────────────────────────────────────
-
 def get_hls_settings() -> dict:
     return {
-        "hls_timeout":       int(db.get_setting("hls_timeout", "10")),
-        "hls_read_timeout":  int(db.get_setting("hls_read_timeout", "30")),
-        "hls_chunk_size":    int(db.get_setting("hls_chunk_size", "65536")),
-        "hls_user_agent":    db.get_setting("hls_user_agent", "VLC/3.0 LibVLC/3.0"),
-        "hls_referer":       db.get_setting("hls_referer", ""),
+        "hls_timeout":        int(db.get_setting("hls_timeout", "10")),
+        "hls_read_timeout":   int(db.get_setting("hls_read_timeout", "30")),
+        "hls_chunk_size":     int(db.get_setting("hls_chunk_size", "65536")),
+        "hls_user_agent":     db.get_setting("hls_user_agent", "VLC/3.0 LibVLC/3.0"),
+        "hls_referer":        db.get_setting("hls_referer", ""),
         "hls_follow_redirects": db.get_setting("hls_follow_redirects", "1") == "1",
     }
 
 
+def make_headers(hls: dict) -> dict:
+    h = {"User-Agent": hls["hls_user_agent"]}
+    if hls["hls_referer"]:
+        h["Referer"] = hls["hls_referer"]
+    return h
+
+
+def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str) -> str:
+    """
+    Rewrite a .m3u8 playlist so all segment/sub-playlist URLs
+    go through our proxy instead of directly to the CDN.
+    """
+    base = original_url.rsplit("/", 1)[0] + "/"
+    lines = content.splitlines()
+    out = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            out.append(line)
+            continue
+        if not stripped:
+            out.append(line)
+            continue
+
+        # Resolve relative URLs to absolute
+        if stripped.startswith("http"):
+            abs_url = stripped
+        else:
+            abs_url = base + stripped
+
+        # Proxy the segment/sub-playlist through us
+        encoded = urllib.parse.quote(abs_url, safe="")
+        out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
+
+    return "\n".join(out)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
-# PROXY APP  (port 8000) – IPTV streams only, no auth UI
+# PROXY APP  (port 8000)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @proxy_app.get("/iptv/{token}/playlist.m3u")
@@ -61,43 +95,37 @@ async def serve_playlist(token: str):
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
 
     channels = db.get_channels(enabled_only=True)
+    proxy_url = db.get_proxy_url()
+    epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
 
     if not channels:
-        # Fallback: fetch directly from user's m3u_source
+        # Fallback: fetch from user's m3u_source
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            hls = get_hls_settings()
+            async with httpx.AsyncClient(timeout=30, headers=make_headers(hls)) as client:
                 resp = await client.get(user["m3u_source"])
                 resp.raise_for_status()
                 channels_raw = parse_m3u(resp.text)
         except Exception as e:
             logger.error(f"Failed to fetch m3u for {user['name']}: {e}")
             raise HTTPException(status_code=502, detail="Failed to fetch source playlist")
-        # Convert to channel-like dicts
         channels = [{"name": c["name"], "raw_extinf": c["raw_extinf"],
                      "stream_url": c["url"], "tvg_id": c["tvg_id"],
                      "tvg_logo": c["tvg_logo"], "group_title": c["group"]} for c in channels_raw]
 
-    proxy_url = db.get_proxy_url()
-    epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
-
     content = build_m3u(channels, proxy_url, token, epg_sources)
     db.log_playlist_access(user["id"])
-
     return HTMLResponse(content=content, media_type="application/x-mpegURL")
 
 
 @proxy_app.get("/iptv/{token}/epg.xml")
 async def serve_epg(token: str):
-    """Proxy the EPG XML from all active sources."""
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
-
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
     if not epg_sources:
         raise HTTPException(status_code=404, detail="No EPG source configured")
-
-    # Use first active source
     try:
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.get(epg_sources[0])
@@ -109,50 +137,103 @@ async def serve_epg(token: str):
 
 @proxy_app.get("/iptv/{token}/stream")
 async def proxy_stream(token: str, url: str):
+    """
+    Entry point for a channel. Fetches the .m3u8, rewrites segment URLs,
+    returns the rewritten playlist so the client fetches segments via /segment.
+    """
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
 
     decoded_url = urllib.parse.unquote(url)
-    channel_name = decoded_url.split("/")[-1].split("?")[0] or decoded_url
+    channel_name = decoded_url.split("/")[-2] if "/ch" in decoded_url else decoded_url.split("/")[-1].split("?")[0]
 
     if not db.session_start(token, channel_name):
         raise HTTPException(status_code=409, detail="Stream already active on another device")
 
     hls = get_hls_settings()
     log_id = db.start_watch_log(user_id=user["id"], channel=channel_name, stream_url=decoded_url)
-    start_time = time.time()
+    proxy_url = db.get_proxy_url()
 
-    async def stream_generator():
-        headers = {"User-Agent": hls["hls_user_agent"]}
-        if hls["hls_referer"]:
-            headers["Referer"] = hls["hls_referer"]
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
+            follow_redirects=hls["hls_follow_redirects"],
+            headers=make_headers(hls)
+        ) as client:
+            resp = await client.get(decoded_url)
+            resp.raise_for_status()
+            content = resp.text
+
+        # It's a HLS playlist – rewrite and return
+        rewritten = rewrite_hls_playlist(content, decoded_url, proxy_url, token)
+        logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
+        return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl")
+
+    except Exception as e:
+        db.session_end(token)
+        db.end_watch_log(log_id, 0)
+        logger.error(f"Failed to fetch stream for {user['name']}: {e}")
+        raise HTTPException(status_code=502, detail=f"Stream fetch failed: {e}")
+
+
+@proxy_app.get("/iptv/{token}/segment")
+async def proxy_segment(token: str, url: str):
+    """
+    Proxy individual HLS segments (.ts) or sub-playlists.
+    Also refreshes the session and handles sub-playlists transparently.
+    """
+    user = db.get_user_by_token(token)
+    if not user or not user["active"]:
+        raise HTTPException(status_code=403, detail="Invalid or disabled token")
+
+    decoded_url = urllib.parse.unquote(url)
+    hls = get_hls_settings()
+    proxy_url = db.get_proxy_url()
+
+    # Refresh session on every segment request
+    db.session_refresh(token)
+
+    async def stream_segment():
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with httpx.AsyncClient(
                 timeout=timeout,
                 follow_redirects=hls["hls_follow_redirects"],
-                headers=headers
+                headers=make_headers(hls)
             ) as client:
-                async with client.stream("GET", decoded_url) as resp:
-                    async for chunk in resp.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
-                        yield chunk
-                        db.session_refresh(token)
+                # Check if it's a sub-playlist (quality levels etc.)
+                if decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0]:
+                    resp = await client.get(decoded_url)
+                    resp.raise_for_status()
+                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, proxy_url, token)
+                    yield rewritten.encode()
+                else:
+                    # Binary segment (.ts, .aac, etc.)
+                    async with client.stream("GET", decoded_url) as resp:
+                        async for chunk in resp.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
+                            yield chunk
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"Stream error for {user['name']}: {e}")
-        finally:
-            db.session_end(token)
-            duration = int(time.time() - start_time)
-            db.end_watch_log(log_id, duration)
-            logger.info(f"Stream ended: {user['name']} | '{channel_name}' | {duration}s")
+            logger.error(f"Segment error: {e}")
 
-    return StreamingResponse(
-        stream_generator(),
-        media_type="video/mp2t",
-        headers={"Cache-Control": "no-cache"},
-    )
+    # Determine content type
+    if decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0]:
+        media_type = "application/vnd.apple.mpegurl"
+    else:
+        media_type = "video/mp2t"
+
+    return StreamingResponse(stream_segment(), media_type=media_type,
+                             headers={"Cache-Control": "no-cache"})
+
+
+@proxy_app.get("/iptv/{token}/stop")
+async def stop_stream(token: str):
+    """Manually end a session."""
+    db.session_end(token)
+    return {"ok": True}
+
 
 @proxy_app.get("/")
 async def proxy_root():
@@ -160,10 +241,8 @@ async def proxy_root():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ADMIN APP  (port 8080) – UI + API
+# ADMIN APP  (port 8080)
 # ══════════════════════════════════════════════════════════════════════════════
-
-# ── Setup / Auth ──────────────────────────────────────────────────────────────
 
 @admin_app.get("/api/setup/status")
 def setup_status():
@@ -191,9 +270,6 @@ def check_admin(x_admin_token: str = Header(...)):
     if not admin_token or x_admin_token != admin_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-
-# ── Users ─────────────────────────────────────────────────────────────────────
-
 @admin_app.get("/api/users")
 def list_users(_=Depends(check_admin)):
     users = db.get_all_users()
@@ -209,7 +285,6 @@ def create_user(body: dict, _=Depends(check_admin)):
     notes = body.get("notes", "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name required")
-    # Use global channel source or fallback
     m3u_source = db.get_setting("source_m3u_url", "")
     token = str(uuid.uuid4()).replace("-", "")[:24]
     user = db.create_user(name=name, token=token, m3u_source=m3u_source, notes=notes)
@@ -231,9 +306,6 @@ def update_user(user_id: int, body: dict, _=Depends(check_admin)):
 @admin_app.get("/api/users/{user_id}/logs")
 def get_user_logs(user_id: int, _=Depends(check_admin)):
     return db.get_user_logs(user_id)
-
-
-# ── Channels ──────────────────────────────────────────────────────────────────
 
 @admin_app.get("/api/channels")
 def list_channels(group: str = None, _=Depends(check_admin)):
@@ -257,14 +329,11 @@ def update_channel(channel_id: int, body: dict, _=Depends(check_admin)):
 
 @admin_app.post("/api/channels/group-toggle")
 def toggle_group(body: dict, _=Depends(check_admin)):
-    group = body.get("group", "")
-    enabled = int(body.get("enabled", 1))
-    db.set_group_enabled(group, enabled)
+    db.set_group_enabled(body.get("group", ""), int(body.get("enabled", 1)))
     return {"ok": True}
 
 @admin_app.post("/api/channels/import")
 async def import_channels(body: dict, _=Depends(check_admin)):
-    """Fetch M3U from URL and import into channel DB."""
     url = body.get("url", "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="url required")
@@ -281,10 +350,9 @@ async def import_channels(body: dict, _=Depends(check_admin)):
 
 @admin_app.post("/api/channels/refresh")
 async def refresh_channels(_=Depends(check_admin)):
-    """Re-fetch from saved source URL."""
     url = db.get_setting("source_m3u_url", "")
     if not url:
-        raise HTTPException(status_code=400, detail="No source URL saved. Import first.")
+        raise HTTPException(status_code=400, detail="No source URL saved.")
     try:
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.get(url)
@@ -294,9 +362,6 @@ async def refresh_channels(_=Depends(check_admin)):
         raise HTTPException(status_code=502, detail=f"Refresh failed: {e}")
     db.upsert_channels(channels)
     return {"ok": True, "imported": len(channels)}
-
-
-# ── EPG ───────────────────────────────────────────────────────────────────────
 
 @admin_app.get("/api/epg")
 def list_epg(_=Depends(check_admin)):
@@ -320,9 +385,6 @@ def delete_epg(epg_id: int, _=Depends(check_admin)):
     db.delete_epg_source(epg_id)
     return {"ok": True}
 
-
-# ── Stats & Logs ──────────────────────────────────────────────────────────────
-
 @admin_app.get("/api/stats")
 def get_stats(_=Depends(check_admin)):
     users = db.get_all_users()
@@ -341,31 +403,26 @@ def get_stats(_=Depends(check_admin)):
 def get_all_logs(limit: int = 200, _=Depends(check_admin)):
     return db.get_all_logs(limit)
 
-
-# ── Settings ──────────────────────────────────────────────────────────────────
-
 @admin_app.get("/api/settings")
 def get_settings(_=Depends(check_admin)):
     s = db.get_all_settings()
     return {
-        "base_url":            s.get("base_url", ""),
-        "proxy_url":           s.get("proxy_url", ""),
-        "source_m3u_url":      s.get("source_m3u_url", ""),
-        "hls_timeout":         s.get("hls_timeout", "10"),
-        "hls_read_timeout":    s.get("hls_read_timeout", "30"),
-        "hls_chunk_size":      s.get("hls_chunk_size", "65536"),
-        "hls_user_agent":      s.get("hls_user_agent", "VLC/3.0 LibVLC/3.0"),
-        "hls_referer":         s.get("hls_referer", ""),
-        "hls_follow_redirects":s.get("hls_follow_redirects", "1"),
+        "base_url":             s.get("base_url", ""),
+        "proxy_url":            s.get("proxy_url", ""),
+        "source_m3u_url":       s.get("source_m3u_url", ""),
+        "hls_timeout":          s.get("hls_timeout", "10"),
+        "hls_read_timeout":     s.get("hls_read_timeout", "30"),
+        "hls_chunk_size":       s.get("hls_chunk_size", "65536"),
+        "hls_user_agent":       s.get("hls_user_agent", "VLC/3.0 LibVLC/3.0"),
+        "hls_referer":          s.get("hls_referer", ""),
+        "hls_follow_redirects": s.get("hls_follow_redirects", "1"),
     }
 
 @admin_app.post("/api/settings")
 def update_settings(body: dict, _=Depends(check_admin)):
-    allowed = {
-        "base_url", "proxy_url", "source_m3u_url",
-        "hls_timeout", "hls_read_timeout", "hls_chunk_size",
-        "hls_user_agent", "hls_referer", "hls_follow_redirects",
-    }
+    allowed = {"base_url", "proxy_url", "source_m3u_url",
+               "hls_timeout", "hls_read_timeout", "hls_chunk_size",
+               "hls_user_agent", "hls_referer", "hls_follow_redirects"}
     for key, val in body.items():
         if key in allowed:
             db.set_setting(key, str(val))
@@ -377,12 +434,9 @@ def change_password(body: dict, _=Depends(check_admin)):
     if len(new_token) < 8:
         raise HTTPException(status_code=400, detail="Min 8 characters")
     if os.getenv("ADMIN_TOKEN"):
-        raise HTTPException(status_code=400, detail="Password is set via environment variable")
+        raise HTTPException(status_code=400, detail="Password set via environment variable")
     db.set_setting("admin_token", new_token)
     return {"ok": True}
-
-
-# ── Frontend pages ────────────────────────────────────────────────────────────
 
 FRONTEND = "/app/frontend"
 
