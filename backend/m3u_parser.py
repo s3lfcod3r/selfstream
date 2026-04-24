@@ -1,4 +1,4 @@
-"""M3U playlist parser – supports #EXTGRP and group-title attribute."""
+"""M3U playlist parser - supports #EXTGRP and group-title attribute."""
 import re
 from typing import List, Dict
 
@@ -13,18 +13,13 @@ def parse_m3u(content: str) -> List[Dict]:
         line = line.strip()
         if not line:
             continue
-
         if line.startswith("#EXTM3U"):
             continue
-
         elif line.startswith("#EXTGRP:"):
-            # Group line that follows an #EXTINF
             current_group = line[8:].strip()
-
         elif line.startswith("#EXTINF"):
             current_extinf = line
-            current_group = ""  # reset, may be overridden by #EXTGRP next
-
+            current_group = ""
         elif line.startswith("http") or line.startswith("rtmp") or line.startswith("rtp"):
             if current_extinf:
                 ch = _parse_extinf(current_extinf, line, current_group)
@@ -40,11 +35,8 @@ def _parse_extinf(extinf: str, url: str, extgrp: str = "") -> Dict:
         m = re.search(rf'{key}="([^"]*)"', extinf, re.IGNORECASE)
         return m.group(1) if m else ""
 
-    # Channel name: everything after the last comma
     name_match = re.search(r',([^,]+)$', extinf)
     name = name_match.group(1).strip() if name_match else "Unknown"
-
-    # Group: prefer group-title attribute, fallback to #EXTGRP
     group = attr("group-title") or extgrp
 
     return {
@@ -54,6 +46,7 @@ def _parse_extinf(extinf: str, url: str, extgrp: str = "") -> Dict:
         "tvg_id":    attr("tvg-id"),
         "tvg_logo":  attr("tvg-logo"),
         "tvg_name":  attr("tvg-name"),
+        "tvg_rec":   attr("tvg-rec"),
         "raw_extinf": extinf,
     }
 
@@ -70,10 +63,19 @@ def build_m3u(channels: List[Dict], proxy_base: str, user_token: str,
 
     for ch in channels:
         group = ch.get("group_title") or ch.get("group", "")
+        tvg_rec = ch.get("tvg_rec") or ""
+        tvg_id = ch.get("tvg_id", "")
+
+        # Build catchup attributes if tvg_rec > 0
+        catchup_attrs = ""
+        if tvg_rec and tvg_rec != "0":
+            catchup_source = f"{proxy_base}/iptv/{user_token}/catchup/{tvg_id}?utc={{utc}}&lutc={{lutc}}"
+            catchup_attrs = f' catchup="shift" catchup-days="{tvg_rec}" catchup-source="{catchup_source}"'
+
         extinf = (
-            f'#EXTINF:-1 tvg-id="{ch.get("tvg_id","")}" '
+            f'#EXTINF:-1 tvg-id="{tvg_id}" '
             f'tvg-logo="{ch.get("tvg_logo","")}" '
-            f'group-title="{group}",'
+            f'group-title="{group}" tvg-rec="{tvg_rec}"{catchup_attrs},'
             f'{ch["name"]}'
         )
         lines.append(extinf)

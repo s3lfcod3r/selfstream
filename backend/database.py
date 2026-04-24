@@ -49,7 +49,8 @@ class Database:
                     token      TEXT PRIMARY KEY,
                     channel    TEXT NOT NULL,
                     started_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
+                    updated_at INTEGER NOT NULL,
+                    ip_address TEXT DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS watch_logs (
@@ -57,6 +58,7 @@ class Database:
                     user_id          INTEGER NOT NULL,
                     channel          TEXT NOT NULL,
                     stream_url       TEXT,
+                    ip_address       TEXT DEFAULT '',
                     started_at       TEXT DEFAULT (datetime('now')),
                     ended_at         TEXT,
                     duration_seconds INTEGER DEFAULT 0,
@@ -76,10 +78,19 @@ class Database:
                     group_title TEXT DEFAULT '',
                     tvg_id     TEXT DEFAULT '',
                     tvg_logo   TEXT DEFAULT '',
+                    tvg_rec    TEXT DEFAULT '',
                     stream_url TEXT NOT NULL,
                     enabled    INTEGER DEFAULT 1,
                     sort_order INTEGER DEFAULT 0,
                     raw_extinf TEXT DEFAULT ''
+                );
+
+                -- EPG channel whitelist (which channels to include in filtered EPG)
+                CREATE TABLE IF NOT EXISTS epg_channel_filter (
+                    tvg_id     TEXT PRIMARY KEY,
+                    name       TEXT NOT NULL,
+                    enabled    INTEGER DEFAULT 1,
+                    sort_order INTEGER DEFAULT 0
                 );
 
                 -- EPG sources
@@ -147,9 +158,9 @@ class Database:
 
     # ── Sessions ──────────────────────────────────────────────────────────────
 
-    SESSION_TTL = 14400
+    SESSION_TTL = 60  # Session gilt als inaktiv nach 60s ohne Segment-Anfrage
 
-    def session_start(self, token: str, channel: str) -> bool:
+    def session_start(self, token: str, channel: str, ip_address: str = "") -> bool:
         now = int(time.time())
         cutoff = now - self.SESSION_TTL
         with self.conn() as con:
@@ -161,8 +172,8 @@ class Database:
             if existing:
                 return False
             con.execute(
-                "INSERT OR REPLACE INTO active_sessions (token, channel, started_at, updated_at) VALUES (?, ?, ?, ?)",
-                (token, channel, now, now)
+                "INSERT OR REPLACE INTO active_sessions (token, channel, started_at, updated_at, ip_address) VALUES (?, ?, ?, ?, ?)",
+                (token, channel, now, now, ip_address)
             )
             return True
 
@@ -180,7 +191,7 @@ class Database:
         cutoff = now - self.SESSION_TTL
         with self.conn() as con:
             rows = con.execute("""
-                SELECT s.token, s.channel, s.started_at, u.name as user_name
+                SELECT s.token, s.channel, s.started_at, s.ip_address, u.name as user_name
                 FROM active_sessions s
                 JOIN users u ON u.token = s.token
                 WHERE s.updated_at >= ?
@@ -217,7 +228,7 @@ class Database:
                     "m3u_source": m3u_source, "active": 1}
 
     def update_user(self, user_id: int, data: Dict):
-        allowed = {"name", "m3u_source", "active", "notes"}
+        allowed = {"name", "m3u_source", "active", "notes", "max_streams"}
         fields = {k: v for k, v in data.items() if k in allowed}
         if not fields:
             return
@@ -225,6 +236,13 @@ class Database:
         vals = list(fields.values()) + [user_id]
         with self.conn() as con:
             con.execute(f"UPDATE users SET {sets} WHERE id = ?", vals)
+
+    def regenerate_token(self, user_id: int) -> str:
+        import uuid
+        new_token = str(uuid.uuid4()).replace("-", "")[:24]
+        with self.conn() as con:
+            con.execute("UPDATE users SET token = ? WHERE id = ?", (new_token, user_id))
+        return new_token
 
     def delete_user(self, user_id: int):
         with self.conn() as con:
@@ -255,10 +273,11 @@ class Database:
             con.execute("DELETE FROM channels")
             for i, ch in enumerate(channels):
                 con.execute("""
-                    INSERT INTO channels (name, group_title, tvg_id, tvg_logo, stream_url, enabled, sort_order, raw_extinf)
-                    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                    INSERT INTO channels (name, group_title, tvg_id, tvg_logo, tvg_rec, stream_url, enabled, sort_order, raw_extinf)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
                 """, (ch["name"], ch.get("group", ""), ch.get("tvg_id", ""),
-                      ch.get("tvg_logo", ""), ch["url"], i, ch.get("raw_extinf", "")))
+                      ch.get("tvg_logo", ""), ch.get("tvg_rec", ""),
+                      ch["url"], i, ch.get("raw_extinf", "")))
 
     def update_channel(self, channel_id: int, data: Dict):
         allowed = {"enabled", "sort_order", "name", "group_title"}
@@ -273,6 +292,32 @@ class Database:
     def set_group_enabled(self, group: str, enabled: int):
         with self.conn() as con:
             con.execute("UPDATE channels SET enabled = ? WHERE group_title = ?", (enabled, group))
+
+    def get_channel_by_url(self, stream_url: str) -> Optional[Dict]:
+        """Exact URL match – used when we have the full stream URL."""
+        # Strip token from URL for matching since tokens change
+        base_url = stream_url.split("?")[0]
+        with self.conn() as con:
+            row = con.execute(
+                "SELECT * FROM channels WHERE stream_url LIKE ? LIMIT 1",
+                (base_url + "%",)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_channel_by_url_fragment(self, segment_url: str) -> Optional[Dict]:
+        """Match channel from a .ts segment URL by extracting the channel path."""
+        # Extract /chXXX/ from segment URL like /ch265/2026/04/...
+        import re
+        m = re.search(r'/(ch\d+)/', segment_url)
+        if not m:
+            return None
+        ch_id = m.group(1)
+        with self.conn() as con:
+            row = con.execute(
+                "SELECT * FROM channels WHERE stream_url LIKE ? LIMIT 1",
+                (f"%/{ch_id}/%",)
+            ).fetchone()
+            return dict(row) if row else None
 
     def get_channels_count(self) -> Dict:
         with self.conn() as con:
@@ -314,11 +359,11 @@ class Database:
 
     # ── Watch Logs ────────────────────────────────────────────────────────────
 
-    def start_watch_log(self, user_id: int, channel: str, stream_url: str) -> int:
+    def start_watch_log(self, user_id: int, channel: str, stream_url: str, ip_address: str = "") -> int:
         with self.conn() as con:
             cur = con.execute(
-                "INSERT INTO watch_logs (user_id, channel, stream_url) VALUES (?, ?, ?)",
-                (user_id, channel, stream_url)
+                "INSERT INTO watch_logs (user_id, channel, stream_url, ip_address) VALUES (?, ?, ?, ?)",
+                (user_id, channel, stream_url, ip_address)
             )
             return cur.lastrowid
 
@@ -350,6 +395,52 @@ class Database:
                 ORDER BY wl.started_at DESC LIMIT ?
             """, (limit,)).fetchall()
             return [dict(r) for r in rows]
+
+    def get_epg_channels(self) -> List[Dict]:
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT * FROM epg_channel_filter ORDER BY sort_order, name"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def upsert_epg_channels(self, channels: list):
+        """Bulk insert/update EPG channels from parsed XML."""
+        with self.conn() as con:
+            # Keep existing enabled state, insert new ones as enabled
+            for i, ch in enumerate(channels):
+                con.execute("""
+                    INSERT INTO epg_channel_filter (tvg_id, name, enabled, sort_order)
+                    VALUES (?, ?, 1, ?)
+                    ON CONFLICT(tvg_id) DO UPDATE SET name=excluded.name
+                """, (ch["tvg_id"], ch["name"], i))
+
+    def update_epg_channel(self, tvg_id: str, data: dict):
+        allowed = {"enabled", "sort_order"}
+        fields = {k: v for k, v in data.items() if k in allowed}
+        if not fields:
+            return
+        sets = ", ".join(f"{k}=?" for k in fields)
+        vals = list(fields.values()) + [tvg_id]
+        with self.conn() as con:
+            con.execute(f"UPDATE epg_channel_filter SET {sets} WHERE tvg_id=?", vals)
+
+    def get_enabled_epg_ids(self) -> set:
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT tvg_id FROM epg_channel_filter WHERE enabled=1"
+            ).fetchall()
+            return {r["tvg_id"] for r in rows}
+
+    def clear_logs(self, days: int = 0):
+        """Delete logs older than X days. days=0 means delete all."""
+        with self.conn() as con:
+            if days == 0:
+                con.execute("DELETE FROM watch_logs")
+            else:
+                con.execute(
+                    "DELETE FROM watch_logs WHERE started_at < datetime('now', ? || ' days')",
+                    (f"-{days}",)
+                )
 
     def get_logs_today_count(self) -> int:
         with self.conn() as con:
