@@ -298,7 +298,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Name</th><th>Status</th><th>Playlist URL</th>
+              <th>Name</th><th>Status</th><th>Playlist URL</th><th>Short URL</th>
               <th>Max Streams</th><th>Streams</th><th>Gesamt</th><th>Zuletzt</th><th></th>
             </tr></thead>
             <tbody id="users-tbody"></tbody>
@@ -351,6 +351,44 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="epg-url-row">
             <span class="epg-url-val" id="global-epg-val">—</span>
             <button class="copy-btn" onclick="copyEpgGlobal()">📋 Kopieren</button>
+          </div>
+          <div style="margin-top:12px;">
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Tage-gefilterte URLs (auch als Short URL):</div>
+            <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10px;">
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:6px 0;color:var(--text2);width:55px;">1 Tag</td>
+                <td style="padding:6px 8px;color:var(--teal);font-size:10px;" id="epg-1d-val">—</td>
+                <td style="padding:6px 0;color:var(--text2);width:50px;">Short:</td>
+                <td style="padding:6px 8px;color:var(--green);font-size:10px;" id="epg-1d-short">—</td>
+                <td style="white-space:nowrap;padding:4px;">
+                  <button class="btn sm" onclick="doCopy(document.getElementById('epg-1d-val').textContent,this)">📋 Lang</button>
+                  <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-1d-short').textContent,this)">📋 Short</button>
+                  <button class="btn sm" onclick="downloadEpgDays(1)">⬇ 1T</button>
+                </td>
+              </tr>
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:6px 0;color:var(--text2);">3 Tage</td>
+                <td style="padding:6px 8px;color:var(--teal);font-size:10px;" id="epg-3d-val">—</td>
+                <td style="padding:6px 0;color:var(--text2);">Short:</td>
+                <td style="padding:6px 8px;color:var(--green);font-size:10px;" id="epg-3d-short">—</td>
+                <td style="white-space:nowrap;padding:4px;">
+                  <button class="btn sm" onclick="doCopy(document.getElementById('epg-3d-val').textContent,this)">📋 Lang</button>
+                  <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-3d-short').textContent,this)">📋 Short</button>
+                  <button class="btn sm" onclick="downloadEpgDays(3)">⬇ 3T</button>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;color:var(--text2);">7 Tage</td>
+                <td style="padding:6px 8px;color:var(--teal);font-size:10px;" id="epg-7d-val">—</td>
+                <td style="padding:6px 0;color:var(--text2);">Short:</td>
+                <td style="padding:6px 8px;color:var(--green);font-size:10px;" id="epg-7d-short">—</td>
+                <td style="white-space:nowrap;padding:4px;">
+                  <button class="btn sm" onclick="doCopy(document.getElementById('epg-7d-val').textContent,this)">📋 Lang</button>
+                  <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-7d-short').textContent,this)">📋 Short</button>
+                  <button class="btn sm" onclick="downloadEpgDays(7)">⬇ 7T</button>
+                </td>
+              </tr>
+            </table>
           </div>
         </div>
 
@@ -484,6 +522,11 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <div class="form-group">
               <label class="form-label">Proxy URL (Port 8000)</label>
               <input class="form-input" id="cfg-proxy" placeholder="http://192.168.1.69:8000">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Short URL Domain (optional)</label>
+              <input class="form-input" id="cfg-short-domain" placeholder="https://iptv.example.com">
+              <div class="form-hint">z.B. https://iptv.tv → Benutzer bekommen https://iptv.tv/s/AbCd1234/playlist.m3u</div>
             </div>
             <div class="form-group">
               <label class="form-label">M3U Quell-URL</label>
@@ -732,10 +775,16 @@ async function loadUsers() {
     return `<tr>
       <td><strong>${esc(u.name)}</strong>${u.notes?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2)">${esc(u.notes)}</div>`:''}</td>
       <td>${u.active?'<span class="badge green">● Aktiv</span>':'<span class="badge red">● Gesperrt</span>'}</td>
-      <td style="max-width:260px;">
+      <td style="max-width:220px;">
         <div class="url-cell">
           <span class="url-text" title="${esc(u.playlist_url)}">${esc(u.playlist_url)}</span>
-          <button class="copy-btn" id="cpb-${u.id}" onclick="doCopy('${esc(u.playlist_url)}',this)">📋 Kopieren</button>
+          <button class="copy-btn" onclick="doCopy('${esc(u.playlist_url)}',this)">📋</button>
+        </div>
+      </td>
+      <td style="max-width:180px;">
+        <div class="url-cell">
+          <span class="url-text" style="color:var(--green);" title="${esc(u.short_playlist_url||'')}">${esc(u.short_playlist_url||'—')}</span>
+          ${u.short_playlist_url?`<button class="copy-btn" onclick="doCopy('${esc(u.short_playlist_url)}',this)" style="border-color:rgba(63,185,80,.3);">📋</button>`:''}
         </div>
       </td>
       <td>
@@ -987,8 +1036,23 @@ async function loadEpg() {
     </tr>`).join('');
   }
 
-  // Set global EPG URL (fixed proxy URL, no token)
+  // Set global EPG URL + day variants
   document.getElementById('global-epg-val').textContent = globalEpgUrl;
+  const el1 = document.getElementById('epg-1d-val');
+  const el3 = document.getElementById('epg-3d-val');
+  const el7 = document.getElementById('epg-7d-val');
+  if (el1) el1.textContent = proxyUrl + '/iptv/epg-1d.xml';
+  if (el3) el3.textContent = proxyUrl + '/iptv/epg-3d.xml';
+  if (el7) el7.textContent = proxyUrl + '/iptv/epg-7d.xml';
+  // Short URLs for day-filtered EPG
+  const shortDomain = (settings.short_domain || '').replace(/\/$/, '');
+  const shortBase2 = shortDomain || proxyUrl;
+  const s1 = document.getElementById('epg-1d-short');
+  const s3 = document.getElementById('epg-3d-short');
+  const s7 = document.getElementById('epg-7d-short');
+  if (s1) s1.textContent = shortBase2 + '/iptv/epg-1d.xml';
+  if (s3) s3.textContent = shortBase2 + '/iptv/epg-3d.xml';
+  if (s7) s7.textContent = shortBase2 + '/iptv/epg-7d.xml';
 }
 
 function copyEpgGlobal() {
@@ -1012,6 +1076,14 @@ async function addEpg() {
 
 async function toggleEpg(id,active) {
   await api('PUT',`/api/epg/${id}`,{active:active?0:1}); loadEpg();
+}
+
+async function setActiveEpg(id) {
+  // Deactivate all, then activate selected
+  const sources = await api('GET','/api/epg');
+  await Promise.all(sources.map(s => api('PUT',`/api/epg/${s.id}`,{active: s.id===id?1:0})));
+  loadEpg();
+  showToast('EPG-Quelle gewechselt – EPG-Cache wird beim nächsten Abruf neu geladen');
 }
 
 async function delEpg(id) {
@@ -1046,6 +1118,7 @@ async function loadSettings() {
   const s=await api('GET','/api/settings');
   document.getElementById('cfg-base').value=s.base_url||'';
   document.getElementById('cfg-proxy').value=s.proxy_url||'';
+  document.getElementById('cfg-short-domain').value=s.short_domain||'';
   document.getElementById('cfg-m3u').value=s.source_m3u_url||'';
   document.getElementById('cfg-ua').value=s.hls_user_agent||'';
   document.getElementById('cfg-ref').value=s.hls_referer||'';
@@ -1057,9 +1130,11 @@ async function saveUrls() {
   await api('POST','/api/settings',{
     base_url:document.getElementById('cfg-base').value.trim(),
     proxy_url:document.getElementById('cfg-proxy').value.trim(),
+    short_domain:document.getElementById('cfg-short-domain').value.trim(),
     source_m3u_url:document.getElementById('cfg-m3u').value.trim()
   });
-  showToast('URLs gespeichert');
+  showToast('URLs gespeichert – Benutzer neu laden für Short URLs');
+  loadUsers();
 }
 
 async function saveHls() {
@@ -1087,31 +1162,39 @@ async function changePw() {
 }
 
 // ── Logo Upload ───────────────────────────────────────────────────────────────
-function uploadLogo(type, input) {
-  const file=input.files[0];
-  if(!file) return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const src=e.target.result;
-    if(type==='login'){
-      document.getElementById('preview-login').src=src;
-      document.getElementById('login-logo-img').src=src;
-      localStorage.setItem('ss_login_logo',src);
+async function uploadLogo(type, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('type', type);
+  try {
+    const resp = await fetch('/api/settings/upload-logo', {
+      method: 'POST',
+      headers: {'x-admin-token': TOKEN},
+      body: formData
+    });
+    if (!resp.ok) throw new Error('Upload fehlgeschlagen');
+    // Reload logo with cache-busting
+    const ts = Date.now();
+    if (type === 'login') {
+      const src = `/logo.png?v=${ts}`;
+      document.getElementById('login-logo-img').src = src;
+      document.getElementById('preview-login').src = src;
     } else {
-      document.getElementById('preview-app').src=src;
-      document.getElementById('app-logo-img').src=src;
-      localStorage.setItem('ss_app_logo',src);
+      const src = `/logo-app.png?v=${ts}`;
+      document.getElementById('app-logo-img').src = src;
+      document.getElementById('preview-app').src = src;
     }
-    showToast('Logo aktualisiert');
-  };
-  reader.readAsDataURL(file);
+    showToast('Logo gespeichert!');
+  } catch(e) { showToast(e.message, true); }
 }
 
+// Load logos from server (cache-busted)
 function applyStoredLogos() {
-  const ll=localStorage.getItem('ss_login_logo');
-  const al=localStorage.getItem('ss_app_logo');
-  if(ll){ document.getElementById('login-logo-img').src=ll; document.getElementById('preview-login').src=ll; }
-  if(al){ document.getElementById('app-logo-img').src=al; document.getElementById('preview-app').src=al; }
+  const ts = Date.now();
+  document.getElementById('login-logo-img').src = `/logo.png?v=${ts}`;
+  document.getElementById('app-logo-img').src = `/logo-app.png?v=${ts}`;
 }
 applyStoredLogos();
 
@@ -1132,20 +1215,24 @@ let epgDragId = null;
 let chManagerIds = new Set(); // tvg_ids from channel manager
 
 async function downloadEpg() {
+  await _downloadEpgFile('/api/epg/download', 'epg.xml');
+}
+
+async function downloadEpgDays(days) {
+  await _downloadEpgFile(`/api/epg/download?days=${days}`, `epg-${days}d.xml`);
+}
+
+async function _downloadEpgFile(path, filename) {
   try {
     showToast('EPG wird vorbereitet…');
-    const response = await fetch('/api/epg/download', {
-      headers: {'x-admin-token': TOKEN}
-    });
+    const response = await fetch(path, { headers: {'x-admin-token': TOKEN} });
     if (!response.ok) throw new Error(await response.text());
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = 'epg.xml';
-    a.click();
+    a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
-    showToast('EPG.xml heruntergeladen!');
+    showToast(`${filename} heruntergeladen!`);
   } catch(e) { showToast('Fehler: ' + e.message, true); }
 }
 
@@ -1221,6 +1308,9 @@ function filterEpgCh() {
   grid.innerHTML = sorted.map((ch, idx) => {
     const inManager = chManagerIds.has(ch.tvg_id);
     const matchDot = inManager ? `<span style="width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;margin-right:2px;" title="Im Kanal-Manager vorhanden"></span>` : '';
+    const iconHtml = ch.icon_url
+      ? `<img class="ch-logo" src="${esc(ch.icon_url)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" loading="lazy"><div class="ch-ph" style="display:none;font-size:8px;color:var(--text3);flex-shrink:0;">EPG</div>`
+      : `<div class="ch-ph" style="font-size:8px;color:var(--text3);flex-shrink:0;">EPG</div>`;
     return `<div class="ch-card${ch.enabled ? '' : ' disabled'}" id="epgcc-${ch.tvg_id.replace(/[^a-z0-9]/gi,'_')}"
          draggable="true"
          ondragstart="epgDStart(event,'${esc(ch.tvg_id)}')"
@@ -1228,7 +1318,7 @@ function filterEpgCh() {
          ondrop="epgDDrop(event,'${esc(ch.tvg_id)}')"
          ondragend="epgDEnd()">
       <span class="ch-num">${ch.sort_order + 1}</span>
-      <div class="ch-ph" style="font-size:8px;color:var(--text3);flex-shrink:0;">EPG</div>
+      ${iconHtml}
       <div class="ch-info">
         <div class="ch-name" title="${esc(ch.name)}">${matchDot}${esc(ch.name)}</div>
         <div class="ch-grp">${esc(ch.tvg_id)}</div>
