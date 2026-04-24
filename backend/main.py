@@ -190,11 +190,22 @@ async def proxy_segment(token: str, url: str):
     is_ts = not (decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0])
 
     if is_ts:
+        # Extract channel from URL e.g. /ch265/2026/...
+        parts = decoded_url.split("/")
+        ch_idx = next((i for i, p in enumerate(parts) if p.startswith("ch")), None)
+        channel_name = parts[ch_idx] if ch_idx else parts[-1].split("?")[0]
+
+        existing = _active_segment_sessions.get(token)
+        if existing and existing[0] != channel_name:
+            # Channel switched – end old session silently
+            _, old_log_id, old_start = _active_segment_sessions.pop(token)
+            db.session_end(token)
+            db.end_watch_log(old_log_id, int(time.time() - old_start))
+            logger.info(f"Channel switch: {user['name']} → {channel_name}")
+
         if token not in _active_segment_sessions:
-            # First real segment – start session
-            channel_name = decoded_url.split("/")[-2] if "/ch" in decoded_url else "unknown"
-            if not db.session_start(token, channel_name):
-                raise HTTPException(status_code=409, detail="Stream already active on another device")
+            # New session – just start it (no blocking, one stream per token tracked)
+            db.session_start(token, channel_name)  # non-blocking, overwrites any stale
             log_id = db.start_watch_log(user_id=user["id"], channel=channel_name, stream_url=decoded_url)
             _active_segment_sessions[token] = (channel_name, log_id, time.time())
             logger.info(f"Session started: {user['name']} → {channel_name}")
