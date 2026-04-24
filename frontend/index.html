@@ -4,217 +4,228 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>selfstream · Admin</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-:root {
-  --bg:      #0d1117;
-  --bg2:     #161b22;
-  --bg3:     #1c2333;
-  --bg4:     #21262d;
-  --border:  #30363d;
-  --border2: #3d4450;
-  --teal:    #00e5c8;
-  --teal2:   #00b5a0;
-  --blue:    #1db8d4;
-  --green:   #3fb950;
-  --red:     #f85149;
-  --yellow:  #d29922;
-  --text:    #e6edf3;
-  --text2:   #8b949e;
-  --text3:   #484f58;
-  --mono:    'IBM Plex Mono', monospace;
-  --sans:    'Exo 2', sans-serif;
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#1c2333;
+  --border:#30363d;--border2:#3d4450;
+  --teal:#00e5c8;--teal2:#00b5a0;--blue:#1db8d4;
+  --green:#3fb950;--red:#f85149;--yellow:#d29922;
+  --text:#e6edf3;--text2:#8b949e;--text3:#484f58;
+  --mono:'IBM Plex Mono',monospace;--sans:'Exo 2',sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;min-height:100vh;}
+a{color:inherit;text-decoration:none;}
 
 /* ── Login ── */
-#login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(ellipse at 40% 30%,#0a2020 0%,#0d1117 65%);}
-.login-box{width:380px;padding:40px;background:var(--bg2);border:1px solid var(--border2);position:relative;overflow:hidden;}
+#login-screen{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.login-bg{position:absolute;inset:0;background:#090d13;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 20% 20%,rgba(0,229,200,.1) 0%,transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 80%,rgba(29,184,212,.07) 0%,transparent 50%);
+}
+.login-grid{position:absolute;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 40px,rgba(0,229,200,.018) 40px,rgba(0,229,200,.018) 41px),
+  repeating-linear-gradient(90deg,transparent,transparent 40px,rgba(0,229,200,.018) 40px,rgba(0,229,200,.018) 41px);
+}
+.login-box{
+  position:relative;z-index:2;width:420px;padding:44px;
+  background:rgba(17,24,34,.94);border:1px solid var(--border2);
+  backdrop-filter:blur(16px);box-shadow:0 32px 80px rgba(0,0,0,.6);
+}
 .login-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
   background:linear-gradient(90deg,var(--blue),var(--teal));}
 .login-logo-wrap{text-align:center;margin-bottom:28px;}
-.login-logo-wrap img{width:100px;height:auto;}
-.login-subtitle{font-family:var(--mono);font-size:10px;color:var(--teal);letter-spacing:.3em;
-  text-transform:uppercase;text-align:center;margin-bottom:24px;}
+.login-logo-wrap img{max-width:220px;max-height:120px;object-fit:contain;
+  filter:drop-shadow(0 0 28px rgba(0,229,200,.4));}
 .login-box input{width:100%;padding:11px 14px;background:var(--bg3);border:1px solid var(--border);
-  color:var(--text);font-family:var(--mono);font-size:13px;outline:none;transition:border-color .2s;margin-bottom:14px;}
+  color:var(--text);font-family:var(--mono);font-size:13px;outline:none;
+  transition:border-color .2s;margin-bottom:14px;}
 .login-box input:focus{border-color:var(--teal);}
+.login-box input::placeholder{color:var(--text3);}
 
 /* ── Buttons ── */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:transparent;
   border:1px solid var(--border2);color:var(--text);cursor:pointer;font-family:var(--mono);
-  font-size:11px;letter-spacing:.05em;transition:all .2s;text-transform:uppercase;white-space:nowrap;}
+  font-size:11px;letter-spacing:.05em;transition:all .2s;text-transform:uppercase;
+  white-space:nowrap;line-height:1;}
 .btn:hover{border-color:var(--teal);color:var(--teal);}
 .btn.primary{border-color:var(--teal);color:var(--teal);background:rgba(0,229,200,.06);}
 .btn.primary:hover{background:rgba(0,229,200,.14);}
 .btn.danger{border-color:var(--red);color:var(--red);}
 .btn.danger:hover{background:rgba(248,81,73,.1);}
-.btn.success{border-color:var(--green);color:var(--green);}
 .btn.full{width:100%;justify-content:center;}
 .btn:disabled{opacity:.4;cursor:not-allowed;}
-.btn.sm{padding:4px 10px;font-size:10px;}
-.btn.icon-btn{padding:5px 9px;}
+.btn.sm{padding:5px 10px;font-size:10px;}
 
 /* ── App shell ── */
 #app{display:none;}
-.topbar{height:54px;background:var(--bg2);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 20px;gap:14px;position:sticky;top:0;z-index:100;}
-.topbar-logo img{height:32px;width:auto;}
-.topbar-name{font-family:var(--sans);font-weight:700;font-size:16px;
-  background:linear-gradient(90deg,var(--blue),var(--teal));-webkit-background-clip:text;
-  -webkit-text-fill-color:transparent;}
+.topbar{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 20px;gap:14px;
+  position:sticky;top:0;z-index:100;}
+.topbar-logo{height:56px;width:auto;object-fit:contain;
+  filter:drop-shadow(0 0 12px rgba(0,229,200,.3));}
 .topbar-sep{flex:1;}
-.live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);
-  box-shadow:0 0 7px var(--green);animation:pulse 2s infinite;}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);}
+.live-dot.active{background:var(--green);box-shadow:0 0 7px var(--green);animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .live-label{font-family:var(--mono);font-size:11px;color:var(--text2);}
 
-.sidebar{width:200px;background:var(--bg2);border-right:1px solid var(--border);
-  min-height:calc(100vh - 54px);padding:16px 0;flex-shrink:0;}
+.sidebar{width:196px;background:var(--bg2);border-right:1px solid var(--border);
+  min-height:calc(100vh - 56px);padding:16px 0;flex-shrink:0;}
 .main-layout{display:flex;}
-.content-area{flex:1;padding:24px;min-width:0;max-width:1400px;}
+.content-area{flex:1;padding:24px;min-width:0;}
 
-.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;
-  cursor:pointer;color:var(--text2);font-size:13px;font-weight:500;transition:all .2s;
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;
+  color:var(--text2);font-size:13px;font-weight:500;transition:all .2s;
   border-left:2px solid transparent;}
 .nav-item:hover{color:var(--text);background:var(--bg3);}
 .nav-item.active{color:var(--teal);border-color:var(--teal);background:rgba(0,229,200,.05);}
-.nav-icon{font-size:16px;width:20px;text-align:center;}
+.nav-icon{font-size:15px;width:20px;text-align:center;}
 .nav-section{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.2em;
   text-transform:uppercase;padding:16px 20px 6px;}
 
 /* ── Stats ── */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;}
-.stat-card{background:var(--bg2);border:1px solid var(--border);padding:18px;position:relative;overflow:hidden;}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px;}
+.stat-card{background:var(--bg2);border:1px solid var(--border);padding:16px;position:relative;overflow:hidden;}
 .stat-card::after{content:'';position:absolute;bottom:0;left:0;width:100%;height:2px;
-  background:linear-gradient(90deg,var(--teal),transparent);opacity:.6;}
+  background:linear-gradient(90deg,var(--teal),transparent);opacity:.5;}
 .stat-label{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--text2);
-  text-transform:uppercase;margin-bottom:8px;}
-.stat-value{font-family:var(--mono);font-size:28px;font-weight:600;color:var(--teal);line-height:1;}
-.stat-sub{font-size:11px;color:var(--text2);margin-top:4px;}
+  text-transform:uppercase;margin-bottom:6px;}
+.stat-value{font-family:var(--mono);font-size:26px;font-weight:600;color:var(--teal);line-height:1;}
+.stat-sub{font-size:10px;color:var(--text2);margin-top:3px;}
 
-/* ── Section header ── */
-.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;}
-.section-title{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--text2);text-transform:uppercase;}
+/* ── Section ── */
+.section-hdr{display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:14px;flex-wrap:wrap;gap:8px;}
+.section-title{font-family:var(--mono);font-size:10px;letter-spacing:.2em;
+  color:var(--text2);text-transform:uppercase;}
 
 /* ── Table ── */
-.table-wrap{background:var(--bg2);border:1px solid var(--border);overflow:hidden;margin-bottom:24px;}
+.table-wrap{background:var(--bg2);border:1px solid var(--border);overflow:hidden;margin-bottom:24px;overflow-x:auto;}
 table{width:100%;border-collapse:collapse;}
-th{background:var(--bg3);padding:9px 14px;text-align:left;font-family:var(--mono);
+th{background:var(--bg3);padding:9px 12px;text-align:left;font-family:var(--mono);
   font-size:9px;letter-spacing:.15em;color:var(--text2);text-transform:uppercase;
   border-bottom:1px solid var(--border);white-space:nowrap;}
-td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:13px;}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:13px;}
 tr:last-child td{border-bottom:none;}
-tr:hover td{background:var(--bg3);}
+tr:hover td{background:rgba(255,255,255,.02);}
 
 /* ── Badges ── */
-.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;
   font-family:var(--mono);font-size:9px;border:1px solid;letter-spacing:.05em;}
 .badge.green{color:var(--green);border-color:rgba(63,185,80,.3);background:rgba(63,185,80,.06);}
 .badge.red{color:var(--red);border-color:rgba(248,81,73,.3);background:rgba(248,81,73,.06);}
-.badge.teal{color:var(--teal);border-color:rgba(0,229,200,.3);background:rgba(0,229,200,.06);}
-.badge.yellow{color:var(--yellow);border-color:rgba(210,153,34,.3);background:rgba(210,153,34,.06);}
 
-.mono{font-family:var(--mono);font-size:11px;color:var(--text2);}
-
-/* ── URL row ── */
-.url-cell{display:flex;align-items:center;gap:6px;max-width:280px;}
-.url-text{font-family:var(--mono);font-size:10px;color:var(--teal);overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;flex:1;}
-.copy-btn{padding:3px 7px;background:rgba(0,229,200,.05);border:1px solid rgba(0,229,200,.2);
-  color:var(--teal);cursor:pointer;font-size:10px;font-family:var(--mono);transition:all .2s;white-space:nowrap;}
+/* ── URL cell ── */
+.url-cell{display:flex;align-items:center;gap:6px;min-width:0;}
+.url-text{font-family:var(--mono);font-size:10px;color:var(--teal);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;
+  cursor:pointer;}
+.url-text:hover{text-decoration:underline;}
+.copy-btn{flex-shrink:0;padding:4px 8px;background:rgba(0,229,200,.05);
+  border:1px solid rgba(0,229,200,.2);color:var(--teal);cursor:pointer;
+  font-size:11px;font-family:var(--mono);transition:all .2s;}
 .copy-btn:hover{background:rgba(0,229,200,.15);}
-.copy-btn.copied{color:var(--green);border-color:rgba(63,185,80,.3);}
+.copy-btn.ok{color:var(--green)!important;border-color:rgba(63,185,80,.3)!important;}
+
+/* ── Action cell ── */
+.action-cell{display:flex;gap:4px;align-items:center;flex-wrap:nowrap;}
+
+/* ── Sessions ── */
+.session-row{display:flex;align-items:center;gap:10px;padding:11px 14px;
+  border-bottom:1px solid var(--border);}
+.session-row:last-child{border-bottom:none;}
+.session-meta{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);}
 
 /* ── Modal ── */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;
   align-items:center;justify-content:center;}
 .modal-bg.open{display:flex;}
 .modal{background:var(--bg2);border:1px solid var(--border2);padding:28px;
-  width:500px;max-width:95vw;position:relative;overflow:hidden;max-height:90vh;overflow-y:auto;}
+  width:500px;max-width:95vw;position:relative;max-height:90vh;overflow-y:auto;}
 .modal::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
   background:linear-gradient(90deg,var(--blue),var(--teal));}
-.modal-title{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
-  margin-bottom:22px;color:var(--teal);}
-.form-group{margin-bottom:16px;}
+.modal-title{font-family:var(--mono);font-size:12px;letter-spacing:.1em;
+  text-transform:uppercase;margin-bottom:20px;color:var(--teal);}
+.form-group{margin-bottom:14px;}
 .form-label{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.15em;
-  color:var(--text2);text-transform:uppercase;margin-bottom:6px;}
-.form-input,.form-select,.form-textarea{width:100%;padding:9px 12px;background:var(--bg3);
-  border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;
-  outline:none;transition:border-color .2s;}
-.form-textarea{height:70px;resize:vertical;}
-.form-input:focus,.form-select:focus,.form-textarea:focus{border-color:var(--teal);}
+  color:var(--text2);text-transform:uppercase;margin-bottom:5px;}
+.form-input,.form-select{width:100%;padding:9px 12px;background:var(--bg3);
+  border:1px solid var(--border);color:var(--text);font-family:var(--mono);
+  font-size:12px;outline:none;transition:border-color .2s;}
+.form-input:focus,.form-select:focus{border-color:var(--teal);}
 .form-select option{background:var(--bg3);}
 .form-hint{font-size:11px;color:var(--text2);margin-top:4px;}
-.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;}
 
-/* ── Session cards ── */
-.session-row{display:flex;align-items:center;gap:10px;padding:11px 14px;
-  border-bottom:1px solid var(--border);background:rgba(0,229,200,.02);}
-.session-row:last-child{border-bottom:none;}
-
-/* ── Channel manager ── */
-.channel-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+/* ── Channel grid ── */
+.ch-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
 .search-input{padding:7px 12px;background:var(--bg3);border:1px solid var(--border);
-  color:var(--text);font-family:var(--mono);font-size:12px;outline:none;width:220px;}
+  color:var(--text);font-family:var(--mono);font-size:12px;outline:none;width:200px;}
 .search-input:focus{border-color:var(--teal);}
-.group-filter{padding:7px 12px;background:var(--bg3);border:1px solid var(--border);
+.group-filter{padding:7px 10px;background:var(--bg3);border:1px solid var(--border);
   color:var(--text);font-family:var(--mono);font-size:12px;outline:none;}
-.channel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;}
-.channel-card{background:var(--bg2);border:1px solid var(--border);padding:10px 12px;
-  display:flex;align-items:center;gap:10px;transition:border-color .2s;}
-.channel-card:hover{border-color:var(--border2);}
-.channel-card.disabled{opacity:.45;}
-.ch-logo{width:32px;height:32px;object-fit:contain;flex-shrink:0;border-radius:3px;
-  background:var(--bg3);}
-.ch-logo-placeholder{width:32px;height:32px;background:var(--bg3);border-radius:3px;
-  display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.channel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;}
+.ch-card{background:var(--bg2);border:1px solid var(--border);padding:8px 10px;
+  display:flex;align-items:center;gap:8px;cursor:grab;user-select:none;
+  position:relative;transition:border-color .15s,opacity .15s;}
+.ch-card:active{cursor:grabbing;}
+.ch-card.dragging{opacity:.35;border-color:var(--teal);}
+.ch-card.drag-over{border-color:var(--teal);border-style:dashed;background:rgba(0,229,200,.04);}
+.ch-card.disabled{opacity:.38;}
+.ch-logo{width:26px;height:26px;object-fit:contain;flex-shrink:0;border-radius:2px;}
+.ch-ph{width:26px;height:26px;background:var(--bg3);border-radius:2px;
+  display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
 .ch-info{flex:1;min-width:0;}
-.ch-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.ch-group{font-size:10px;color:var(--text2);font-family:var(--mono);}
-.ch-toggle{flex-shrink:0;}
+.ch-name{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ch-grp{font-size:9px;color:var(--text2);font-family:var(--mono);}
+.ch-num{font-family:var(--mono);font-size:8px;color:var(--text3);
+  position:absolute;top:2px;right:4px;}
 
-/* ── Settings tabs ── */
+/* ── Settings ── */
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media(max-width:700px){.settings-grid{grid-template-columns:1fr;}}
-.settings-card{background:var(--bg2);border:1px solid var(--border);padding:20px;}
-.settings-card-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;color:var(--teal);
-  text-transform:uppercase;margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+.scard{background:var(--bg2);border:1px solid var(--border);padding:20px;}
+.scard-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;color:var(--teal);
+  text-transform:uppercase;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+
+/* ── EPG Box ── */
+.epg-global{background:var(--bg2);border:1px solid var(--border);padding:16px;
+  margin-top:16px;font-family:var(--mono);font-size:11px;color:var(--text2);line-height:2.}
+.epg-url-row{display:flex;align-items:center;gap:8px;margin-top:6px;}
+.epg-url-val{color:var(--teal);word-break:break-all;flex:1;}
 
 /* ── Toast ── */
-#toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;background:var(--bg2);
-  border:1px solid var(--green);color:var(--green);font-family:var(--mono);font-size:11px;
-  z-index:9999;opacity:0;transform:translateY(6px);transition:all .3s;pointer-events:none;}
+#toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;
+  background:var(--bg2);border:1px solid var(--green);color:var(--green);
+  font-family:var(--mono);font-size:11px;z-index:9999;
+  opacity:0;transform:translateY(6px);transition:all .3s;pointer-events:none;}
 #toast.show{opacity:1;transform:translateY(0);}
-#toast.error{border-color:var(--red);color:var(--red);}
+#toast.err{border-color:var(--red);color:var(--red);}
 
-/* ── Log panel ── */
-.log-panel{background:var(--bg3);border:1px solid var(--border);max-height:380px;overflow-y:auto;}
-.empty-state{padding:36px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text2);}
+.empty-state{padding:32px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text2);}
 .refresh-btn{font-family:var(--mono);font-size:10px;color:var(--text2);cursor:pointer;
   padding:4px 8px;border:1px solid var(--border);background:transparent;transition:all .2s;}
 .refresh-btn:hover{color:var(--teal);border-color:var(--teal);}
-
-/* ── Import progress ── */
-.import-bar{height:3px;background:var(--border);margin-top:10px;overflow:hidden;}
-.import-bar-inner{height:100%;background:linear-gradient(90deg,var(--blue),var(--teal));
-  width:0%;transition:width .4s;}
-
-/* ── Pagination ── */
-.pagination{display:flex;align-items:center;gap:8px;margin-top:12px;font-family:var(--mono);font-size:11px;color:var(--text2);}
+.log-panel{max-height:380px;overflow-y:auto;}
 </style>
 </head>
 <body>
 
 <!-- Login -->
 <div id="login-screen">
+  <div class="login-bg"></div>
+  <div class="login-grid"></div>
   <div class="login-box">
-    <div class="login-logo-wrap"><img src="/logo.png" alt="selfstream"></div>
-    <div class="login-subtitle">Admin Panel</div>
-    <input type="password" id="token-input" placeholder="Passwort…" />
+    <div class="login-logo-wrap">
+      <img id="login-logo-img" src="/logo.png" alt="selfstream">
+    </div>
+    <input type="password" id="token-input" placeholder="Admin-Passwort…" autocomplete="current-password">
     <button class="btn primary full" onclick="doLogin()">▶ Anmelden</button>
   </div>
 </div>
@@ -222,10 +233,9 @@ tr:hover td{background:var(--bg3);}
 <!-- App -->
 <div id="app">
   <div class="topbar">
-    <img src="/logo.png" alt="" style="height:32px;">
-    <span class="topbar-name">selfstream</span>
+    <img id="app-logo-img" src="/logo.png" alt="selfstream" class="topbar-logo">
     <span class="topbar-sep"></span>
-    <div class="live-dot" id="live-dot" style="background:var(--text3);box-shadow:none;"></div>
+    <div class="live-dot" id="live-dot"></div>
     <span class="live-label" id="live-label">0 aktive Streams</span>
     <button class="btn sm" onclick="logout()">Logout</button>
   </div>
@@ -250,15 +260,32 @@ tr:hover td{background:var(--bg3);}
         <div class="stats-grid">
           <div class="stat-card"><div class="stat-label">Benutzer</div><div class="stat-value" id="s-users">—</div></div>
           <div class="stat-card"><div class="stat-label">Aktive Streams</div><div class="stat-value" id="s-active">—</div></div>
-          <div class="stat-card"><div class="stat-label">Streams heute</div><div class="stat-value" id="s-today">—</div></div>
-          <div class="stat-card"><div class="stat-label">Kanäle aktiv</div><div class="stat-value" id="s-channels">—</div><div class="stat-sub" id="s-channels-sub"></div></div>
+          <div class="stat-card"><div class="stat-label">Heute</div><div class="stat-value" id="s-today">—</div></div>
+          <div class="stat-card"><div class="stat-label">Kanäle aktiv</div><div class="stat-value" id="s-channels">—</div><div class="stat-sub" id="s-ch-sub"></div></div>
         </div>
         <div class="section-hdr">
           <span class="section-title">Live Sessions</span>
-          <button class="refresh-btn" onclick="loadStats()">↻ Refresh</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">Auto-Refresh:</span>
+            <select class="group-filter" id="refresh-sel" style="font-size:10px;padding:4px 8px;" onchange="setRefresh()">
+              <option value="0">Aus</option>
+              <option value="5000">5s</option>
+              <option value="10000" selected>10s</option>
+              <option value="30000">30s</option>
+              <option value="60000">1min</option>
+            </select>
+            <button class="refresh-btn" onclick="loadStats()">↻</button>
+          </div>
         </div>
-        <div class="table-wrap" id="sessions-container">
+        <div class="table-wrap" id="sessions-wrap">
           <div class="empty-state">Keine aktiven Streams</div>
+        </div>
+
+        <div class="section-hdr" style="margin-top:8px;">
+          <span class="section-title">Zuletzt geschaut</span>
+        </div>
+        <div class="table-wrap" id="recent-feed">
+          <div class="empty-state">Wird geladen…</div>
         </div>
       </div>
 
@@ -271,8 +298,8 @@ tr:hover td{background:var(--bg3);}
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Name</th><th>Status</th><th>Playlist URL</th><th>EPG URL</th>
-              <th>Streams</th><th>Gesamt</th><th>Zuletzt aktiv</th><th></th>
+              <th>Name</th><th>Status</th><th>Playlist URL</th>
+              <th>Max Streams</th><th>Streams</th><th>Gesamt</th><th>Zuletzt</th><th></th>
             </tr></thead>
             <tbody id="users-tbody"></tbody>
           </table>
@@ -282,22 +309,24 @@ tr:hover td{background:var(--bg3);}
       <!-- Channels -->
       <div id="page-channels" class="content-area" style="display:none">
         <div class="section-hdr">
-          <span class="section-title">Kanal-Manager</span>
-          <div style="display:flex;gap:8px;">
-            <button class="btn" onclick="openImportM3U()">↓ M3U importieren</button>
-            <button class="btn" onclick="refreshChannels()">↻ Neu laden</button>
+          <span class="section-title">Kanal-Manager <span id="ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" onclick="openImport()">↓ M3U importieren</button>
+            <button class="btn" onclick="refreshCh()">↻ Neu laden</button>
           </div>
         </div>
-        <div class="channel-toolbar">
-          <input class="search-input" placeholder="Kanal suchen…" id="ch-search" oninput="filterChannels()">
-          <select class="group-filter" id="ch-group" onchange="filterChannels()">
+        <div class="ch-toolbar">
+          <input class="search-input" id="ch-search" placeholder="Kanal suchen…" oninput="filterCh()">
+          <select class="group-filter" id="ch-grp" onchange="filterCh()">
             <option value="">Alle Gruppen</option>
           </select>
-          <button class="btn sm" onclick="groupToggleAll(1)">Gruppe ✓</button>
-          <button class="btn sm danger" onclick="groupToggleAll(0)">Gruppe ✗</button>
-          <span class="mono" id="ch-count-label" style="margin-left:8px;"></span>
+          <button class="btn sm" onclick="grpToggle(1)">Gruppe ✓</button>
+          <button class="btn sm danger" onclick="grpToggle(0)">Gruppe ✗</button>
         </div>
-        <div class="channel-grid" id="channel-grid">
+        <p style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:10px;">
+          💡 Kanal gedrückt halten und verschieben – Reihenfolge wird sofort gespeichert
+        </p>
+        <div class="channel-grid" id="ch-grid">
           <div class="empty-state" style="grid-column:1/-1">Noch keine Kanäle. M3U importieren ↑</div>
         </div>
       </div>
@@ -306,7 +335,10 @@ tr:hover td{background:var(--bg3);}
       <div id="page-epg" class="content-area" style="display:none">
         <div class="section-hdr">
           <span class="section-title">EPG Quellen</span>
-          <button class="btn primary" onclick="openAddEpg()">+ EPG hinzufügen</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" onclick="downloadEpg()" title="Gefilterte EPG XML herunterladen">⬇ EPG.xml Download</button>
+            <button class="btn primary" onclick="openAddEpg()">+ Quelle hinzufügen</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -314,9 +346,81 @@ tr:hover td{background:var(--bg3);}
             <tbody id="epg-tbody"></tbody>
           </table>
         </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);padding:16px;font-family:var(--mono);font-size:11px;color:var(--text2);">
-          💡 Jeder Benutzer bekommt automatisch eine EPG-URL:
-          <span style="color:var(--teal);">http://PROXY-IP:8000/iptv/TOKEN/epg.xml</span>
+        <div class="epg-global">
+          <strong style="color:var(--text);">Globale EPG-URL</strong> – direkt in IPTV-App eintragen (gleich für alle):<br>
+          <div class="epg-url-row">
+            <span class="epg-url-val" id="global-epg-val">—</span>
+            <button class="copy-btn" onclick="copyEpgGlobal()">📋 Kopieren</button>
+          </div>
+        </div>
+
+        <!-- EPG Channel Manager -->
+        <div style="margin-top:20px;">
+          <div class="section-hdr">
+            <span class="section-title">EPG Kanal-Manager <span id="epg-ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input class="search-input" id="epg-ch-search" placeholder="Kanal suchen…" oninput="filterEpgCh()" style="width:180px;">
+              <select class="group-filter" id="epg-ch-filter" onchange="filterEpgCh()" style="font-size:11px;">
+                <option value="all">Alle Kanäle</option>
+                <option value="enabled">Nur aktive</option>
+                <option value="disabled">Nur inaktive</option>
+                <option value="matched">✓ In Kanal-Manager</option>
+              </select>
+              <button class="btn" onclick="scanEpgChannels()" id="epg-scan-btn">📡 EPG einlesen</button>
+              <button class="btn sm" onclick="epgChToggleAll(1)">Alle ✓</button>
+              <button class="btn sm danger" onclick="epgChToggleAll(0)">Alle ✗</button>
+              <button class="btn sm primary" onclick="autoMatchEpgChannels()" title="Automatisch alle Kanäle aktivieren die im Kanal-Manager vorhanden sind">⚡ Auto-Match</button>
+            </div>
+          </div>
+          <p style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:10px;">
+            💡 <strong>EPG einlesen</strong> lädt alle Kanäle aus deiner EPG-Quelle. <strong>Auto-Match</strong> aktiviert automatisch nur die Kanäle die du im Kanal-Manager hast. Drag & Drop zum Sortieren.
+          </p>
+          <div class="channel-grid" id="epg-ch-grid">
+            <div class="empty-state" style="grid-column:1/-1">Erst "EPG einlesen" klicken um Kanäle zu laden</div>
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="section-title" style="margin-bottom:10px;">Eigene EPG-URL eintragen</div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+              <label class="form-label">Name</label>
+              <input class="form-input" id="epg-name" placeholder="z.B. Anbieter EPG">
+            </div>
+            <div class="form-group" style="margin:0;flex:3;min-width:300px;">
+              <label class="form-label">URL</label>
+              <input class="form-input" id="epg-url" placeholder="http://epg.anbieter.tv/epg.xml">
+            </div>
+            <button class="btn primary" onclick="addEpg()" style="margin-bottom:0;">Speichern</button>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;background:var(--bg2);border:1px solid var(--border);padding:16px;">
+          <div class="section-title" style="margin-bottom:14px;">⚙️ EPG Cache & Filter</div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Cache-Dauer (wie oft EPG neu geladen wird)</label>
+              <select class="form-select" id="epg-refresh" style="width:200px;">
+                <option value="1">Jede Stunde</option>
+                <option value="3">Alle 3 Stunden</option>
+                <option value="6" selected>Alle 6 Stunden</option>
+                <option value="12">Alle 12 Stunden</option>
+                <option value="24">Einmal täglich</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">EPG filtern</label>
+              <label style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;">
+                <input type="checkbox" id="epg-filter" onchange="saveEpgSettings()">
+                <span style="font-size:12px;">Nur Kanäle aus Kanal-Manager anzeigen</span>
+              </label>
+              <div class="form-hint">Reduziert EPG-Größe erheblich (nur eigene Sender)</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:20px;">
+              <button class="btn primary" onclick="saveEpgSettings()">Speichern</button>
+              <button class="btn" onclick="forceEpgRefresh()">↻ Jetzt neu laden</button>
+            </div>
+          </div>
+          <div id="epg-cache-status" style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--text2);"></div>
         </div>
       </div>
 
@@ -324,11 +428,22 @@ tr:hover td{background:var(--bg3);}
       <div id="page-logs" class="content-area" style="display:none">
         <div class="section-hdr">
           <span class="section-title">Watch-Verlauf (letzte 200)</span>
-          <button class="refresh-btn" onclick="loadLogs()">↻ Refresh</button>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="log-ret" class="group-filter" style="font-size:11px;padding:5px 8px;">
+              <option value="-1">∞ Unbegrenzt</option>
+              <option value="0">Deaktiviert</option>
+              <option value="3">3 Tage</option>
+              <option value="7">7 Tage</option>
+              <option value="30">30 Tage</option>
+              <option value="90">90 Tage</option>
+            </select>
+            <button class="btn sm danger" onclick="clearLogs()">🗑 Löschen</button>
+            <button class="refresh-btn" onclick="loadLogs()">↻ Refresh</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Zeit</th><th>Benutzer</th><th>Kanal</th><th>Dauer</th></tr></thead>
+            <thead><tr><th>Zeit</th><th>Benutzer</th><th>Kanal</th><th>IP</th><th>Dauer</th></tr></thead>
             <tbody id="logs-tbody"></tbody>
           </table>
         </div>
@@ -339,151 +454,136 @@ tr:hover td{background:var(--bg3);}
         <div class="section-title" style="margin-bottom:16px;">Einstellungen</div>
         <div class="settings-grid">
 
-          <div class="settings-card">
-            <div class="settings-card-title">🌐 URLs</div>
+          <div class="scard">
+            <div class="scard-title">🖼 Logo anpassen</div>
             <div class="form-group">
-              <label class="form-label">Admin Panel URL (Port 8080)</label>
-              <input class="form-input" id="cfg-base-url" placeholder="http://192.168.1.69:8080">
+              <label class="form-label">Login-Logo (wird groß angezeigt)</label>
+              <input type="file" id="upload-login-logo" accept="image/*" style="display:none" onchange="uploadLogo('login',this)">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                <img id="preview-login" src="/logo.png" style="height:60px;object-fit:contain;background:var(--bg3);padding:4px;">
+                <button class="btn sm" onclick="document.getElementById('upload-login-logo').click()">📁 Bild wählen</button>
+              </div>
             </div>
             <div class="form-group">
-              <label class="form-label">Proxy URL (Port 8000) – für Playlist-Links</label>
-              <input class="form-input" id="cfg-proxy-url" placeholder="http://192.168.1.69:8000">
+              <label class="form-label">App-Logo (Topbar, klein)</label>
+              <input type="file" id="upload-app-logo" accept="image/*" style="display:none" onchange="uploadLogo('app',this)">
+              <div style="display:flex;gap:8px;align-items:center;">
+                <img id="preview-app" src="/logo.png" style="height:40px;object-fit:contain;background:var(--bg3);padding:4px;">
+                <button class="btn sm" onclick="document.getElementById('upload-app-logo').click()">📁 Bild wählen</button>
+              </div>
+            </div>
+            <div class="form-hint" style="margin-top:8px;">PNG mit Transparenz empfohlen (wie selfstream-logo-klein-trans.png)</div>
+          </div>
+
+          <div class="scard">
+            <div class="scard-title">🌐 URLs</div>
+            <div class="form-group">
+              <label class="form-label">Admin Panel URL (Port 8081)</label>
+              <input class="form-input" id="cfg-base" placeholder="http://192.168.1.69:8081">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Proxy URL (Port 8000)</label>
+              <input class="form-input" id="cfg-proxy" placeholder="http://192.168.1.69:8000">
             </div>
             <div class="form-group">
               <label class="form-label">M3U Quell-URL</label>
-              <input class="form-input" id="cfg-m3u-url" placeholder="http://anbieter.tv/playlist.m3u">
-              <div class="form-hint">Wird als Basis für alle Benutzer-Playlists verwendet.</div>
+              <input class="form-input" id="cfg-m3u" placeholder="http://anbieter.tv/playlist.m3u">
             </div>
-            <button class="btn primary" onclick="saveUrlSettings()">Speichern</button>
+            <button class="btn primary" onclick="saveUrls()">Speichern</button>
           </div>
 
-          <div class="settings-card">
-            <div class="settings-card-title">📡 HLS / Stream</div>
+          <div class="scard">
+            <div class="scard-title">📡 HLS / Stream</div>
             <div class="form-group">
               <label class="form-label">User Agent</label>
               <input class="form-input" id="cfg-ua" placeholder="VLC/3.0 LibVLC/3.0">
             </div>
             <div class="form-group">
               <label class="form-label">Referer (optional)</label>
-              <input class="form-input" id="cfg-referer" placeholder="https://anbieter.tv/">
+              <input class="form-input" id="cfg-ref" placeholder="https://anbieter.tv/">
             </div>
             <div class="form-group">
-              <label class="form-label">Connect Timeout (Sekunden)</label>
+              <label class="form-label">Connect Timeout (s)</label>
               <input class="form-input" type="number" id="cfg-timeout" value="10">
             </div>
             <div class="form-group">
-              <label class="form-label">Read Timeout (Sekunden)</label>
-              <input class="form-input" type="number" id="cfg-read-timeout" value="30">
+              <label class="form-label">Read Timeout (s)</label>
+              <input class="form-input" type="number" id="cfg-rtimeout" value="30">
             </div>
-            <div class="form-group">
-              <label class="form-label">Chunk Size (Bytes)</label>
-              <input class="form-input" type="number" id="cfg-chunk" value="65536">
-              <div class="form-hint">Standard: 65536 (64KB). Höher = weniger Requests, mehr Latenz.</div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Redirects folgen</label>
-              <select class="form-select" id="cfg-redirects">
-                <option value="1">Ja (empfohlen)</option>
-                <option value="0">Nein</option>
-              </select>
-            </div>
-            <button class="btn primary" onclick="saveHlsSettings()">Speichern</button>
+            <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
-          <div class="settings-card">
-            <div class="settings-card-title">🔒 Sicherheit</div>
+          <div class="scard">
+            <div class="scard-title">🔒 Sicherheit</div>
             <div class="form-group">
               <label class="form-label">Neues Admin-Passwort</label>
-              <input class="form-input" type="password" id="cfg-pw1" placeholder="Mindestens 8 Zeichen">
+              <input class="form-input" type="password" id="cfg-pw1" placeholder="Min. 8 Zeichen">
             </div>
             <div class="form-group">
-              <label class="form-label">Passwort bestätigen</label>
-              <input class="form-input" type="password" id="cfg-pw2" placeholder="">
+              <label class="form-label">Bestätigen</label>
+              <input class="form-input" type="password" id="cfg-pw2">
             </div>
-            <button class="btn primary" onclick="changePassword()">Passwort ändern</button>
+            <button class="btn primary" onclick="changePw()">Passwort ändern</button>
           </div>
 
         </div>
       </div>
-
     </div>
   </div>
 </div>
 
 <!-- Add User Modal -->
-<div class="modal-bg" id="add-user-modal">
+<div class="modal-bg" id="modal-adduser">
   <div class="modal">
     <div class="modal-title">Benutzer anlegen</div>
     <div class="form-group">
       <label class="form-label">Name</label>
-      <input class="form-input" id="new-name" placeholder="z.B. Mama, Opa Klaus…">
+      <input class="form-input" id="nu-name" placeholder="z.B. Mama, Opa Klaus…">
     </div>
     <div class="form-group">
       <label class="form-label">Notiz (optional)</label>
-      <input class="form-input" id="new-notes" placeholder="z.B. Samsung TV Wohnzimmer">
+      <input class="form-input" id="nu-notes" placeholder="z.B. Samsung TV Wohnzimmer">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Max. gleichzeitige Streams</label>
+      <select class="form-select" id="nu-max">
+        <option value="1">1 Stream (Standard)</option>
+        <option value="2">2 Streams</option>
+        <option value="3">3 Streams</option>
+        <option value="0">Unbegrenzt</option>
+      </select>
+      <div class="form-hint">Verhindert Weitergabe des Links.</div>
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal('add-user-modal')">Abbrechen</button>
+      <button class="btn" onclick="closeM('modal-adduser')">Abbrechen</button>
       <button class="btn primary" onclick="addUser()">Erstellen</button>
     </div>
   </div>
 </div>
 
 <!-- Import M3U Modal -->
-<div class="modal-bg" id="import-modal">
+<div class="modal-bg" id="modal-import">
   <div class="modal">
     <div class="modal-title">M3U importieren</div>
     <div class="form-group">
       <label class="form-label">M3U URL</label>
       <input class="form-input" id="import-url" placeholder="http://anbieter.tv/get.php?…">
-      <div class="form-hint">Die URL wird gespeichert und kann später neu geladen werden.</div>
+      <div class="form-hint">URL wird gespeichert und kann später neu geladen werden.</div>
     </div>
-    <div class="import-bar"><div class="import-bar-inner" id="import-progress"></div></div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal('import-modal')">Abbrechen</button>
+      <button class="btn" onclick="closeM('modal-import')">Abbrechen</button>
       <button class="btn primary" id="import-btn" onclick="doImport()">Importieren</button>
     </div>
   </div>
 </div>
 
-<!-- Add EPG Modal -->
-<div class="modal-bg" id="add-epg-modal">
-  <div class="modal">
-    <div class="modal-title">EPG Quelle hinzufügen</div>
-    <div class="form-group">
-      <label class="form-label">Name</label>
-      <input class="form-input" id="epg-name" placeholder="z.B. Anbieter EPG">
-    </div>
-    <div class="form-group">
-      <label class="form-label">URL</label>
-      <input class="form-input" id="epg-url" placeholder="http://anbieter.tv/epg.xml">
-    </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeModal('add-epg-modal')">Abbrechen</button>
-      <button class="btn primary" onclick="addEpg()">Speichern</button>
-    </div>
-  </div>
-</div>
-
 <!-- User Logs Modal -->
-<div class="modal-bg" id="logs-modal">
+<div class="modal-bg" id="modal-ulogs">
   <div class="modal" style="width:640px">
-    <div class="modal-title" id="logs-modal-title">Verlauf</div>
-    <div id="user-logs-content"></div>
+    <div class="modal-title" id="ulogs-title">Verlauf</div>
+    <div id="ulogs-content"></div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal('logs-modal')">Schließen</button>
-    </div>
-  </div>
-</div>
-
-
-<!-- Share Modal -->
-<div class="modal-bg" id="share-modal">
-  <div class="modal" style="width:560px">
-    <div class="modal-title" id="share-modal-title">🔗 Links teilen</div>
-    <div id="share-modal-content"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeModal('share-modal')">Schließen</button>
+      <button class="btn" onclick="closeM('modal-ulogs')">Schließen</button>
     </div>
   </div>
 </div>
@@ -491,15 +591,16 @@ tr:hover td{background:var(--bg3);}
 <div id="toast"></div>
 
 <script>
-let TOKEN = '';
-let statsInterval = null;
-let allChannels = [];
+let TOKEN = sessionStorage.getItem('ss_token') || '';
+let statsTimer = null;
+let allCh = [];
+let dragId = null;
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
-  const r = await fetch('/api/setup/status');
-  const d = await r.json();
-  if (!d.setup_done) window.location.href = '/setup';
+  const r = await fetch('/api/setup/status').then(r=>r.json()).catch(()=>({setup_done:true}));
+  if (!r.setup_done) { window.location.href='/setup'; return; }
+  if (TOKEN) { try { await loadApp(); return; } catch(e) { TOKEN=''; sessionStorage.removeItem('ss_token'); } }
 })();
 
 document.getElementById('token-input').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
@@ -508,36 +609,32 @@ function doLogin() {
   const t = document.getElementById('token-input').value.trim();
   if (!t) return;
   TOKEN = t;
-  loadApp();
+  sessionStorage.setItem('ss_token', t);
+  loadApp().catch(e => { showToast('Falsches Passwort', true); TOKEN=''; sessionStorage.removeItem('ss_token'); });
 }
 
 function logout() {
-  TOKEN = '';
-  clearInterval(statsInterval);
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('login-screen').style.display = 'flex';
+  TOKEN=''; sessionStorage.removeItem('ss_token');
+  clearInterval(statsTimer);
+  document.getElementById('app').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
 }
 
-async function api(method, path, body) {
-  const opts = { method, headers: {'Content-Type':'application/json','x-admin-token':TOKEN} };
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(path, opts);
-  if (r.status === 401) { logout(); throw new Error('Unauthorized'); }
-  if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.detail || r.statusText); }
+async function api(m, p, b) {
+  const o={method:m,headers:{'Content-Type':'application/json','x-admin-token':TOKEN}};
+  if(b) o.body=JSON.stringify(b);
+  const r=await fetch(p,o);
+  if(r.status===401){logout();throw new Error('Unauthorized');}
+  if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||r.statusText);}
   return r.json();
 }
 
 async function loadApp() {
-  try {
-    await loadStats();
-    document.getElementById('login-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    loadUsers();
-    statsInterval = setInterval(loadStats, 15000);
-  } catch(e) {
-    showToast('Falsches Passwort', true);
-    TOKEN = '';
-  }
+  await loadStats();
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app').style.display='block';
+  loadUsers();
+  setRefresh();
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
@@ -548,436 +645,635 @@ function nav(page, el) {
   document.getElementById('page-'+page).style.display='block';
   if(page==='dashboard') loadStats();
   if(page==='users') loadUsers();
-  if(page==='channels') loadChannels();
-  if(page==='epg') loadEpg();
+  if(page==='channels') loadCh();
+  if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='logs') loadLogs();
   if(page==='settings') loadSettings();
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
+function setRefresh() {
+  clearInterval(statsTimer);
+  const ms = parseInt(document.getElementById('refresh-sel')?.value||'10000');
+  if(ms>0) statsTimer=setInterval(loadStats,ms);
+}
+
 async function loadStats() {
-  const s = await api('GET', '/api/stats');
-  document.getElementById('s-users').textContent = s.total_users;
-  document.getElementById('s-active').textContent = s.active_streams;
-  document.getElementById('s-today').textContent = s.watch_logs_today;
-  document.getElementById('s-channels').textContent = s.enabled_channels || '—';
-  document.getElementById('s-channels-sub').textContent = `von ${s.total_channels || 0} gesamt`;
+  try {
+    const s = await api('GET','/api/stats');
+    document.getElementById('s-users').textContent=s.total_users;
+    document.getElementById('s-active').textContent=s.active_streams;
+    document.getElementById('s-today').textContent=s.watch_logs_today;
+    document.getElementById('s-channels').textContent=s.enabled_channels||'—';
+    document.getElementById('s-ch-sub').textContent=`von ${s.total_channels||0} gesamt`;
 
-  const dot = document.getElementById('live-dot');
-  const label = document.getElementById('live-label');
-  if (s.active_streams > 0) {
-    dot.style.background = 'var(--green)'; dot.style.boxShadow = '0 0 7px var(--green)';
-  } else {
-    dot.style.background = 'var(--text3)'; dot.style.boxShadow = 'none';
-  }
-  label.textContent = `${s.active_streams} aktive Stream${s.active_streams !== 1 ? 's' : ''}`;
+    const dot=document.getElementById('live-dot');
+    const lbl=document.getElementById('live-label');
+    if(s.active_streams>0){dot.classList.add('active');}else{dot.classList.remove('active');}
+    lbl.textContent=`${s.active_streams} aktive Stream${s.active_streams!==1?'s':''}`;
 
-  const cont = document.getElementById('sessions-container');
-  cont.innerHTML = s.active_sessions.length === 0
-    ? '<div class="empty-state">Keine aktiven Streams gerade</div>'
-    : s.active_sessions.map(sess => `
-        <div class="session-row">
-          <div class="live-dot"></div>
+    const now=Math.floor(Date.now()/1000);
+    const wrap=document.getElementById('sessions-wrap');
+    if(!s.active_sessions||!s.active_sessions.length){
+      wrap.innerHTML='<div class="empty-state">Keine aktiven Streams gerade</div>';
+    } else {
+      wrap.innerHTML=s.active_sessions.map(sess=>{
+        const durSec=sess.started_at?now-sess.started_at:0;
+        const dt=sess.started_at?new Date(sess.started_at*1000):null;
+        const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
+        const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
+        const durStr=durSec>3600?`${Math.floor(durSec/3600)}h ${Math.floor((durSec%3600)/60)}m`
+                    :durSec>60?`${Math.floor(durSec/60)}m ${durSec%60}s`:`${durSec}s`;
+        return `<div class="session-row">
+          <div class="live-dot active" style="flex-shrink:0;"></div>
           <strong>${esc(sess.user)}</strong>
-          <span style="color:var(--text2)">→</span>
-          <span class="mono">${esc(sess.channel)}</span>
-        </div>`).join('');
+          <span style="color:var(--text2);margin:0 4px;">→</span>
+          <span style="font-family:var(--mono);font-size:11px;">${esc(sess.channel)}</span>
+          ${sess.ip?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(sess.ip)}</span>`:''}
+          <span class="session-meta">${dateStr&&timeStr?`${dateStr} ${timeStr} · ${durStr}`:''}</span>
+        </div>`;
+      }).join('');
+    }
+
+    // Recent logs feed below sessions
+    const feed=document.getElementById('recent-feed');
+    if(feed){
+      if(!s.recent_logs||!s.recent_logs.length){
+        feed.innerHTML='<div class="empty-state">Noch keine Einträge</div>';
+      } else {
+        feed.innerHTML=s.recent_logs.map(l=>{
+          const dt=l.started_at?new Date(l.started_at+'Z'):null;
+          const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
+          const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
+          return `<div class="session-row" style="opacity:.75;">
+            <span style="font-family:var(--mono);font-size:9px;color:var(--text2);white-space:nowrap;flex-shrink:0;">${dateStr} ${timeStr}</span>
+            <strong style="font-size:12px;">${esc(l.user)}</strong>
+            <span style="color:var(--text2);margin:0 4px;">→</span>
+            <span style="font-family:var(--mono);font-size:11px;">${esc(l.channel)}</span>
+            ${l.ip?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(l.ip)}</span>`:''}
+            <span class="session-meta">${fmtDur(l.duration)}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+  } catch(e){console.error('stats error',e);}
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 async function loadUsers() {
-  const users = await api('GET', '/api/users');
-  const tbody = document.getElementById('users-tbody');
-  if (!users.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Noch keine Benutzer</td></tr>';
+  const users=await api('GET','/api/users');
+  const tbody=document.getElementById('users-tbody');
+  if(!users.length){
+    tbody.innerHTML='<tr><td colspan="8"><div class="empty-state">Noch keine Benutzer</div></td></tr>';
     return;
   }
-  tbody.innerHTML = users.map(u => {
-    const hours = Math.round((u.total_watch_seconds||0)/3600*10)/10;
+  tbody.innerHTML=users.map(u=>{
+    const hours=Math.round((u.total_watch_seconds||0)/3600*10)/10;
     return `<tr>
-      <td><strong>${esc(u.name)}</strong>${u.notes?`<br><span class="mono">${esc(u.notes)}</span>`:''}</td>
+      <td><strong>${esc(u.name)}</strong>${u.notes?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2)">${esc(u.notes)}</div>`:''}</td>
       <td>${u.active?'<span class="badge green">● Aktiv</span>':'<span class="badge red">● Gesperrt</span>'}</td>
-      <td><div class="url-cell"><span class="url-text" title="${esc(u.playlist_url)}">${esc(u.playlist_url)}</span>
-        <button class="copy-btn" onclick="copyUrl('${esc(u.playlist_url)}',this)">📋</button></div></td>
-      <td><div class="url-cell"><span class="url-text" title="${esc(u.epg_url)}">${esc(u.epg_url)}</span>
-        <button class="copy-btn" onclick="copyUrl('${esc(u.epg_url)}',this)">📋</button></div></td>
-      <td class="mono">${u.total_streams||0}</td>
-      <td class="mono">${hours}h</td>
-      <td class="mono" style="font-size:10px;">${timeAgo(u.last_seen)}</td>
-      <td style="white-space:nowrap;display:flex;gap:4px;">
-        <button class="btn sm primary" onclick="openShare(${u.id},'${esc(u.name)}','${esc(u.playlist_url)}','${esc(u.epg_url)}')">🔗 Teilen</button>
-        <button class="btn sm" onclick="viewUserLogs(${u.id},'${esc(u.name)}')">Log</button>
-        <button class="btn sm" onclick="toggleUser(${u.id},${u.active})">${u.active?'Sperren':'Freigeben'}</button>
-        <button class="btn sm danger" onclick="deleteUser(${u.id},'${esc(u.name)}')">✕</button>
+      <td style="max-width:260px;">
+        <div class="url-cell">
+          <span class="url-text" title="${esc(u.playlist_url)}">${esc(u.playlist_url)}</span>
+          <button class="copy-btn" id="cpb-${u.id}" onclick="doCopy('${esc(u.playlist_url)}',this)">📋 Kopieren</button>
+        </div>
+      </td>
+      <td>
+        <select class="form-select" style="padding:4px 6px;font-size:11px;width:75px;" onchange="setMaxStr(${u.id},this.value)">
+          <option value="1"${(u.max_streams||1)==1?' selected':''}>1</option>
+          <option value="2"${u.max_streams==2?' selected':''}>2</option>
+          <option value="3"${u.max_streams==3?' selected':''}>3</option>
+          <option value="0"${u.max_streams==0?' selected':''}>∞</option>
+        </select>
+      </td>
+      <td style="font-family:var(--mono);font-size:11px;">${u.total_streams||0}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${hours}h</td>
+      <td style="font-family:var(--mono);font-size:10px;">${timeAgo(u.last_seen)}</td>
+      <td>
+        <div class="action-cell">
+          <button class="btn sm" onclick="userLogs(${u.id},'${esc(u.name)}')">Log</button>
+          <button class="btn sm" onclick="regenToken(${u.id},'${esc(u.name)}')" title="Neuen Token generieren (alte URL wird ungültig)">🔄 Token</button>
+          <button class="btn sm" onclick="toggleUser(${u.id},${u.active})">${u.active?'Sperren':'Freigeben'}</button>
+          <button class="btn sm danger" onclick="delUser(${u.id},'${esc(u.name)}')">✕</button>
+        </div>
       </td>
     </tr>`;
   }).join('');
 }
 
-function openAddUser() { document.getElementById('add-user-modal').classList.add('open'); }
+function cpUrl(url, e) {
+  if(e) e.preventDefault();
+  navigator.clipboard.writeText(url).then(()=>showToast('URL kopiert!'));
+}
+
+async function cpBtn(url, btn) {
+  await navigator.clipboard.writeText(url);
+  const old=btn.textContent;
+  btn.textContent='✓'; btn.classList.add('ok');
+  setTimeout(()=>{ btn.textContent=old; btn.classList.remove('ok'); },2000);
+}
+
+async function doCopy(url, btn) {
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch(e) {
+    // Fallback for non-https
+    const ta=document.createElement('textarea');
+    ta.value=url; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+  if(btn){
+    const old=btn.textContent; btn.textContent='✓ Kopiert!'; btn.classList.add('ok');
+    setTimeout(()=>{ btn.textContent=old; btn.classList.remove('ok'); },2000);
+  } else {
+    showToast('Kopiert!');
+  }
+}
+
+function openAddUser(){ document.getElementById('modal-adduser').classList.add('open'); }
 
 async function addUser() {
-  const name = document.getElementById('new-name').value.trim();
-  const notes = document.getElementById('new-notes').value.trim();
-  if (!name) return showToast('Name erforderlich', true);
+  const name=document.getElementById('nu-name').value.trim();
+  const notes=document.getElementById('nu-notes').value.trim();
+  const max_streams=parseInt(document.getElementById('nu-max').value);
+  if(!name) return showToast('Name erforderlich',true);
   try {
-    await api('POST', '/api/users', {name, notes});
-    closeModal('add-user-modal');
-    document.getElementById('new-name').value = '';
-    document.getElementById('new-notes').value = '';
+    await api('POST','/api/users',{name,notes,max_streams});
+    closeM('modal-adduser');
+    document.getElementById('nu-name').value='';
+    document.getElementById('nu-notes').value='';
     loadUsers(); loadStats();
     showToast(`${name} erstellt!`);
-  } catch(e) { showToast(e.message, true); }
+  } catch(e){ showToast(e.message,true); }
 }
 
-async function toggleUser(id, active) {
-  await api('PUT', `/api/users/${id}`, {active: active?0:1});
-  loadUsers();
-  showToast(active ? 'Benutzer gesperrt' : 'Benutzer freigegeben');
-}
-
-async function deleteUser(id, name) {
-  if (!confirm(`"${name}" wirklich löschen?`)) return;
-  await api('DELETE', `/api/users/${id}`);
-  loadUsers(); loadStats();
-  showToast(`${name} gelöscht`);
-}
-
-// ── Channels ──────────────────────────────────────────────────────────────────
-async function loadChannels() {
-  const [channels, groups] = await Promise.all([
-    api('GET', '/api/channels'),
-    api('GET', '/api/channels/groups')
-  ]);
-  allChannels = channels;
-
-  // Populate group filter
-  const sel = document.getElementById('ch-group');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">Alle Gruppen</option>' +
-    groups.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
-  if (cur) sel.value = cur;
-
-  filterChannels();
-}
-
-function filterChannels() {
-  const q = document.getElementById('ch-search').value.toLowerCase();
-  const grp = document.getElementById('ch-group').value;
-  let list = allChannels;
-  if (grp) list = list.filter(c => c.group_title === grp);
-  if (q) list = list.filter(c => c.name.toLowerCase().includes(q));
-
-  document.getElementById('ch-count-label').textContent = `${list.length} Kanäle`;
-
-  const grid = document.getElementById('channel-grid');
-  if (!list.length) {
-    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">Keine Kanäle gefunden</div>';
-    return;
-  }
-  grid.innerHTML = list.map(ch => `
-    <div class="channel-card${ch.enabled?'':' disabled'}" id="ch-${ch.id}">
-      ${ch.tvg_logo
-        ? `<img class="ch-logo" src="${esc(ch.tvg_logo)}" onerror="this.style.display='none'" loading="lazy">`
-        : `<div class="ch-logo-placeholder">📺</div>`}
-      <div class="ch-info">
-        <div class="ch-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
-        <div class="ch-group">${esc(ch.group_title||'—')}</div>
-      </div>
-      <div class="ch-toggle">
-        <button class="btn sm ${ch.enabled?'danger':''}" onclick="toggleChannel(${ch.id},${ch.enabled})">
-          ${ch.enabled?'✕':'✓'}
-        </button>
-      </div>
-    </div>`).join('');
-}
-
-async function toggleChannel(id, enabled) {
-  await api('PUT', `/api/channels/${id}`, {enabled: enabled?0:1});
-  const idx = allChannels.findIndex(c=>c.id===id);
-  if (idx>=0) allChannels[idx].enabled = enabled?0:1;
-  filterChannels();
-}
-
-async function groupToggleAll(val) {
-  const grp = document.getElementById('ch-group').value;
-  if (!grp) return showToast('Erst eine Gruppe auswählen', true);
-  await api('POST', '/api/channels/group-toggle', {group: grp, enabled: val});
-  await loadChannels();
-  showToast(val ? 'Gruppe aktiviert' : 'Gruppe deaktiviert');
-}
-
-function openImportM3U() {
-  const saved = '';
-  document.getElementById('import-progress').style.width = '0%';
-  document.getElementById('import-modal').classList.add('open');
-}
-
-async function doImport() {
-  const url = document.getElementById('import-url').value.trim();
-  if (!url) return showToast('URL erforderlich', true);
-  document.getElementById('import-btn').disabled = true;
-  document.getElementById('import-progress').style.width = '40%';
+async function regenToken(id, name) {
+  if(!confirm(`Token für "${name}" neu generieren?\n\nACHTUNG: Die alte Playlist-URL wird sofort ungültig!`)) return;
   try {
-    const r = await api('POST', '/api/channels/import', {url});
-    document.getElementById('import-progress').style.width = '100%';
-    closeModal('import-modal');
-    showToast(`${r.imported} Kanäle importiert!`);
-    loadChannels();
-  } catch(e) {
-    showToast(e.message, true);
-  } finally {
-    document.getElementById('import-btn').disabled = false;
-    document.getElementById('import-progress').style.width = '0%';
-  }
+    const r = await api('POST', `/api/users/${id}/regenerate-token`);
+    showToast(`Neuer Token für ${name} generiert!`);
+    loadUsers();
+  } catch(e){ showToast(e.message, true); }
 }
 
-async function refreshChannels() {
-  try {
-    const r = await api('POST', '/api/channels/refresh');
-    showToast(`${r.imported} Kanäle aktualisiert`);
-    loadChannels();
-  } catch(e) { showToast(e.message, true); }
+async function setMaxStr(id,val) {
+  await api('PUT',`/api/users/${id}`,{max_streams:parseInt(val)});
+  showToast('Gespeichert');
 }
 
-// ── EPG ───────────────────────────────────────────────────────────────────────
-async function loadEpg() {
-  const sources = await api('GET', '/api/epg');
-  const tbody = document.getElementById('epg-tbody');
-  if (!sources.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Noch keine EPG-Quelle</td></tr>';
-    return;
-  }
-  tbody.innerHTML = sources.map(e => `<tr>
-    <td><strong>${esc(e.name)}</strong></td>
-    <td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-      <span title="${esc(e.url)}">${esc(e.url)}</span>
-    </td>
-    <td>${e.active?'<span class="badge green">Aktiv</span>':'<span class="badge red">Inaktiv</span>'}</td>
-    <td style="white-space:nowrap;display:flex;gap:4px;">
-      <button class="btn sm" onclick="toggleEpg(${e.id},${e.active})">${e.active?'Deaktivieren':'Aktivieren'}</button>
-      <button class="btn sm danger" onclick="deleteEpg(${e.id})">✕</button>
-    </td>
-  </tr>`).join('');
+async function toggleUser(id,active) {
+  await api('PUT',`/api/users/${id}`,{active:active?0:1});
+  loadUsers(); showToast(active?'Benutzer gesperrt':'Benutzer freigegeben');
 }
 
-function openAddEpg() { document.getElementById('add-epg-modal').classList.add('open'); }
-
-async function addEpg() {
-  const name = document.getElementById('epg-name').value.trim();
-  const url = document.getElementById('epg-url').value.trim();
-  if (!name||!url) return showToast('Name und URL erforderlich', true);
-  await api('POST', '/api/epg', {name, url});
-  closeModal('add-epg-modal');
-  document.getElementById('epg-name').value = '';
-  document.getElementById('epg-url').value = '';
-  loadEpg();
-  showToast('EPG-Quelle gespeichert');
+async function delUser(id,name) {
+  if(!confirm(`"${name}" wirklich löschen?`)) return;
+  await api('DELETE',`/api/users/${id}`);
+  loadUsers(); loadStats(); showToast(`${name} gelöscht`);
 }
 
-async function toggleEpg(id, active) {
-  await api('PUT', `/api/epg/${id}`, {active: active?0:1});
-  loadEpg();
-}
-
-async function deleteEpg(id) {
-  if (!confirm('EPG-Quelle löschen?')) return;
-  await api('DELETE', `/api/epg/${id}`);
-  loadEpg();
-  showToast('Gelöscht');
-}
-
-// ── Logs ──────────────────────────────────────────────────────────────────────
-async function loadLogs() {
-  const logs = await api('GET', '/api/logs');
-  const tbody = document.getElementById('logs-tbody');
-  if (!logs.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Keine Einträge</td></tr>';
-    return;
-  }
-  tbody.innerHTML = logs.map(l => `<tr>
-    <td class="mono" style="font-size:10px;">${fmtDate(l.started_at)}</td>
-    <td><strong>${esc(l.user_name)}</strong></td>
-    <td class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(l.channel)}</td>
-    <td class="mono">${fmtDur(l.duration_seconds)}</td>
-  </tr>`).join('');
-}
-
-async function viewUserLogs(userId, name) {
-  document.getElementById('logs-modal-title').textContent = `Verlauf · ${name}`;
-  document.getElementById('logs-modal').classList.add('open');
-  document.getElementById('user-logs-content').innerHTML = '<div class="empty-state">Lädt…</div>';
-  const logs = await api('GET', `/api/users/${userId}/logs`);
-  document.getElementById('user-logs-content').innerHTML = !logs.length
-    ? '<div class="empty-state">Noch keine Aktivität</div>'
-    : `<div class="log-panel"><table style="width:100%"><thead><tr>
-        <th>Zeit</th><th>Kanal</th><th>Dauer</th>
-      </tr></thead><tbody>
+async function userLogs(id,name) {
+  document.getElementById('ulogs-title').textContent=`Verlauf · ${name}`;
+  document.getElementById('modal-ulogs').classList.add('open');
+  document.getElementById('ulogs-content').innerHTML='<div class="empty-state">Lädt…</div>';
+  const logs=await api('GET',`/api/users/${id}/logs`);
+  document.getElementById('ulogs-content').innerHTML=!logs.length
+    ?'<div class="empty-state">Noch keine Aktivität</div>'
+    :`<div class="log-panel"><table style="width:100%"><thead><tr>
+        <th>Zeit</th><th>Kanal</th><th>Dauer</th></tr></thead><tbody>
         ${logs.map(l=>`<tr>
-          <td class="mono" style="font-size:10px;">${fmtDate(l.started_at)}</td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(l.channel)}</td>
-          <td class="mono">${fmtDur(l.duration_seconds)}</td>
+          <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${esc(l.channel)}</td>
+          <td style="font-family:var(--mono);font-size:11px;">${fmtDur(l.duration_seconds)}</td>
         </tr>`).join('')}
       </tbody></table></div>`;
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
-async function loadSettings() {
-  const s = await api('GET', '/api/settings');
-  document.getElementById('cfg-base-url').value = s.base_url || '';
-  document.getElementById('cfg-proxy-url').value = s.proxy_url || '';
-  document.getElementById('cfg-m3u-url').value = s.source_m3u_url || '';
-  document.getElementById('cfg-ua').value = s.hls_user_agent || '';
-  document.getElementById('cfg-referer').value = s.hls_referer || '';
-  document.getElementById('cfg-timeout').value = s.hls_timeout || '10';
-  document.getElementById('cfg-read-timeout').value = s.hls_read_timeout || '30';
-  document.getElementById('cfg-chunk').value = s.hls_chunk_size || '65536';
-  document.getElementById('cfg-redirects').value = s.hls_follow_redirects || '1';
+// ── Channels ──────────────────────────────────────────────────────────────────
+async function loadCh() {
+  const [chs,grps]=await Promise.all([api('GET','/api/channels'),api('GET','/api/channels/groups')]);
+  allCh=chs;
+  const sel=document.getElementById('ch-grp');
+  const cur=sel.value;
+  sel.innerHTML='<option value="">Alle Gruppen</option>'+grps.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
+  if(cur) sel.value=cur;
+  filterCh();
 }
 
-async function saveUrlSettings() {
-  await api('POST', '/api/settings', {
-    base_url:       document.getElementById('cfg-base-url').value.trim(),
-    proxy_url:      document.getElementById('cfg-proxy-url').value.trim(),
-    source_m3u_url: document.getElementById('cfg-m3u-url').value.trim(),
+function filterCh() {
+  const q=document.getElementById('ch-search').value.toLowerCase();
+  const grp=document.getElementById('ch-grp').value;
+  let list=allCh;
+  if(grp) list=list.filter(c=>c.group_title===grp);
+  if(q) list=list.filter(c=>c.name.toLowerCase().includes(q));
+  document.getElementById('ch-count').textContent=`${list.length} Kanäle`;
+  const grid=document.getElementById('ch-grid');
+  if(!list.length){
+    grid.innerHTML='<div class="empty-state" style="grid-column:1/-1">Keine Kanäle gefunden</div>';
+    return;
+  }
+  grid.innerHTML=list.map((ch)=>`
+    <div class="ch-card${ch.enabled?'':' disabled'}" id="cc-${ch.id}"
+         draggable="true"
+         ondragstart="dStart(event,${ch.id})"
+         ondragover="dOver(event)"
+         ondrop="dDrop(event,${ch.id})"
+         ondragend="dEnd()">
+      <span class="ch-num">${(allCh.findIndex(c=>c.id===ch.id))+1}</span>
+      ${ch.tvg_logo?`<img class="ch-logo" src="${esc(ch.tvg_logo)}" onerror="this.style.display='none'" loading="lazy">`:`<div class="ch-ph">📺</div>`}
+      <div class="ch-info">
+        <div class="ch-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
+        <div class="ch-grp">${esc(ch.group_title||'—')}</div>
+      </div>
+      <button class="btn sm${ch.enabled?' danger':''}" onclick="toggleCh(${ch.id},${ch.enabled})" title="${ch.enabled?'Deaktivieren':'Aktivieren'}" style="flex-shrink:0;">${ch.enabled?'✕':'✓'}</button>
+    </div>`).join('');
+}
+
+function dStart(e,id){ dragId=id; setTimeout(()=>document.getElementById('cc-'+id)?.classList.add('dragging'),0); e.dataTransfer.effectAllowed='move'; }
+function dOver(e){ e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function dEnd(){ document.querySelectorAll('.ch-card').forEach(c=>c.classList.remove('dragging','drag-over')); }
+
+async function dDrop(e,tgtId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if(dragId===tgtId) return;
+  const si=allCh.findIndex(c=>c.id===dragId);
+  const ti=allCh.findIndex(c=>c.id===tgtId);
+  if(si<0||ti<0) return;
+  const moved=allCh.splice(si,1)[0];
+  allCh.splice(ti,0,moved);
+  allCh.forEach((c,i)=>c.sort_order=i);
+  filterCh();
+  await Promise.all(allCh.map((c,i)=>api('PUT',`/api/channels/${c.id}`,{sort_order:i})));
+}
+
+async function toggleCh(id,enabled) {
+  await api('PUT',`/api/channels/${id}`,{enabled:enabled?0:1});
+  const i=allCh.findIndex(c=>c.id===id);
+  if(i>=0) allCh[i].enabled=enabled?0:1;
+  filterCh();
+}
+
+async function grpToggle(val) {
+  const grp=document.getElementById('ch-grp').value;
+  if(!grp) return showToast('Erst Gruppe auswählen',true);
+  await api('POST','/api/channels/group-toggle',{group:grp,enabled:val});
+  await loadCh(); showToast(val?'Gruppe aktiviert':'Gruppe deaktiviert');
+}
+
+function openImport(){ document.getElementById('modal-import').classList.add('open'); }
+
+async function doImport() {
+  const url=document.getElementById('import-url').value.trim();
+  if(!url) return showToast('URL erforderlich',true);
+  document.getElementById('import-btn').disabled=true;
+  try {
+    const r=await api('POST','/api/channels/import',{url});
+    closeM('modal-import'); showToast(`${r.imported} Kanäle importiert!`); loadCh();
+  } catch(e){ showToast(e.message,true); }
+  finally{ document.getElementById('import-btn').disabled=false; }
+}
+
+async function refreshCh() {
+  try { const r=await api('POST','/api/channels/refresh'); showToast(`${r.imported} Kanäle aktualisiert`); loadCh(); }
+  catch(e){ showToast(e.message,true); }
+}
+
+// ── EPG ───────────────────────────────────────────────────────────────────────
+async function saveEpgSettings() {
+  const hours = document.getElementById('epg-refresh').value;
+  const filter = document.getElementById('epg-filter').checked ? '1' : '0';
+  await api('POST', '/api/settings', {epg_refresh_hours: hours, epg_filter_channels: filter});
+  showToast('EPG-Einstellungen gespeichert');
+}
+
+async function forceEpgRefresh() {
+  try {
+    const settings = await api('GET', '/api/settings');
+    const proxyUrl = (settings.proxy_url || window.location.origin.replace('8081','8000').replace('8080','8000')).replace(/\/$/, '');
+    const r = await fetch(proxyUrl + '/iptv/epg.xml?force=1');
+    const age = r.headers.get('X-EPG-Cache');
+    showToast('EPG neu geladen! (' + (r.headers.get('X-EPG-Age-Minutes')||'0') + 'min alt)');
+    loadEpg();
+  } catch(e) { showToast('Fehler beim EPG-Laden', true); }
+}
+
+async function loadEpg() {
+  const [sources, settings] = await Promise.all([api('GET','/api/epg'), api('GET','/api/settings')]);
+  const proxyUrl = (settings.proxy_url || window.location.origin.replace('8081','8000').replace('8080','8000')).replace(/\/$/, '');
+  const globalEpgUrl = proxyUrl + '/iptv/epg.xml';
+
+  // Load EPG cache settings
+  const refreshSel = document.getElementById('epg-refresh');
+  const filterCb = document.getElementById('epg-filter');
+  if (refreshSel && settings.epg_refresh_hours) refreshSel.value = settings.epg_refresh_hours;
+  if (filterCb) filterCb.checked = settings.epg_filter_channels === '1';
+
+  const tbody=document.getElementById('epg-tbody');
+  if(!sources.length){
+    tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Noch keine EPG-Quelle</div></td></tr>';
+  } else {
+    tbody.innerHTML=sources.map(e=>`<tr>
+      <td><strong>${esc(e.name)}</strong></td>
+      <td style="max-width:300px;overflow:hidden;"><span class="mono" style="font-size:10px;" title="${esc(e.url)}">${esc(e.url)}</span></td>
+      <td>${e.active?'<span class="badge green">Aktiv</span>':'<span class="badge" style="color:var(--text2);border-color:var(--border)">Inaktiv</span>'}</td>
+      <td>
+        <div class="action-cell">
+          <button class="btn sm" onclick="toggleEpg(${e.id},${e.active})">${e.active?'Deaktivieren':'Aktivieren'}</button>
+          <button class="btn sm danger" onclick="delEpg(${e.id})">✕</button>
+        </div>
+      </td>
+    </tr>`).join('');
+  }
+
+  // Set global EPG URL (fixed proxy URL, no token)
+  document.getElementById('global-epg-val').textContent = globalEpgUrl;
+}
+
+function copyEpgGlobal() {
+  const val=document.getElementById('global-epg-val').textContent;
+  if(!val||val==='—'||val==='Lädt...') return showToast('Keine URL vorhanden',true);
+  const btn=document.querySelector('[onclick="copyEpgGlobal()"]');
+  doCopy(val, btn);
+}
+
+function openAddEpg(){ /* inline form */ }
+
+async function addEpg() {
+  const name=document.getElementById('epg-name').value.trim();
+  const url=document.getElementById('epg-url').value.trim();
+  if(!name||!url) return showToast('Name und URL erforderlich',true);
+  await api('POST','/api/epg',{name,url});
+  document.getElementById('epg-name').value='';
+  document.getElementById('epg-url').value='';
+  loadEpg(); showToast('EPG-Quelle gespeichert');
+}
+
+async function toggleEpg(id,active) {
+  await api('PUT',`/api/epg/${id}`,{active:active?0:1}); loadEpg();
+}
+
+async function delEpg(id) {
+  if(!confirm('EPG-Quelle löschen?')) return;
+  await api('DELETE',`/api/epg/${id}`); loadEpg(); showToast('Gelöscht');
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+async function loadLogs() {
+  const logs=await api('GET','/api/logs');
+  const tbody=document.getElementById('logs-tbody');
+  if(!logs.length){ tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Keine Einträge</div></td></tr>'; return; }
+  tbody.innerHTML=logs.map(l=>`<tr>
+    <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
+    <td><strong>${esc(l.user_name)}</strong></td>
+    <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${esc(l.channel)}</td>
+    <td style="font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(l.ip_address||'—')}</td>
+    <td style="font-family:var(--mono);font-size:11px;">${fmtDur(l.duration_seconds)}</td>
+  </tr>`).join('');
+}
+
+async function clearLogs() {
+  const days=parseInt(document.getElementById('log-ret').value);
+  const msg=days===-1?'Wirklich ALLE Einträge löschen?':days===0?'Verlauf komplett löschen?':`Einträge älter als ${days} Tage löschen?`;
+  if(!confirm(msg)) return;
+  await api('POST','/api/logs/clear',{days:days===-1?99999:days});
+  loadLogs(); showToast('Verlauf bereinigt');
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function loadSettings() {
+  const s=await api('GET','/api/settings');
+  document.getElementById('cfg-base').value=s.base_url||'';
+  document.getElementById('cfg-proxy').value=s.proxy_url||'';
+  document.getElementById('cfg-m3u').value=s.source_m3u_url||'';
+  document.getElementById('cfg-ua').value=s.hls_user_agent||'';
+  document.getElementById('cfg-ref').value=s.hls_referer||'';
+  document.getElementById('cfg-timeout').value=s.hls_timeout||'10';
+  document.getElementById('cfg-rtimeout').value=s.hls_read_timeout||'30';
+}
+
+async function saveUrls() {
+  await api('POST','/api/settings',{
+    base_url:document.getElementById('cfg-base').value.trim(),
+    proxy_url:document.getElementById('cfg-proxy').value.trim(),
+    source_m3u_url:document.getElementById('cfg-m3u').value.trim()
   });
   showToast('URLs gespeichert');
 }
 
-async function saveHlsSettings() {
-  await api('POST', '/api/settings', {
-    hls_user_agent:      document.getElementById('cfg-ua').value.trim(),
-    hls_referer:         document.getElementById('cfg-referer').value.trim(),
-    hls_timeout:         document.getElementById('cfg-timeout').value,
-    hls_read_timeout:    document.getElementById('cfg-read-timeout').value,
-    hls_chunk_size:      document.getElementById('cfg-chunk').value,
-    hls_follow_redirects:document.getElementById('cfg-redirects').value,
+async function saveHls() {
+  await api('POST','/api/settings',{
+    hls_user_agent:document.getElementById('cfg-ua').value.trim(),
+    hls_referer:document.getElementById('cfg-ref').value.trim(),
+    hls_timeout:document.getElementById('cfg-timeout').value,
+    hls_read_timeout:document.getElementById('cfg-rtimeout').value
   });
   showToast('HLS-Einstellungen gespeichert');
 }
 
-async function changePassword() {
-  const p1 = document.getElementById('cfg-pw1').value;
-  const p2 = document.getElementById('cfg-pw2').value;
-  if (p1.length < 8) return showToast('Mindestens 8 Zeichen', true);
-  if (p1 !== p2) return showToast('Passwörter stimmen nicht überein', true);
+async function changePw() {
+  const p1=document.getElementById('cfg-pw1').value;
+  const p2=document.getElementById('cfg-pw2').value;
+  if(p1.length<8) return showToast('Min. 8 Zeichen',true);
+  if(p1!==p2) return showToast('Passwörter stimmen nicht überein',true);
   try {
-    await api('POST', '/api/settings/change-password', {new_token: p1});
-    document.getElementById('cfg-pw1').value = '';
-    document.getElementById('cfg-pw2').value = '';
+    await api('POST','/api/settings/change-password',{new_token:p1});
+    document.getElementById('cfg-pw1').value='';
+    document.getElementById('cfg-pw2').value='';
     showToast('Passwort geändert – bitte neu anmelden');
-    setTimeout(logout, 2000);
-  } catch(e) { showToast(e.message, true); }
+    setTimeout(logout,2000);
+  } catch(e){ showToast(e.message,true); }
 }
+
+// ── Logo Upload ───────────────────────────────────────────────────────────────
+function uploadLogo(type, input) {
+  const file=input.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const src=e.target.result;
+    if(type==='login'){
+      document.getElementById('preview-login').src=src;
+      document.getElementById('login-logo-img').src=src;
+      localStorage.setItem('ss_login_logo',src);
+    } else {
+      document.getElementById('preview-app').src=src;
+      document.getElementById('app-logo-img').src=src;
+      localStorage.setItem('ss_app_logo',src);
+    }
+    showToast('Logo aktualisiert');
+  };
+  reader.readAsDataURL(file);
+}
+
+function applyStoredLogos() {
+  const ll=localStorage.getItem('ss_login_logo');
+  const al=localStorage.getItem('ss_app_logo');
+  if(ll){ document.getElementById('login-logo-img').src=ll; document.getElementById('preview-login').src=ll; }
+  if(al){ document.getElementById('app-logo-img').src=al; document.getElementById('preview-app').src=al; }
+}
+applyStoredLogos();
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-document.querySelectorAll('.modal-bg').forEach(bg => {
-  bg.addEventListener('click', e => { if(e.target===bg) bg.classList.remove('open'); });
+function closeM(id){ document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-bg').forEach(bg=>{
+  bg.addEventListener('click',e=>{if(e.target===bg)bg.classList.remove('open');});
 });
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtDur(s){ if(!s) return '—'; const m=Math.floor(s/60),h=Math.floor(m/60); return h>0?`${h}h ${m%60}m`:`${m}m ${s%60}s`; }
+function fmtDate(str){ if(!str) return '—'; return new Date(str+'Z').toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function timeAgo(str){ if(!str) return '—'; const d=(Date.now()-new Date(str+'Z').getTime())/1000; if(d<60) return 'Gerade eben'; if(d<3600) return `vor ${Math.floor(d/60)}m`; if(d<86400) return `vor ${Math.floor(d/3600)}h`; return `vor ${Math.floor(d/86400)}d`; }
+function showToast(msg,err=false){ const t=document.getElementById('toast'); t.textContent=msg; t.className='show'+(err?' err':''); setTimeout(()=>t.className='',2800); }
 
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function fmtDur(s) {
-  if (!s) return '—';
-  const m=Math.floor(s/60),h=Math.floor(m/60);
-  return h>0?`${h}h ${m%60}m`:`${m}m ${s%60}s`;
-}
-function fmtDate(str) {
-  if (!str) return '—';
-  return new Date(str+'Z').toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-}
-function timeAgo(str) {
-  if (!str) return '—';
-  const d=(Date.now()-new Date(str+'Z').getTime())/1000;
-  if(d<60) return 'Gerade eben';
-  if(d<3600) return `vor ${Math.floor(d/60)}m`;
-  if(d<86400) return `vor ${Math.floor(d/3600)}h`;
-  return `vor ${Math.floor(d/86400)}d`;
-}
-async function copyUrl(url, btn) {
-  await navigator.clipboard.writeText(url);
-  const old = btn.textContent;
-  btn.textContent = '✓';
-  btn.classList.add('copied');
-  setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); }, 2000);
-}
-function showToast(msg, error=false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'show' + (error?' error':'');
-  setTimeout(() => t.className = '', 2800);
+// ── EPG Channel Manager ───────────────────────────────────────────────────────
+let allEpgCh = [];
+let epgDragId = null;
+let chManagerIds = new Set(); // tvg_ids from channel manager
+
+async function downloadEpg() {
+  try {
+    showToast('EPG wird vorbereitet…');
+    const response = await fetch('/api/epg/download', {
+      headers: {'x-admin-token': TOKEN}
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'epg.xml';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('EPG.xml heruntergeladen!');
+  } catch(e) { showToast('Fehler: ' + e.message, true); }
 }
 
-// ── Share / Copy URLs ─────────────────────────────────────────────────────────
-function openShare(userId, name, playlistUrl, epgUrl) {
-  document.getElementById('share-modal-title').textContent = '🔗 ' + name + ' · Links';
-  document.getElementById('share-modal-content').innerHTML = `
-    <div style="margin-bottom:20px;">
-      <div class="form-label" style="margin-bottom:8px;">📺 Playlist URL (in IPTV-App eintragen)</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <div style="flex:1;background:var(--bg3);border:1px solid var(--border);padding:10px 12px;
-          font-family:var(--mono);font-size:12px;color:var(--teal);word-break:break-all;">
-          ${playlistUrl}
-        </div>
+async function autoMatchEpgChannels() {
+  if (!allEpgCh.length) return showToast('Erst EPG einlesen', true);
+  // Get channel manager tvg_ids
+  const channels = await api('GET', '/api/channels');
+  const ids = new Set(channels.map(c => c.tvg_id).filter(Boolean));
+  chManagerIds = ids;
+
+  // Enable only matching, disable rest
+  const updates = allEpgCh.map(ch => ({
+    tvg_id: ch.tvg_id,
+    enabled: ids.has(ch.tvg_id) ? 1 : 0
+  }));
+  await Promise.all(updates.map(u =>
+    api('PUT', `/api/epg/channels/${encodeURIComponent(u.tvg_id)}`, {enabled: u.enabled})
+  ));
+  allEpgCh.forEach(ch => { ch.enabled = ids.has(ch.tvg_id) ? 1 : 0; });
+  filterEpgCh();
+  const matched = updates.filter(u => u.enabled).length;
+  showToast(`${matched} Kanäle automatisch aktiviert!`);
+}
+
+async function loadEpgChannels() {
+  try {
+    // Also load channel manager IDs for match highlighting
+    const [chs, channels] = await Promise.all([
+      api('GET', '/api/epg/channels'),
+      api('GET', '/api/channels')
+    ]);
+    chManagerIds = new Set(channels.map(c => c.tvg_id).filter(Boolean));
+    allEpgCh = chs;
+    filterEpgCh();
+  } catch(e) { /* not scanned yet */ }
+}
+
+async function scanEpgChannels() {
+  const btn = document.getElementById('epg-scan-btn');
+  btn.disabled = true; btn.textContent = '⏳ Lädt…';
+  try {
+    const r = await api('POST', '/api/epg/scan');
+    showToast(`${r.found} EPG-Kanäle eingelesen!`);
+    await loadEpgChannels();
+  } catch(e) { showToast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '📡 EPG einlesen'; }
+}
+
+function filterEpgCh() {
+  const q = (document.getElementById('epg-ch-search')?.value || '').toLowerCase();
+  const filterVal = document.getElementById('epg-ch-filter')?.value || 'all';
+  let list = allEpgCh;
+  if (q) list = list.filter(c => c.name.toLowerCase().includes(q) || c.tvg_id.toLowerCase().includes(q));
+  if (filterVal === 'enabled') list = list.filter(c => c.enabled);
+  else if (filterVal === 'disabled') list = list.filter(c => !c.enabled);
+  else if (filterVal === 'matched') list = list.filter(c => chManagerIds.has(c.tvg_id));
+
+  const totalEnabled = allEpgCh.filter(c => c.enabled).length;
+  document.getElementById('epg-ch-count').textContent = `${totalEnabled}/${allEpgCh.length} aktiv · ${list.length} angezeigt`;
+
+  const grid = document.getElementById('epg-ch-grid');
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">Keine Kanäle gefunden. "EPG einlesen" klicken.</div>';
+    return;
+  }
+
+  // Sort: enabled first, then by sort_order
+  const sorted = [...list].sort((a, b) => {
+    if (a.enabled !== b.enabled) return b.enabled - a.enabled;
+    return a.sort_order - b.sort_order;
+  });
+
+  grid.innerHTML = sorted.map((ch, idx) => {
+    const inManager = chManagerIds.has(ch.tvg_id);
+    const matchDot = inManager ? `<span style="width:5px;height:5px;border-radius:50%;background:var(--teal);display:inline-block;margin-right:2px;" title="Im Kanal-Manager vorhanden"></span>` : '';
+    return `<div class="ch-card${ch.enabled ? '' : ' disabled'}" id="epgcc-${ch.tvg_id.replace(/[^a-z0-9]/gi,'_')}"
+         draggable="true"
+         ondragstart="epgDStart(event,'${esc(ch.tvg_id)}')"
+         ondragover="epgDOver(event)"
+         ondrop="epgDDrop(event,'${esc(ch.tvg_id)}')"
+         ondragend="epgDEnd()">
+      <span class="ch-num">${ch.sort_order + 1}</span>
+      <div class="ch-ph" style="font-size:8px;color:var(--text3);flex-shrink:0;">EPG</div>
+      <div class="ch-info">
+        <div class="ch-name" title="${esc(ch.name)}">${matchDot}${esc(ch.name)}</div>
+        <div class="ch-grp">${esc(ch.tvg_id)}</div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-        <button class="btn primary" onclick="copyAndConfirm('${playlistUrl}', this)">📋 URL kopieren</button>
-        <button class="btn" onclick="openQr('${playlistUrl}', 'Playlist – ' + '${name}')">QR-Code</button>
-      </div>
-    </div>
-
-    <div style="margin-bottom:20px;">
-      <div class="form-label" style="margin-bottom:8px;">📅 EPG URL (für Programmdaten)</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <div style="flex:1;background:var(--bg3);border:1px solid var(--border);padding:10px 12px;
-          font-family:var(--mono);font-size:12px;color:var(--teal);word-break:break-all;">
-          ${epgUrl}
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-        <button class="btn primary" onclick="copyAndConfirm('${epgUrl}', this)">📋 URL kopieren</button>
-        <button class="btn" onclick="openQr('${epgUrl}', 'EPG – ' + '${name}')">QR-Code</button>
-      </div>
-    </div>
-
-    <div style="background:var(--bg3);border:1px solid var(--border);padding:14px;
-      font-size:12px;color:var(--text2);line-height:1.7;">
-      <strong style="color:var(--text);">📱 Anleitung TiviMate:</strong><br>
-      Hinzufügen → M3U-Playlist → URL eingeben → Playlist URL einfügen<br>
-      Optional: EPG-URL unter Einstellungen → EPG → URL hinzufügen
-    </div>
-  `;
-  document.getElementById('share-modal').classList.add('open');
+      <button class="btn sm${ch.enabled ? ' danger' : ''}"
+              onclick="toggleEpgCh('${esc(ch.tvg_id)}',${ch.enabled})"
+              style="flex-shrink:0;">${ch.enabled ? '✕' : '✓'}</button>
+    </div>`;
+  }).join('');
 }
 
-async function copyAndConfirm(url, btn) {
-  await navigator.clipboard.writeText(url);
-  const old = btn.textContent;
-  btn.textContent = '✓ Kopiert!';
-  btn.style.borderColor = 'var(--green)';
-  btn.style.color = 'var(--green)';
-  setTimeout(() => {
-    btn.textContent = old;
-    btn.style.borderColor = '';
-    btn.style.color = '';
-  }, 2000);
+async function toggleEpgCh(tvgId, enabled) {
+  await api('PUT', `/api/epg/channels/${encodeURIComponent(tvgId)}`, {enabled: enabled ? 0 : 1});
+  const i = allEpgCh.findIndex(c => c.tvg_id === tvgId);
+  if (i >= 0) allEpgCh[i].enabled = enabled ? 0 : 1;
+  filterEpgCh();
 }
 
-function openQr(url, title) {
-  const encoded = encodeURIComponent(url);
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encoded}`;
-  const win = window.open('', '_blank', 'width=320,height=360');
-  win.document.write(`
-    <html><head><title>QR – ${title}</title>
-    <style>body{background:#0d1117;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;min-height:100vh;margin:0;font-family:monospace;color:#e6edf3;}
-      img{border:8px solid white;border-radius:4px;}
-      p{font-size:11px;color:#8b949e;margin-top:12px;max-width:260px;text-align:center;word-break:break-all;}
-    </style></head>
-    <body><img src="${qrUrl}" width="250" height="250"><p>${url}</p></body></html>
-  `);
+async function epgChToggleAll(val) {
+  const q = (document.getElementById('epg-ch-search')?.value || '').toLowerCase();
+  const list = q ? allEpgCh.filter(c => c.name.toLowerCase().includes(q) || c.tvg_id.toLowerCase().includes(q)) : allEpgCh;
+  await Promise.all(list.map(c => api('PUT', `/api/epg/channels/${encodeURIComponent(c.tvg_id)}`, {enabled: val})));
+  list.forEach(c => { const i = allEpgCh.findIndex(x => x.tvg_id === c.tvg_id); if(i>=0) allEpgCh[i].enabled = val; });
+  filterEpgCh();
+  showToast(val ? 'Alle aktiviert' : 'Alle deaktiviert');
+}
+
+// Drag & Drop for EPG channels
+function epgDStart(e, id) { epgDragId = id; setTimeout(() => document.getElementById('epgcc-'+id.replace(/[^a-z0-9]/gi,'_'))?.classList.add('dragging'), 0); e.dataTransfer.effectAllowed = 'move'; }
+function epgDOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function epgDEnd() { document.querySelectorAll('.ch-card').forEach(c => c.classList.remove('dragging','drag-over')); }
+
+async function epgDDrop(e, tgtId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (epgDragId === tgtId) return;
+  const si = allEpgCh.findIndex(c => c.tvg_id === epgDragId);
+  const ti = allEpgCh.findIndex(c => c.tvg_id === tgtId);
+  if (si < 0 || ti < 0) return;
+  const moved = allEpgCh.splice(si, 1)[0];
+  allEpgCh.splice(ti, 0, moved);
+  allEpgCh.forEach((c, i) => c.sort_order = i);
+  filterEpgCh();
+  const order = allEpgCh.map(c => c.tvg_id);
+  await api('POST', '/api/epg/channels/reorder', {order});
 }
 
 </script>
