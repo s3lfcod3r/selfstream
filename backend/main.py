@@ -1038,13 +1038,16 @@ def _get_now_playing(channel_name: str) -> dict:
                     break
 
         if not tvg_id:
+            logger.debug(f"EPG now_playing: no tvg_id found for '{channel_name}'")
             return {}
 
         # Find currently running programme
         fmt = "%Y%m%d%H%M%S %z"
+        matched = 0
         for programme in root.findall("programme"):
             if programme.get("channel", "") != tvg_id:
                 continue
+            matched += 1
             try:
                 start = datetime.strptime(programme.get("start", ""), fmt)
                 stop  = datetime.strptime(programme.get("stop",  ""), fmt)
@@ -1057,11 +1060,13 @@ def _get_now_playing(channel_name: str) -> dict:
                         "start": start.strftime("%H:%M"),
                         "stop":  stop.strftime("%H:%M"),
                     }
-            except Exception:
+            except Exception as pe:
+                logger.debug(f"EPG parse error: {pe}")
                 continue
+        logger.debug(f"EPG now_playing: no current programme for '{channel_name}' (tvg_id={tvg_id}, programmes checked={matched})")
         return {}
     except Exception as e:
-        logger.debug(f"EPG now_playing error: {e}")
+        logger.warning(f"EPG now_playing error for '{channel_name}': {e}")
         return {}
 
 
