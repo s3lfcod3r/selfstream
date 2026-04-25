@@ -311,6 +311,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <div class="section-hdr">
           <span class="section-title">Kanal-Manager <span id="ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
           <div style="display:flex;gap:6px;">
+            <button class="btn" onclick="showGroupManager()">⚙ Gruppen</button>
             <button class="btn" onclick="openImport()">↓ M3U importieren</button>
             <button class="btn" onclick="refreshCh()">↻ Neu laden</button>
           </div>
@@ -637,6 +638,126 @@ tr:hover td{background:rgba(255,255,255,.02);}
 let TOKEN = sessionStorage.getItem('ss_token') || '';
 let statsTimer = null;
 let allCh = [];
+let customGroups = [];
+
+// ── Custom Groups ──────────────────────────────────────────────────────────
+
+async function loadCustomGroups() {
+  customGroups = await api('GET', '/api/groups') || [];
+  return customGroups;
+}
+
+async function setChGroup(chId, groupName) {
+  await api('PUT', `/api/channels/${chId}/group`, {group: groupName});
+  const ch = allCh.find(c => c.id === chId);
+  if(ch) ch.custom_group = groupName;
+}
+
+function showGroupManager() {
+  loadCustomGroups().then(() => renderGroupModal());
+  document.getElementById('group-modal').style.display = 'flex';
+}
+
+function renderGroupModal() {
+  const list = document.getElementById('group-list');
+  if(!customGroups.length) {
+    list.innerHTML = '<div style="color:var(--text2);font-size:11px;padding:8px;">Noch keine Gruppen erstellt.</div>';
+    return;
+  }
+  list.innerHTML = customGroups.map(g => `
+    <div style="display:flex;gap:8px;align-items:center;background:var(--bg3);padding:8px 12px;border-radius:6px;border:1px solid var(--border);">
+      <span style="font-size:20px;width:28px;text-align:center;">${g.icon||'📁'}</span>
+      <div style="flex:1;">
+        <div style="font-size:12px;font-weight:600;">${esc(g.name)}</div>
+        <div style="font-size:10px;color:var(--text2);">${allCh.filter(c=>c.custom_group===g.name).length} Kanäle zugewiesen</div>
+      </div>
+      <button class="btn sm danger" onclick="deleteCustomGroup(${g.id},'${esc(g.name)}')">✕ Löschen</button>
+    </div>`).join('');
+}
+
+async function createCustomGroup() {
+  const icon = document.getElementById('new-group-icon').value.trim() || '📁';
+  const name = document.getElementById('new-group-name').value.trim();
+  if(!name) { showToast('Bitte einen Namen eingeben', true); return; }
+  await api('POST', '/api/groups', {name, icon, sort_order: customGroups.length});
+  document.getElementById('new-group-name').value = '';
+  document.getElementById('new-group-icon').value = '';
+  await loadCustomGroups();
+  renderGroupModal();
+}
+
+async function deleteCustomGroup(id, name) {
+  if(!confirm(`Gruppe "${name}" löschen? Alle Kanal-Zuordnungen werden entfernt.`)) return;
+  await api('DELETE', `/api/groups/${id}`);
+  allCh.forEach(c => { if(c.custom_group === name) c.custom_group = ''; });
+  await loadCustomGroups();
+  renderGroupModal();
+  filterCh();
+}
+
+function setGroupSuggest(icon, name) {
+  document.getElementById('new-group-icon').value = icon;
+  document.getElementById('new-group-name').value = name;
+}
+
+// ── User Group Assignment ──────────────────────────────────────────────────
+
+let editingUserId = null;
+
+async function editUserGroups(userId, userName) {
+  editingUserId = userId;
+  document.getElementById('ugrp-title').textContent = `Gruppen für ${userName}`;
+  await loadCustomGroups();
+  const assigned = await api('GET', `/api/users/${userId}/groups`) || [];
+  renderUserGroupModal(assigned);
+  document.getElementById('ugrp-modal').style.display = 'flex';
+}
+
+function renderUserGroupModal(assigned) {
+  const container = document.getElementById('ugrp-list');
+  if(!customGroups.length) {
+    container.innerHTML = '<div style="color:var(--text2);font-size:11px;">Erst Gruppen im Gruppen-Manager erstellen.</div>';
+    return;
+  }
+  container.innerHTML = customGroups.map(g => {
+    const checked = assigned.includes(g.name);
+    const chCount = allCh.filter(c => c.custom_group === g.name).length;
+    return `
+      <label style="display:flex;gap:10px;align-items:center;padding:10px 12px;background:var(--bg3);border-radius:6px;border:1px solid ${checked?'var(--teal)':'var(--border)'};cursor:pointer;">
+        <input type="checkbox" value="${esc(g.name)}" ${checked?'checked':''} onchange="updateUgrpBorder(this)">
+        <span style="font-size:18px;">${g.icon||'📁'}</span>
+        <div style="flex:1;">
+          <div style="font-size:12px;font-weight:600;">${esc(g.name)}</div>
+          <div style="font-size:10px;color:var(--text2);">${chCount} Kanäle</div>
+        </div>
+      </label>`;
+  }).join('');
+}
+
+function updateUgrpBorder(cb) {
+  const label = cb.closest('label');
+  label.style.borderColor = cb.checked ? 'var(--teal)' : 'var(--border)';
+}
+
+async function saveUserGroups() {
+  const checks = document.querySelectorAll('#ugrp-list input[type=checkbox]');
+  const selected = [...checks].filter(c => c.checked).map(c => c.value);
+  await api('PUT', `/api/users/${editingUserId}/groups`, {groups: selected});
+  document.getElementById('ugrp-modal').style.display = 'none';
+  showToast(selected.length ? `${selected.length} Gruppen gespeichert` : 'Alle Gruppen (kein Filter)');
+}
+let customGroups = [];
+
+async function loadCustomGroups() {
+  customGroups = await api('GET', '/api/groups') || [];
+}
+
+async function setChGroup(chId, groupName) {
+  await api('PUT', `/api/channels/${chId}/group`, {group: groupName});
+  const ch = allCh.find(c=>c.id===chId);
+  if(ch) ch.custom_group = groupName;
+}
+
 let dragId = null;
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
@@ -802,6 +923,7 @@ async function loadUsers() {
         <div class="action-cell">
           <button class="btn sm" onclick="userLogs(${u.id},'${esc(u.name)}')">Log</button>
           <button class="btn sm" onclick="regenToken(${u.id},'${esc(u.name)}')" title="Neuen Token generieren (alte URL wird ungültig)">🔄 Token</button>
+          <button class="btn sm" onclick="editUserGroups(${u.id},'${esc(u.name)}')">📁 Gruppen</button>
           <button class="btn sm" onclick="toggleUser(${u.id},${u.active})">${u.active?'Sperren':'Freigeben'}</button>
           <button class="btn sm danger" onclick="delUser(${u.id},'${esc(u.name)}')">✕</button>
         </div>
@@ -901,7 +1023,7 @@ async function userLogs(id,name) {
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 async function loadCh() {
-  const [chs,grps]=await Promise.all([api('GET','/api/channels'),api('GET','/api/channels/groups')]);
+  const [chs,grps]=await Promise.all([api('GET','/api/channels'),api('GET','/api/channels/groups'),loadCustomGroups()]);
   allCh=chs;
   const sel=document.getElementById('ch-grp');
   const cur=sel.value;
@@ -922,6 +1044,7 @@ function filterCh() {
     grid.innerHTML='<div class="empty-state" style="grid-column:1/-1">Keine Kanäle gefunden</div>';
     return;
   }
+  const grpOpts = (customGroups||[]).map(g=>`<option value="${esc(g.name)}">${g.icon} ${esc(g.name)}</option>`).join('');
   grid.innerHTML=list.map((ch)=>`
     <div class="ch-card${ch.enabled?'':' disabled'}" id="cc-${ch.id}"
          draggable="true"
@@ -933,10 +1056,23 @@ function filterCh() {
       ${ch.tvg_logo?`<img class="ch-logo" src="${esc(ch.tvg_logo)}" onerror="this.style.display='none'" loading="lazy">`:`<div class="ch-ph">📺</div>`}
       <div class="ch-info">
         <div class="ch-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
-        <div class="ch-grp">${esc(ch.group_title||'—')}</div>
+        <div class="ch-grp" style="display:flex;gap:4px;align-items:center;">
+          <select class="form-input" style="font-size:9px;padding:1px 3px;height:18px;max-width:130px;"
+            onchange="setChGroup(${ch.id},this.value)" onclick="event.stopPropagation()">
+            <option value="">— ${esc(ch.group_title||'Keine Gruppe')} —</option>
+            ${grpOpts}
+          </select>
+        </div>
       </div>
       <button class="btn sm${ch.enabled?' danger':''}" onclick="toggleCh(${ch.id},${ch.enabled})" title="${ch.enabled?'Deaktivieren':'Aktivieren'}" style="flex-shrink:0;">${ch.enabled?'✕':'✓'}</button>
     </div>`).join('');
+  // Set current custom_group selection
+  list.forEach(ch=>{
+    if(ch.custom_group){
+      const sel=document.querySelector(`#cc-${ch.id} select`);
+      if(sel) sel.value=ch.custom_group;
+    }
+  });
 }
 
 function dStart(e,id){ dragId=id; setTimeout(()=>document.getElementById('cc-'+id)?.classList.add('dragging'),0); e.dataTransfer.effectAllowed='move'; }
@@ -1367,5 +1503,58 @@ async function epgDDrop(e, tgtId) {
 }
 
 </script>
+
+<!-- Group Manager Modal -->
+<!-- Group Manager Modal -->
+<div id="group-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:24px;width:90%;max-width:600px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <span class="section-title">⚙ Gruppen verwalten</span>
+      <button class="btn sm" onclick="document.getElementById('group-modal').style.display='none'">✕</button>
+    </div>
+    <p style="font-size:10px;color:var(--text2);margin-bottom:16px;font-family:var(--mono);">
+      💡 Eigene Gruppen überschreiben die Anbieter-Gruppen in der M3U. Kanäle ohne Zuweisung behalten ihre Original-Gruppe.
+    </p>
+    <div id="group-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px;"></div>
+    <div style="border-top:1px solid var(--border);padding-top:16px;">
+      <div style="font-size:11px;font-weight:600;margin-bottom:10px;color:var(--text1);">Neue Gruppe erstellen</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <input class="form-input" id="new-group-icon" placeholder="📺" style="width:56px;text-align:center;font-size:20px;">
+        <input class="form-input" id="new-group-name" placeholder="z.B. Privates TV" style="flex:1;min-width:180px;">
+        <button class="btn primary" onclick="createCustomGroup()">+ Erstellen</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">
+        <button class="btn sm" onclick="setGroupSuggest('📺','Privates TV')">📺 Privates TV</button>
+        <button class="btn sm" onclick="setGroupSuggest('📡','Öffentlich-Rechtlich')">📡 Öff.-Rechtlich</button>
+        <button class="btn sm" onclick="setGroupSuggest('⚽','Sport')">⚽ Sport</button>
+        <button class="btn sm" onclick="setGroupSuggest('🧒','Kinder')">🧒 Kinder</button>
+        <button class="btn sm" onclick="setGroupSuggest('🎬','Kino & Serien')">🎬 Kino & Serien</button>
+        <button class="btn sm" onclick="setGroupSuggest('📰','Doku & Info')">📰 Doku & Info</button>
+        <button class="btn sm" onclick="setGroupSuggest('🎵','Musik')">🎵 Musik</button>
+        <button class="btn sm" onclick="setGroupSuggest('🌍','International')">🌍 International</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- User Group Assignment Modal -->
+<div id="ugrp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:24px;width:90%;max-width:500px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span class="section-title">📁 <span id="ugrp-title">Gruppen zuweisen</span></span>
+      <button class="btn sm" onclick="document.getElementById('ugrp-modal').style.display='none'">✕</button>
+    </div>
+    <p style="font-size:10px;color:var(--text2);margin-bottom:16px;font-family:var(--mono);">
+      Wähle welche Gruppen dieser User in seiner Playlist sieht.<br>
+      ⚠ Kein Haken = alle Kanäle sichtbar (kein Filter).
+    </p>
+    <div id="ugrp-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:16px;">
+      <button class="btn" onclick="document.getElementById('ugrp-modal').style.display='none'">Abbrechen</button>
+      <button class="btn primary" onclick="saveUserGroups()">💾 Speichern</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
