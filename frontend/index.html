@@ -735,8 +735,7 @@ async function loadStats() {
     if(!s.active_sessions||!s.active_sessions.length){
       wrap.innerHTML='<div class="empty-state">Keine aktiven Streams gerade</div>';
     } else {
-      // Live sessions
-      const liveRows = s.active_sessions.map(sess=>{
+      wrap.innerHTML=s.active_sessions.map(sess=>{
         const durSec=sess.started_at?now-sess.started_at:0;
         const dt=sess.started_at?new Date(sess.started_at*1000):null;
         const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
@@ -749,24 +748,31 @@ async function loadStats() {
           <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
           <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(sess.channel)}</span>
           ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${np.start||''}–${np.stop||''}</span>`:''}
-          <span class="session-meta" style="flex-shrink:0;">${timeStr ? `seit ${timeStr} · ${durStr}` : ''}</span>
+          <span class="session-meta" style="flex-shrink:0;">${timeStr?`seit ${timeStr} · ${durStr}`:''}</span>
         </div>`;
-      });
-      // Active catchup sessions from backend in-memory tracker
-      const catchupRows=(s.active_catchup||[]).map(l=>{
-        const durStr=l.duration>3600?`${Math.floor(l.duration/3600)}h ${Math.floor((l.duration%3600)/60)}m`
-                    :l.duration>60?`${Math.floor(l.duration/60)}m ${l.duration%60}s`:`${l.duration}s`;
-        const np=l.epg_title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(l.epg_title)}</span>`:'';
-        return `<div class="session-row" style="padding:10px 14px;flex-wrap:nowrap;overflow:hidden;">
-          <span style="width:10px;height:10px;border-radius:50%;background:var(--teal);flex-shrink:0;display:inline-block;"></span>
-          <strong style="flex-shrink:0;">${esc(l.user)}</strong>
-          <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
-          <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(l.channel)}</span>
-          ${np}
-          <span class="session-meta" style="flex-shrink:0;">⏪ ${durStr}</span>
-        </div>`;
-      });
-      wrap.innerHTML = [...liveRows, ...catchupRows].join('') || '<div class="empty-state">Keine aktiven Streams gerade</div>';
+      }).join('');
+    }
+
+    // ── Catchup Sessions (separate block) ────────────────────────────────────
+    const cwrap=document.getElementById('catchup-wrap');
+    if(cwrap){
+      const ac=s.active_catchup||[];
+      if(!ac.length){
+        cwrap.innerHTML='<div class="empty-state">Keine aktiven Catchup-Sessions</div>';
+      } else {
+        cwrap.innerHTML=ac.map(l=>{
+          const durStr=l.duration>3600?`${Math.floor(l.duration/3600)}h ${Math.floor((l.duration%3600)/60)}m`
+                      :l.duration>60?`${Math.floor(l.duration/60)}m ${l.duration%60}s`:`${l.duration}s`;
+          return `<div class="session-row" style="padding:10px 14px;flex-wrap:nowrap;overflow:hidden;">
+            <span style="font-size:13px;color:var(--teal);flex-shrink:0;">⏪</span>
+            <strong style="flex-shrink:0;">${esc(l.user)}</strong>
+            <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(l.channel)}</span>
+            ${l.epg_title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(l.epg_title)}</span>`:''}
+            <span class="session-meta" style="flex-shrink:0;">${durStr}</span>
+          </div>`;
+        }).join('');
+      }
     }
 
     // ── Zuletzt geschaut ──────────────────────────────────────────────────────
