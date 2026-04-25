@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>
+    selfstream is a self-hosted IPTV proxy with user management, stream protection, EPG integration and watch tracking. Run it as a single Docker container on Unraid — no Redis, no external database needed.
+
+    Features:
+    - Every user gets their own M3U URL with token
+    - Max streams per user (blocks extra devices with HTTP 429)
+    - Custom channel groups (Kids, Sports, Docs) with per-user assignment
+    - Catchup / Timeshift support (IPTV Pro, TiviMate)
+    - Live dashboard with active sessions and EPG program info
+    - Watch history with show titles and duration
+    - M3U and EPG auto-refresh
+    - Setup wizard on first start
+
+    Source and documentation: https://github.com/kabelsalatundklartext/selfstream
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/logo.png</Icon>
+  <WebPage>https://github.com/kabelsalatundklartext/selfstream</WebPage>
+</CommunityApplications>

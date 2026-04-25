@@ -3,30 +3,27 @@
   <Name>selfstream</Name>
   <Repository>ghcr.io/kabelsalatundklartext/selfstream:latest</Repository>
   <Registry>https://github.com/kabelsalatundklartext/selfstream/pkgs/container/selfstream</Registry>
-  <GitHub>https://github.com/kabelsalatundklartext/selfstream</GitHub>
   <Project>https://github.com/kabelsalatundklartext/selfstream</Project>
-  <Overview>Selbst gehosteter IPTV-Proxy mit User-Management. Jedes Familienmitglied bekommt eine eigene M3U-URL mit Token. Nur 1 gleichzeitiger Stream pro User. Watch-Tracking inklusive. Beim ersten Start Admin-Panel öffnen und einrichten.</Overview>
+  <Support>https://github.com/kabelsalatundklartext/selfstream/issues</Support>
+  <Overview>Self-hosted IPTV proxy with user management, stream protection, EPG integration and watch tracking. Every family member gets their own M3U URL with token. Max streams per user configurable. Custom channel groups for kids, sports etc. Single Docker container — no Redis, no external database.</Overview>
   <Category>MediaServer: Tools:</Category>
   <WebUI>http://[IP]:[PORT:8080]/admin</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/main/selfstream.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/logo.png</Icon>
-  <Networking>
-    <Mode>bridge</Mode>
-  </Networking>
-  <ExtraParams></ExtraParams>
-  <DateInstalled></DateInstalled>
-  <DonateText></DonateText>
-  <DonateLink></DonateLink>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
 
-  <Config Name="Daten-Pfad" Target="/data" Default="/mnt/user/appdata/selfstream/data" Mode="rw" Description="Hier wird die Datenbank gespeichert (Benutzer, Logs)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/selfstream/data</Config>
+  <Config Name="Daten-Pfad" Target="/data" Default="/mnt/user/appdata/selfstream/data" Mode="rw" Description="Path where the database and logs are stored." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/selfstream/data</Config>
 
-  <Config Name="IPTV Proxy Port" Target="8000" Default="8000" Mode="tcp" Description="Port für IPTV-Streams und M3U-Playlists. Dieser Link kommt in die IPTV-App." Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="IPTV Proxy Port" Target="8000" Default="8000" Mode="tcp" Description="Port for IPTV streams and M3U playlists. This is the URL that goes into the IPTV app." Type="Port" Display="always" Required="true" Mask="false">8000</Config>
 
-  <Config Name="Admin Panel Port" Target="8080" Default="8080" Mode="tcp" Description="Port für das Admin-Panel. Nur du brauchst diesen Port." Type="Port" Display="always" Required="true" Mask="false">8888</Config>
+  <Config Name="Admin Panel Port" Target="8080" Default="8080" Mode="tcp" Description="Port for the admin panel. Only you need this port." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
 
-  <Config Name="Admin Token (optional)" Target="ADMIN_TOKEN" Default="" Mode="" Description="Leer lassen für Web-Einrichtung beim ersten Start. Oder hier direkt setzen." Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Admin Token (optional)" Target="ADMIN_TOKEN" Default="" Mode="" Description="Leave empty for web setup on first start. Or set directly here." Type="Variable" Display="always" Required="false" Mask="true"></Config>
 
-  <Config Name="Base URL (optional)" Target="BASE_URL" Default="" Mode="" Description="Leer lassen für Web-Einrichtung. Beispiel: http://192.168.1.69:8080" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Base URL (optional)" Target="BASE_URL" Default="" Mode="" Description="Leave empty for web setup. Example: http://192.168.1.69:8080" Type="Variable" Display="always" Required="false" Mask="false"></Config>
 
-  <Config Name="DB Pfad" Target="DB_PATH" Default="/data/selfstream.db" Mode="" Description="Pfad zur SQLite Datenbank. Normalerweise nicht ändern." Type="Variable" Display="advanced" Required="false" Mask="false">/data/selfstream.db</Config>
+  <Config Name="DB Path" Target="DB_PATH" Default="/data/selfstream.db" Mode="" Description="Path to SQLite database. Usually no need to change." Type="Variable" Display="advanced" Required="false" Mask="false">/data/selfstream.db</Config>
 
 </Container>
