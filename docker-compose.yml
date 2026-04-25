@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  selfstream:
+    image: ghcr.io/kabelsalatundklartext/selfstream:latest
+    container_name: selfstream
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # IPTV Proxy – für alle User (m3u + streams)
+      - "8080:8080"   # Admin Panel – nur du
+    volumes:
+      - /mnt/user/appdata/selfstream/data:/data
+    environment:
+      - DB_PATH=/data/selfstream.db
+      # Optional: direkt setzen statt Web-Einrichtung
+      # - ADMIN_TOKEN=dein-token
+      # - BASE_URL=http://192.168.1.69:8080
