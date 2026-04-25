@@ -1082,11 +1082,56 @@ def get_stats(_=Depends(check_admin)):
             "ip": s.get("ip_address", ""),
             "now_playing": now_playing,
         })
+    logs_out = []
+    for l in recent_logs:
+        epg_title = ""
+        if l.get("is_catchup") and l.get("catchup_time"):
+            # For catchup: look up what was on at that time
+            try:
+                import xml.etree.ElementTree as ET
+                content = _epg_cache.get("content")
+                if content:
+                    root_el = ET.fromstring(content)
+                    ch_rec = db.get_channel_by_name(l["channel"]) or {}
+                    tvg_id = ch_rec.get("tvg_id","").strip()
+                    if not tvg_id:
+                        for ch_el in root_el.findall("channel"):
+                            disp = ch_el.findtext("display-name") or ""
+                            if l["channel"].lower() in disp.lower() or disp.lower() in l["channel"].lower():
+                                tvg_id = ch_el.get("id","")
+                                break
+                    if tvg_id:
+                        # catchup_time is "YYYY-MM-DD HH:MM"
+                        ct = datetime.strptime(l["catchup_time"], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                        fmt = "%Y%m%d%H%M%S %z"
+                        for prog in root_el.findall("programme"):
+                            if prog.get("channel","") != tvg_id:
+                                continue
+                            try:
+                                ps = datetime.strptime(prog.get("start",""), fmt)
+                                pe = datetime.strptime(prog.get("stop",""),  fmt)
+                                if ps <= ct <= pe:
+                                    epg_title = prog.findtext("title") or ""
+                                    break
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+        logs_out.append({
+            "user": l["user_name"],
+            "channel": l["channel"],
+            "started_at": l["started_at"],
+            "duration": l["duration_seconds"],
+            "ip": l.get("ip_address",""),
+            "is_catchup": l.get("is_catchup", 0),
+            "catchup_time": l.get("catchup_time",""),
+            "epg_title": epg_title,
+        })
     return {
         "total_users": len(users),
         "active_streams": len(active_sessions),
         "active_sessions": sessions_out,
-        "recent_logs": [{"user": l["user_name"], "channel": l["channel"], "started_at": l["started_at"], "duration": l["duration_seconds"], "ip": l.get("ip_address",""), "is_catchup": l.get("is_catchup",0), "catchup_time": l.get("catchup_time","")} for l in recent_logs],
+        "recent_logs": logs_out,
         "watch_logs_today": db.get_logs_today_count(),
         "total_channels": ch_stats["total"] or 0,
         "enabled_channels": ch_stats["enabled"] or 0,
