@@ -226,6 +226,24 @@ class Database:
             rows = con.execute("SELECT name FROM user_groups ORDER BY name").fetchall()
             return [r["name"] for r in rows]
 
+    # ── Provider Group Order ─────────────────────────────────────────────────────
+
+    def get_provider_group_order(self) -> dict:
+        """Returns {group_name: sort_order} for all saved provider group orderings."""
+        with self.conn() as con:
+            rows = con.execute("SELECT group_name, sort_order FROM provider_group_order").fetchall()
+            return {r["group_name"]: r["sort_order"] for r in rows}
+
+    def set_provider_group_order(self, ordered_names: List[str]):
+        """Save provider group sort order."""
+        with self.conn() as con:
+            con.execute("DELETE FROM provider_group_order")
+            for i, name in enumerate(ordered_names):
+                con.execute(
+                    "INSERT INTO provider_group_order (group_name, sort_order) VALUES (?, ?)",
+                    (name, i)
+                )
+
     def get_m3u_refresh_due(self) -> bool:
         """Check if M3U needs refresh based on m3u_refresh_hours setting."""
         refresh_hours = int(self.get_setting("m3u_refresh_hours", "0") or "0")
@@ -671,6 +689,12 @@ class Database:
                         PRIMARY KEY (group_id, channel_id),
                         FOREIGN KEY (group_id)   REFERENCES user_groups(id) ON DELETE CASCADE,
                         FOREIGN KEY (channel_id) REFERENCES channels(id)    ON DELETE CASCADE
+                    )
+                """)
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS provider_group_order (
+                        group_name TEXT PRIMARY KEY,
+                        sort_order INTEGER DEFAULT 0
                     )
                 """)
         except Exception as e:

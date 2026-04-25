@@ -316,13 +316,17 @@ async def serve_playlist(token: str):
                 seen.add(cid)
                 channels.append(c)
 
-    # Sort channels by group prefix number, then alphabetically
+    # Sort channels: custom groups by prefix number, provider groups by saved order
+    _provider_order = db.get_provider_group_order()
+
     def _group_sort_key(ch):
         gt = ch.get("group_title", "")
         m = re.match(r"^([0-9]+)\.", gt)
         if m:
             return (0, int(m.group(1)), gt)
-        return (1, 0, gt)
+        if gt in _provider_order:
+            return (1, _provider_order[gt], gt)
+        return (2, 0, gt)
 
     channels.sort(key=_group_sort_key)
 
@@ -1190,6 +1194,16 @@ def delete_user_group(group_id: int, _=Depends(check_admin)):
 def reorder_user_groups(body: dict, _=Depends(check_admin)):
     ordered_ids = body.get("ordered_ids", [])
     db.reorder_user_groups([int(i) for i in ordered_ids])
+    return {"ok": True}
+
+@admin_app.get("/api/channels/provider-group-order")
+def get_provider_group_order(_=Depends(check_admin)):
+    return db.get_provider_group_order()
+
+@admin_app.post("/api/channels/provider-group-order")
+def set_provider_group_order(body: dict, _=Depends(check_admin)):
+    ordered_names = body.get("ordered_names", [])
+    db.set_provider_group_order(ordered_names)
     return {"ok": True}
 
 
