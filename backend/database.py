@@ -433,12 +433,16 @@ class Database:
 
     def migrate_watch_logs(self):
         """Add is_catchup/catchup_time columns if they don't exist yet (upgrade from older version)."""
-        with self.conn() as con:
-            cols = [r[1] for r in con.execute("PRAGMA table_info(watch_logs)").fetchall()]
-            if "is_catchup" not in cols:
-                con.execute("ALTER TABLE watch_logs ADD COLUMN is_catchup INTEGER DEFAULT 0")
-            if "catchup_time" not in cols:
-                con.execute("ALTER TABLE watch_logs ADD COLUMN catchup_time TEXT DEFAULT NULL")
+        try:
+            with self.conn() as con:
+                cols = [r[1] for r in con.execute("PRAGMA table_info(watch_logs)").fetchall()]
+                if "is_catchup" not in cols:
+                    con.execute("ALTER TABLE watch_logs ADD COLUMN is_catchup INTEGER DEFAULT 0")
+                if "catchup_time" not in cols:
+                    con.execute("ALTER TABLE watch_logs ADD COLUMN catchup_time TEXT DEFAULT NULL")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"migrate_watch_logs: {e}")
 
     def get_epg_channels(self) -> List[Dict]:
         with self.conn() as con:
