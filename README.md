@@ -136,7 +136,7 @@ Beim Installieren über Unraid Community Apps werden folgende Felder angezeigt:
 ## Benutzer einrichten
 
 1. Admin Panel öffnen → **Benutzer** → **+ Benutzer hinzufügen**
-2. Name eingeben (z.B. "Papa", "Mama")
+2. Name eingeben (z.B. "User1", "User2")
 3. M3U-URL des IPTV-Anbieters eintragen
 4. Max. Streams einstellen (Standard: 1)
 5. Generierte Playlist-URL an User weitergeben:
