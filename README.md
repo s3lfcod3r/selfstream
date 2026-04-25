@@ -279,4 +279,15 @@ Alle persistenten Daten liegen unter `/data` im Container:
 
 ## Lizenz
 
-MIT License – frei verwendbar, veränderbar und weiterzugeben.
+**GNU General Public License v3.0 (GPL-3.0)**
+
+|  |  |
+|--|--|
+| ✅ Privat & Homelab nutzen | ✅ Verändern & anpassen |
+| ✅ Weitergeben & teilen | ✅ Eigene Versionen veröffentlichen |
+| ✅ Kommerzieller Einsatz erlaubt | ❌ Closed-Source-Abwandlungen verboten |
+| ✅ Forks müssen GPL-3.0 bleiben | ✅ Quellcode muss immer offen bleiben |
+
+Bei Weitergabe oder Veröffentlichung: Namensnennung + GPL-3.0-Lizenz beibehalten.
+
+> *"selfstream" von kabelsalatundklartext — [GitHub](https://github.com/kabelsalatundklartext/selfstream)*
