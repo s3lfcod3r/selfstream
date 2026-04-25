@@ -36,15 +36,16 @@ class Database:
                 );
 
                 CREATE TABLE IF NOT EXISTS users (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name        TEXT NOT NULL,
-                    token       TEXT UNIQUE NOT NULL,
-                    short_token TEXT UNIQUE,
-                    m3u_source  TEXT NOT NULL,
-                    active      INTEGER DEFAULT 1,
-                    max_streams INTEGER DEFAULT 1,
-                    created_at  TEXT DEFAULT (datetime('now')),
-                    notes       TEXT DEFAULT ''
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name           TEXT NOT NULL,
+                    token          TEXT UNIQUE NOT NULL,
+                    short_token    TEXT UNIQUE,
+                    m3u_source     TEXT NOT NULL,
+                    active         INTEGER DEFAULT 1,
+                    max_streams    INTEGER DEFAULT 1,
+                    created_at     TEXT DEFAULT (datetime('now')),
+                    notes          TEXT DEFAULT '',
+                    allowed_groups TEXT DEFAULT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS active_sessions (
@@ -110,6 +111,30 @@ class Database:
                     created_at TEXT DEFAULT (datetime('now'))
                 );
 
+                -- Group name mappings (survives M3U refresh)
+                CREATE TABLE IF NOT EXISTS group_mappings (
+                    original_name TEXT PRIMARY KEY,
+                    custom_name   TEXT NOT NULL,
+                    created_at    TEXT DEFAULT (datetime('now'))
+                );
+
+                -- Custom user groups (independent of provider groups)
+                CREATE TABLE IF NOT EXISTS user_groups (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT UNIQUE NOT NULL,
+                    sort_order INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+
+                -- Channels assigned to custom user groups
+                CREATE TABLE IF NOT EXISTS user_group_channels (
+                    group_id   INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    PRIMARY KEY (group_id, channel_id),
+                    FOREIGN KEY (group_id)   REFERENCES user_groups(id) ON DELETE CASCADE,
+                    FOREIGN KEY (channel_id) REFERENCES channels(id)    ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_user    ON watch_logs(user_id);
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_started ON watch_logs(started_at);
                 CREATE INDEX IF NOT EXISTS idx_channels_group     ON channels(group_title);
@@ -117,6 +142,101 @@ class Database:
             """)
 
     # ── Settings ──────────────────────────────────────────────────────────────
+
+    # ── User Groups ──────────────────────────────────────────────────────────────
+
+    def get_user_groups(self) -> List[Dict]:
+        with self.conn() as con:
+            rows = con.execute("""
+                SELECT ug.*, COUNT(ugc.channel_id) as channel_count
+                FROM user_groups ug
+                LEFT JOIN user_group_channels ugc ON ugc.group_id = ug.id
+                GROUP BY ug.id ORDER BY ug.sort_order, ug.name
+            """).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_user_group(self, name: str) -> Dict:
+        with self.conn() as con:
+            cur = con.execute("INSERT INTO user_groups (name) VALUES (?)", (name,))
+            return {"id": cur.lastrowid, "name": name, "channel_count": 0}
+
+    def delete_user_group(self, group_id: int):
+        with self.conn() as con:
+            con.execute("DELETE FROM user_group_channels WHERE group_id = ?", (group_id,))
+            con.execute("DELETE FROM user_groups WHERE id = ?", (group_id,))
+
+    def rename_user_group(self, group_id: int, name: str):
+        with self.conn() as con:
+            con.execute("UPDATE user_groups SET name = ? WHERE id = ?", (name, group_id))
+
+    def reorder_user_groups(self, ordered_ids: List[int]):
+        with self.conn() as con:
+            for i, gid in enumerate(ordered_ids):
+                con.execute("UPDATE user_groups SET sort_order = ? WHERE id = ?", (i, gid))
+
+    def get_user_group_channels(self, group_id: int) -> List[int]:
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT channel_id FROM user_group_channels WHERE group_id = ?", (group_id,)
+            ).fetchall()
+            return [r["channel_id"] for r in rows]
+
+    def set_user_group_channels(self, group_id: int, channel_ids: List[int]):
+        with self.conn() as con:
+            con.execute("DELETE FROM user_group_channels WHERE group_id = ?", (group_id,))
+            for cid in channel_ids:
+                try:
+                    con.execute(
+                        "INSERT OR IGNORE INTO user_group_channels (group_id, channel_id) VALUES (?, ?)",
+                        (group_id, cid)
+                    )
+                except Exception:
+                    pass
+
+    def add_channel_to_user_group(self, group_id: int, channel_id: int):
+        with self.conn() as con:
+            con.execute(
+                "INSERT OR IGNORE INTO user_group_channels (group_id, channel_id) VALUES (?, ?)",
+                (group_id, channel_id)
+            )
+
+    def remove_channel_from_user_group(self, group_id: int, channel_id: int):
+        with self.conn() as con:
+            con.execute(
+                "DELETE FROM user_group_channels WHERE group_id = ? AND channel_id = ?",
+                (group_id, channel_id)
+            )
+
+    def get_channels_for_user_groups(self, group_names: List[str]) -> List[Dict]:
+        """Get all channels that belong to any of the given user group names."""
+        with self.conn() as con:
+            placeholders = ",".join("?" * len(group_names))
+            rows = con.execute(f"""
+                SELECT DISTINCT c.*
+                FROM channels c
+                JOIN user_group_channels ugc ON ugc.channel_id = c.id
+                JOIN user_groups ug ON ug.id = ugc.group_id
+                WHERE ug.name IN ({placeholders}) AND c.enabled = 1
+                ORDER BY c.sort_order
+            """, group_names).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_all_user_group_names(self) -> List[str]:
+        with self.conn() as con:
+            rows = con.execute("SELECT name FROM user_groups ORDER BY name").fetchall()
+            return [r["name"] for r in rows]
+
+    def get_m3u_refresh_due(self) -> bool:
+        """Check if M3U needs refresh based on m3u_refresh_hours setting."""
+        refresh_hours = int(self.get_setting("m3u_refresh_hours", "0") or "0")
+        if refresh_hours <= 0:
+            return False
+        last = self.get_setting("m3u_last_refresh", "0")
+        last_ts = float(last) if last else 0
+        return (time.time() - last_ts) >= refresh_hours * 3600
+
+    def set_m3u_last_refresh(self):
+        self.set_setting("m3u_last_refresh", str(time.time()))
 
     def get_setting(self, key: str, default: str = None) -> Optional[str]:
         with self.conn() as con:
@@ -236,7 +356,7 @@ class Database:
                     "m3u_source": m3u_source, "active": 1}
 
     def update_user(self, user_id: int, data: Dict):
-        allowed = {"name", "m3u_source", "active", "notes", "max_streams"}
+        allowed = {"name", "m3u_source", "active", "notes", "max_streams", "allowed_groups"}
         fields = {k: v for k, v in data.items() if k in allowed}
         if not fields:
             return
@@ -297,16 +417,30 @@ class Database:
             return [r["group_title"] for r in rows]
 
     def upsert_channels(self, channels: List[Dict]):
-        """Replace all channels with fresh parsed list."""
+        """Replace all channels with fresh parsed list, preserving group mappings and sort order."""
         with self.conn() as con:
+            # Load existing group mappings
+            mappings = {r["original_name"]: r["custom_name"]
+                        for r in con.execute("SELECT * FROM group_mappings").fetchall()}
+            # Preserve existing sort_order and enabled state by stream_url
+            existing = {}
+            for row in con.execute("SELECT stream_url, enabled, sort_order FROM channels").fetchall():
+                existing[row["stream_url"].split("?")[0]] = {"enabled": row["enabled"], "sort_order": row["sort_order"]}
             con.execute("DELETE FROM channels")
             for i, ch in enumerate(channels):
+                orig_group = ch.get("group", "")
+                group = mappings.get(orig_group, orig_group)  # apply mapping if exists
+                url = ch["url"]
+                url_base = url.split("?")[0]
+                prev = existing.get(url_base, {})
+                enabled = prev.get("enabled", 1)
+                sort_order = prev.get("sort_order", i)
                 con.execute("""
                     INSERT INTO channels (name, group_title, tvg_id, tvg_logo, tvg_rec, stream_url, enabled, sort_order, raw_extinf)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-                """, (ch["name"], ch.get("group", ""), ch.get("tvg_id", ""),
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (ch["name"], group, ch.get("tvg_id", ""),
                       ch.get("tvg_logo", ""), ch.get("tvg_rec", ""),
-                      ch["url"], i, ch.get("raw_extinf", "")))
+                      url, enabled, sort_order, ch.get("raw_extinf", "")))
 
     def update_channel(self, channel_id: int, data: Dict):
         allowed = {"enabled", "sort_order", "name", "group_title"}
@@ -321,6 +455,61 @@ class Database:
     def set_group_enabled(self, group: str, enabled: int):
         with self.conn() as con:
             con.execute("UPDATE channels SET enabled = ? WHERE group_title = ?", (enabled, group))
+
+    def get_group_mappings(self) -> List[Dict]:
+        with self.conn() as con:
+            rows = con.execute("SELECT * FROM group_mappings ORDER BY original_name").fetchall()
+            return [dict(r) for r in rows]
+
+    def set_group_mapping(self, original_name: str, custom_name: str):
+        """Map original group name to custom name. Applies immediately to all channels."""
+        with self.conn() as con:
+            if custom_name.strip() and custom_name.strip() != original_name:
+                con.execute("""
+                    INSERT INTO group_mappings (original_name, custom_name)
+                    VALUES (?, ?)
+                    ON CONFLICT(original_name) DO UPDATE SET custom_name = excluded.custom_name
+                """, (original_name, custom_name.strip()))
+                # Apply immediately to existing channels
+                con.execute("UPDATE channels SET group_title = ? WHERE group_title = ?",
+                            (custom_name.strip(), original_name))
+                # Also update if previously mapped
+                old_rows = con.execute(
+                    "SELECT original_name FROM group_mappings WHERE custom_name = ?", (original_name,)
+                ).fetchall()
+                for r in old_rows:
+                    con.execute("UPDATE channels SET group_title = ? WHERE group_title = ?",
+                                (custom_name.strip(), r["original_name"]))
+            else:
+                # Remove mapping (revert to original)
+                con.execute("DELETE FROM group_mappings WHERE original_name = ?", (original_name,))
+                con.execute("UPDATE channels SET group_title = ? WHERE group_title = ?",
+                            (original_name, original_name))
+
+    def delete_group_mapping(self, original_name: str):
+        """Remove mapping and revert channels to original group name."""
+        with self.conn() as con:
+            con.execute("DELETE FROM group_mappings WHERE original_name = ?", (original_name,))
+            con.execute("UPDATE channels SET group_title = ? WHERE group_title IN (SELECT custom_name FROM group_mappings WHERE original_name = ?)",
+                        (original_name, original_name))
+
+    def rename_group(self, old_name: str, new_name: str):
+        """Rename a group in channels table and update/create mapping."""
+        with self.conn() as con:
+            con.execute("UPDATE channels SET group_title = ? WHERE group_title = ?", (new_name, old_name))
+            # Find original name for this group
+            mapping = con.execute(
+                "SELECT original_name FROM group_mappings WHERE custom_name = ?", (old_name,)
+            ).fetchone()
+            original = mapping["original_name"] if mapping else old_name
+            if new_name != original:
+                con.execute("""
+                    INSERT INTO group_mappings (original_name, custom_name)
+                    VALUES (?, ?)
+                    ON CONFLICT(original_name) DO UPDATE SET custom_name = excluded.custom_name
+                """, (original, new_name))
+            else:
+                con.execute("DELETE FROM group_mappings WHERE original_name = ?", (original,))
 
     def get_channel_by_name(self, name: str) -> Optional[Dict]:
         with self.conn() as con:
@@ -442,16 +631,51 @@ class Database:
         """Add columns if they don't exist yet (upgrade from older version)."""
         try:
             with self.conn() as con:
-                cols = [r[1] for r in con.execute("PRAGMA table_info(watch_logs)").fetchall()]
-                if "is_catchup" not in cols:
+                # watch_logs migrations
+                wl_cols = [r[1] for r in con.execute("PRAGMA table_info(watch_logs)").fetchall()]
+                if "is_catchup" not in wl_cols:
                     con.execute("ALTER TABLE watch_logs ADD COLUMN is_catchup INTEGER DEFAULT 0")
-                if "catchup_time" not in cols:
+                if "catchup_time" not in wl_cols:
                     con.execute("ALTER TABLE watch_logs ADD COLUMN catchup_time TEXT DEFAULT NULL")
-                if "epg_title" not in cols:
+                if "epg_title" not in wl_cols:
                     con.execute("ALTER TABLE watch_logs ADD COLUMN epg_title TEXT DEFAULT NULL")
+                # users migrations
+                u_cols = [r[1] for r in con.execute("PRAGMA table_info(users)").fetchall()]
+                if "allowed_groups" not in u_cols:
+                    con.execute("ALTER TABLE users ADD COLUMN allowed_groups TEXT DEFAULT NULL")
+                # group_mappings table
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS group_mappings (
+                        original_name TEXT PRIMARY KEY,
+                        custom_name   TEXT NOT NULL,
+                        created_at    TEXT DEFAULT (datetime('now'))
+                    )
+                """)
+                # user_groups and user_group_channels
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS user_groups (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name       TEXT UNIQUE NOT NULL,
+                        sort_order INTEGER DEFAULT 0,
+                        created_at TEXT DEFAULT (datetime('now'))
+                    )
+                """)
+                # add sort_order to user_groups if missing
+                ug_cols = [r[1] for r in con.execute("PRAGMA table_info(user_groups)").fetchall()]
+                if "sort_order" not in ug_cols:
+                    con.execute("ALTER TABLE user_groups ADD COLUMN sort_order INTEGER DEFAULT 0")
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS user_group_channels (
+                        group_id   INTEGER NOT NULL,
+                        channel_id INTEGER NOT NULL,
+                        PRIMARY KEY (group_id, channel_id),
+                        FOREIGN KEY (group_id)   REFERENCES user_groups(id) ON DELETE CASCADE,
+                        FOREIGN KEY (channel_id) REFERENCES channels(id)    ON DELETE CASCADE
+                    )
+                """)
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"migrate_watch_logs: {e}")
+            logging.getLogger(__name__).warning(f"migrate: {e}")
 
     def get_epg_channels(self) -> List[Dict]:
         with self.conn() as con:

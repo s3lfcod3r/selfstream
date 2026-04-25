@@ -96,6 +96,30 @@ async def _epg_watchdog():
         await asyncio.sleep(300)  # check every 5 minutes
 
 
+async def _m3u_watchdog():
+    """Background task: auto-refresh M3U channels on schedule."""
+    await asyncio.sleep(10)  # wait for startup
+    while True:
+        try:
+            if db.get_m3u_refresh_due():
+                url = db.get_setting("source_m3u_url", "")
+                if url:
+                    logger.info("M3U watchdog: refreshing channels...")
+                    try:
+                        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+                            resp = await client.get(url)
+                            resp.raise_for_status()
+                            channels = parse_m3u(resp.text)
+                        db.upsert_channels(channels)
+                        db.set_m3u_last_refresh()
+                        logger.info(f"M3U auto-refresh: {len(channels)} channels updated")
+                    except Exception as e:
+                        logger.warning(f"M3U auto-refresh failed: {e}")
+        except Exception as e:
+            logger.warning(f"M3U watchdog error: {e}")
+        await asyncio.sleep(600)  # check every 10 minutes
+
+
 @proxy_app.on_event("startup")
 @admin_app.on_event("startup")
 async def startup():
@@ -103,6 +127,7 @@ async def startup():
     db.migrate_watch_logs()
     _generate_error_video()
     asyncio.create_task(_epg_watchdog())
+    asyncio.create_task(_m3u_watchdog())
     logger.info("selfstream started")
 
 
@@ -250,6 +275,60 @@ async def serve_playlist(token: str):
                      "stream_url": c["url"], "tvg_id": c["tvg_id"],
                      "tvg_logo": c["tvg_logo"], "group_title": c["group"],
                      "tvg_rec": c.get("tvg_rec", "")} for c in channels_raw]
+
+    # Filter by user's allowed_groups if set
+    allowed_groups_raw = user.get("allowed_groups", "") or ""
+    if allowed_groups_raw.strip():
+        group_names = [g.strip() for g in allowed_groups_raw.split(",") if g.strip()]
+        all_user_group_names = set(db.get_all_user_group_names())
+        custom_groups = [g for g in group_names if g in all_user_group_names]
+        provider_groups = [g for g in group_names if g not in all_user_group_names]
+        result_channels = []
+
+        # Get sort_order for custom groups to prefix group-title for IPTV app ordering
+        all_user_groups = {g["name"]: g["sort_order"] for g in db.get_user_groups()}
+        use_prefix = db.get_setting("group_sort_prefix", "1") == "1"
+
+        # Channels from custom user groups — override group_title with sorted name
+        for ug_name in custom_groups:
+            ug_channels = db.get_channels_for_user_groups([ug_name])
+            sort_idx = all_user_groups.get(ug_name, 99)
+            if use_prefix:
+                display_name = f"{sort_idx + 1:02d}. {ug_name}"
+            else:
+                display_name = ug_name
+            for ch in ug_channels:
+                ch = dict(ch)
+                ch["group_title"] = display_name
+                result_channels.append(ch)
+
+        # Channels from provider groups (by group_title) — keep original group_title
+        if provider_groups:
+            provider_set = set(provider_groups)
+            result_channels.extend([c for c in channels if c.get("group_title", "") in provider_set])
+
+        # Deduplicate by channel id (custom group takes priority)
+        seen = set()
+        channels = []
+        for c in result_channels:
+            cid = c.get("id")
+            if cid not in seen:
+                seen.add(cid)
+                channels.append(c)
+
+    # Sort channels so groups appear in consistent order in IPTV app
+    # Group order is determined by first appearance of group prefix (01., 02., etc.)
+    # or alphabetically for provider groups
+    def _group_sort_key(ch):
+        gt = ch.get("group_title", "")
+        # Numeric prefix like "01. Kinder" → sort by number
+        import re as _re
+        m = _re.match(r"^([0-9]+)\.", gt)
+        if m:
+            return (0, int(m.group(1)), gt)
+        return (1, 0, gt)
+
+    channels.sort(key=_group_sort_key)
 
     content = build_m3u(channels, proxy_url, token, epg_sources)
     db.log_playlist_access(user["id"])
@@ -501,9 +580,16 @@ SESSION_MEM_TTL = 35  # seconds without segment = session dead
 _catchup_sessions: dict = {}
 CATCHUP_TTL = 60  # seconds without segment = catchup done
 
+_last_cleanup = 0.0
+
 def _cleanup_sessions():
     """Remove stale sessions from memory and end their DB records."""
+    global _last_cleanup
     now = time.time()
+    # Throttle: only run cleanup every 10 seconds
+    if now - _last_cleanup < 10:
+        return
+    _last_cleanup = now
     stale = [k for k, v in _sessions.items() if now - v["last_seen"] > SESSION_MEM_TTL]
     for k in stale:
         s = _sessions.pop(k)
@@ -717,6 +803,9 @@ async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str 
 # EPG cache: (content, fetched_at_timestamp, source_url)
 _epg_cache: dict = {"content": None, "fetched_at": 0, "url": ""}
 
+# Parsed EPG tree cache — avoid re-parsing XML on every channel switch
+_epg_tree_cache: dict = {"root": None, "content_hash": None}
+
 @proxy_app.get("/iptv/epg.xml")
 async def global_epg(force: str = None):
     """Global EPG URL – no token needed, same for all users. Cached."""
@@ -758,6 +847,8 @@ async def global_epg(force: str = None):
             content_text = _filter_epg_xml(content_text)
 
         _epg_cache = {"content": content_text, "fetched_at": now, "url": source_url}
+        _epg_tree_cache["root"] = None  # invalidate parsed tree
+        _tvg_id_cache.clear()           # invalidate tvg_id lookup cache
         logger.info(f"EPG cached ({len(content_text)//1024}KB)")
         # Write to disk so admin-app thread can read it too
         try:
@@ -954,11 +1045,14 @@ def create_user(body: dict, _=Depends(check_admin)):
     name = body.get("name", "").strip()
     notes = body.get("notes", "").strip()
     max_streams = body.get("max_streams", 1)
+    allowed_groups = body.get("allowed_groups", "").strip() if body.get("allowed_groups") else None
     if not name:
         raise HTTPException(status_code=400, detail="name required")
     m3u_source = db.get_setting("source_m3u_url", "")
     token = str(uuid.uuid4()).replace("-", "")[:24]
     user = db.create_user(name=name, token=token, m3u_source=m3u_source, notes=notes)
+    if allowed_groups:
+        db.update_user(user["id"], {"allowed_groups": allowed_groups})
     short_token = db.generate_short_token(user["id"])
     proxy_url = db.get_proxy_url()
     short_domain = db.get_setting("short_domain", "")
@@ -1006,6 +1100,17 @@ def update_user(user_id: int, body: dict, _=Depends(check_admin)):
     db.update_user(user_id, body)
     return {"ok": True}
 
+@admin_app.put("/api/users/{user_id}/groups")
+def update_user_groups(user_id: int, body: dict, _=Depends(check_admin)):
+    """Set allowed channel groups for a user. Empty list = all groups allowed."""
+    groups = body.get("allowed_groups", [])
+    if isinstance(groups, list):
+        value = ",".join(g.strip() for g in groups if g.strip()) or None
+    else:
+        value = str(groups).strip() or None
+    db.update_user(user_id, {"allowed_groups": value})
+    return {"ok": True}
+
 @admin_app.get("/api/users/{user_id}/logs")
 def get_user_logs(user_id: int, _=Depends(check_admin)):
     return db.get_user_logs(user_id)
@@ -1033,6 +1138,85 @@ def update_channel(channel_id: int, body: dict, _=Depends(check_admin)):
 @admin_app.post("/api/channels/group-toggle")
 def toggle_group(body: dict, _=Depends(check_admin)):
     db.set_group_enabled(body.get("group", ""), int(body.get("enabled", 1)))
+    return {"ok": True}
+
+@admin_app.get("/api/channels/group-mappings")
+def get_group_mappings(_=Depends(check_admin)):
+    return db.get_group_mappings()
+
+@admin_app.post("/api/channels/group-rename")
+def rename_group(body: dict, _=Depends(check_admin)):
+    old_name = body.get("old_name", "").strip()
+    new_name = body.get("new_name", "").strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="old_name and new_name required")
+    db.rename_group(old_name, new_name)
+    return {"ok": True}
+
+@admin_app.post("/api/channels/group-mapping-delete")
+def delete_group_mapping(body: dict, _=Depends(check_admin)):
+    original_name = body.get("original_name", "").strip()
+    if not original_name:
+        raise HTTPException(status_code=400, detail="original_name required")
+    db.delete_group_mapping(original_name)
+    return {"ok": True}
+
+# ── User Group CRUD ────────────────────────────────────────────────────────────
+
+@admin_app.get("/api/user-groups")
+def list_user_groups(_=Depends(check_admin)):
+    return db.get_user_groups()
+
+@admin_app.post("/api/user-groups")
+def create_user_group(body: dict, _=Depends(check_admin)):
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    try:
+        return db.create_user_group(name)
+    except Exception:
+        raise HTTPException(status_code=409, detail="Group already exists")
+
+@admin_app.put("/api/user-groups/{group_id}")
+def update_user_group(group_id: int, body: dict, _=Depends(check_admin)):
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    db.rename_user_group(group_id, name)
+    return {"ok": True}
+
+@admin_app.delete("/api/user-groups/{group_id}")
+def delete_user_group(group_id: int, _=Depends(check_admin)):
+    db.delete_user_group(group_id)
+    return {"ok": True}
+
+@admin_app.post("/api/user-groups/reorder")
+def reorder_user_groups(body: dict, _=Depends(check_admin)):
+    ordered_ids = body.get("ordered_ids", [])
+    db.reorder_user_groups([int(i) for i in ordered_ids])
+    return {"ok": True}
+
+@admin_app.get("/api/user-groups/{group_id}/channels")
+def get_user_group_channels(group_id: int, _=Depends(check_admin)):
+    return db.get_user_group_channels(group_id)
+
+@admin_app.post("/api/user-groups/{group_id}/channels")
+def set_user_group_channels(group_id: int, body: dict, _=Depends(check_admin)):
+    channel_ids = body.get("channel_ids", [])
+    db.set_user_group_channels(group_id, channel_ids)
+    return {"ok": True}
+
+@admin_app.post("/api/user-groups/{group_id}/channels/add")
+def add_channel_to_group(group_id: int, body: dict, _=Depends(check_admin)):
+    channel_id = body.get("channel_id")
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="channel_id required")
+    db.add_channel_to_user_group(group_id, channel_id)
+    return {"ok": True}
+
+@admin_app.delete("/api/user-groups/{group_id}/channels/{channel_id}")
+def remove_channel_from_group(group_id: int, channel_id: int, _=Depends(check_admin)):
+    db.remove_channel_from_user_group(group_id, channel_id)
     return {"ok": True}
 
 @admin_app.post("/api/channels/import")
@@ -1195,66 +1379,77 @@ def delete_epg(epg_id: int, _=Depends(check_admin)):
     db.delete_epg_source(epg_id)
     return {"ok": True}
 
+def _get_epg_root():
+    """Get parsed EPG XML root, using cached version if content unchanged."""
+    content = _epg_cache.get("content")
+    if not content:
+        try:
+            with open("/data/epg_cache.xml", "r", encoding="utf-8") as _f:
+                content = _f.read()
+        except Exception:
+            return None
+    if not content:
+        return None
+    content_hash = str(len(content))  # fast size-based hash
+    if _epg_tree_cache["root"] is not None and _epg_tree_cache["content_hash"] == content_hash:
+        return _epg_tree_cache["root"]
+    try:
+        root = ET.fromstring(content)
+        _epg_tree_cache["root"] = root
+        _epg_tree_cache["content_hash"] = content_hash
+        return root
+    except Exception:
+        return None
+
+
+# Channel name → tvg_id lookup cache
+_tvg_id_cache: dict = {}
+
 def _get_now_playing(channel_name: str) -> dict:
     """Look up what is currently playing on a channel from the EPG cache."""
     try:
-        content = _epg_cache.get("content")
-        if not content:
-            # Admin-app runs in separate thread – try reading from disk cache
-            try:
-                with open("/data/epg_cache.xml", "r", encoding="utf-8") as _f:
-                    content = _f.read()
-            except Exception:
-                pass
-        if not content:
+        root = _get_epg_root()
+        if root is None:
             return {}
-        import xml.etree.ElementTree as ET
-        from datetime import datetime, timezone
-        root = ET.fromstring(content)
+
         now = datetime.now(timezone.utc)
 
-        # Get tvg_id from channels DB by name
-        ch_record = db.get_channel_by_name(channel_name) or {}
-        tvg_id = ch_record.get("tvg_id", "").strip()
+        # tvg_id lookup with cache
+        if channel_name not in _tvg_id_cache:
+            ch_record = db.get_channel_by_name(channel_name) or {}
+            tvg_id = ch_record.get("tvg_id", "").strip()
+            if not tvg_id:
+                for ch_el in root.findall("channel"):
+                    disp = ch_el.findtext("display-name") or ""
+                    if channel_name.lower() in disp.lower() or disp.lower() in channel_name.lower():
+                        tvg_id = ch_el.get("id", "")
+                        break
+            _tvg_id_cache[channel_name] = tvg_id
 
-        # If no tvg_id, build a display-name → channel-id map from EPG XML
+        tvg_id = _tvg_id_cache.get(channel_name, "")
         if not tvg_id:
-            for ch_el in root.findall("channel"):
-                disp = ch_el.findtext("display-name") or ""
-                if channel_name.lower() in disp.lower() or disp.lower() in channel_name.lower():
-                    tvg_id = ch_el.get("id", "")
-                    break
-
-        if not tvg_id:
-            logger.warning(f"EPG now_playing: no tvg_id found for '{channel_name}'")
             return {}
 
         # Find currently running programme
         fmt = "%Y%m%d%H%M%S %z"
-        matched = 0
         for programme in root.findall("programme"):
             if programme.get("channel", "") != tvg_id:
                 continue
-            matched += 1
             try:
                 start = datetime.strptime(programme.get("start", ""), fmt)
                 stop  = datetime.strptime(programme.get("stop",  ""), fmt)
                 if start <= now <= stop:
-                    title = programme.findtext("title") or ""
-                    desc  = programme.findtext("desc")  or ""
                     return {
-                        "title": title,
-                        "desc":  desc[:120] if desc else "",
+                        "title": programme.findtext("title") or "",
+                        "desc":  (programme.findtext("desc") or "")[:120],
                         "start": start.strftime("%H:%M"),
                         "stop":  stop.strftime("%H:%M"),
                     }
-            except Exception as pe:
-                logger.warning(f"EPG parse error: {pe}")
+            except Exception:
                 continue
-        logger.warning(f"EPG now_playing: no current programme for '{channel_name}' (tvg_id={tvg_id}, programmes checked={matched})")
         return {}
     except Exception as e:
-        logger.warning(f"EPG now_playing error for '{channel_name}': {e}")
+        logger.debug(f"EPG now_playing error for '{channel_name}': {e}")
         return {}
 
 
@@ -1383,6 +1578,8 @@ def get_settings(_=Depends(check_admin)):
         "epg_filter_channels":  s.get("epg_filter_channels", "0"),
         "log_retention_days":   s.get("log_retention_days", "-1"),
         "short_domain":         s.get("short_domain", ""),
+        "m3u_refresh_hours":    s.get("m3u_refresh_hours", "0"),
+        "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
     }
 
 @admin_app.post("/api/settings")
@@ -1391,7 +1588,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain"}
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix"}
     for key, val in body.items():
         if key in allowed:
             db.set_setting(key, str(val))
