@@ -323,8 +323,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     is_catchup=1, catchup_time=dt_str
                 )
                 db.end_watch_log(log_id, 0)
-            except Exception:
-                pass
+                logger.info(f"Catchup logged: {user['name']} → {channel_name} @ {dt_str}")
+            except Exception as _ce:
+                logger.warning(f"Catchup log failed: {_ce}")
             return HTMLResponse(
                 content=rewritten,
                 media_type="application/vnd.apple.mpegurl",
@@ -1024,37 +1025,43 @@ def _get_now_playing(channel_name: str) -> dict:
         root = ET.fromstring(content)
         now = datetime.now(timezone.utc)
 
-        # Find tvg_id for this channel name from our DB
-        ch_record = db.get_channel_by_url(channel_name) or {}
-        tvg_id = ch_record.get("tvg_id", "")
+        # Get tvg_id from channels DB by name
+        ch_record = db.get_channel_by_name(channel_name) or {}
+        tvg_id = ch_record.get("tvg_id", "").strip()
 
-        # Try to match by tvg_id first, then by display-name
+        # If no tvg_id, build a display-name → channel-id map from EPG XML
+        if not tvg_id:
+            for ch_el in root.findall("channel"):
+                disp = ch_el.findtext("display-name") or ""
+                if channel_name.lower() in disp.lower() or disp.lower() in channel_name.lower():
+                    tvg_id = ch_el.get("id", "")
+                    break
+
+        if not tvg_id:
+            return {}
+
+        # Find currently running programme
+        fmt = "%Y%m%d%H%M%S %z"
         for programme in root.findall("programme"):
-            chan = programme.get("channel", "")
-            if tvg_id and chan != tvg_id:
+            if programme.get("channel", "") != tvg_id:
                 continue
-            if not tvg_id:
-                # fallback: match by display-name substring
-                disp = programme.findtext("display-name") or ""
-                if channel_name.lower() not in disp.lower() and disp.lower() not in channel_name.lower():
-                    continue
             try:
-                fmt = "%Y%m%d%H%M%S %z"
-                start = datetime.strptime(programme.get("start",""), fmt)
-                stop  = datetime.strptime(programme.get("stop",""),  fmt)
+                start = datetime.strptime(programme.get("start", ""), fmt)
+                stop  = datetime.strptime(programme.get("stop",  ""), fmt)
                 if start <= now <= stop:
                     title = programme.findtext("title") or ""
                     desc  = programme.findtext("desc")  or ""
                     return {
                         "title": title,
-                        "desc": desc[:120] if desc else "",
+                        "desc":  desc[:120] if desc else "",
                         "start": start.strftime("%H:%M"),
                         "stop":  stop.strftime("%H:%M"),
                     }
             except Exception:
                 continue
         return {}
-    except Exception:
+    except Exception as e:
+        logger.debug(f"EPG now_playing error: {e}")
         return {}
 
 

@@ -321,6 +321,13 @@ class Database:
         with self.conn() as con:
             con.execute("UPDATE channels SET enabled = ? WHERE group_title = ?", (enabled, group))
 
+    def get_channel_by_name(self, name: str) -> Optional[Dict]:
+        with self.conn() as con:
+            row = con.execute(
+                "SELECT * FROM channels WHERE name = ? LIMIT 1", (name,)
+            ).fetchone()
+            return dict(row) if row else None
+
     def get_channel_by_url(self, stream_url: str) -> Optional[Dict]:
         """Exact URL match – used when we have the full stream URL."""
         # Strip token from URL for matching since tokens change
