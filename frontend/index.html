@@ -642,7 +642,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
 <!-- User Logs Modal -->
 <div class="modal-bg" id="modal-ulogs">
-  <div class="modal" style="width:640px">
+  <div class="modal" style="width:900px;max-width:95vw;">
     <div class="modal-title" id="ulogs-title">Verlauf</div>
     <div id="ulogs-content"></div>
     <div class="modal-actions">
@@ -779,7 +779,7 @@ async function loadStats() {
             <strong>${esc(l.user)}</strong>
             <span style="color:var(--text2);margin:0 6px;">→</span>
             <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
-            ${l.epg_title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;">📺 <span style="color:var(--teal);font-weight:600;">${esc(l.epg_title)}</span>${ctTime?` <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">ab ${ctTime}</span>`:''}</span>`:''}
+            ${l.epg_title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;">📺 <span style="color:var(--teal);font-weight:600;">${esc(l.epg_title)}</span></span>`:''}
             <span class="session-meta">${dateStr} ${timeStr}</span>
           </div>`;
         }).join('');
@@ -946,12 +946,12 @@ async function userLogs(id,name) {
           const isCatchup=l.is_catchup===1||l.is_catchup==='1';
           const icon=isCatchup?'<span style="color:var(--teal);margin-right:3px;">⏪</span>':'<span style="color:var(--green);margin-right:3px;">▶</span>';
           const sendung=l.epg_title
-            ?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>${isCatchup&&l.catchup_time?`<span style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-left:3px;">ab ${l.catchup_time.split(' ')[1]||''}</span>`:''}`
+            ?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>`
             :'<span style="color:var(--text2);">—</span>';
           return `<tr>
             <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
             <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
-            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
+            <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
             <td style="font-family:var(--mono);font-size:11px;">${isCatchup?'Catchup':fmtDur(l.duration_seconds)}</td>
           </tr>`;
         }).join('')}
@@ -1159,13 +1159,13 @@ async function loadLogs() {
     const isCatchup=l.is_catchup===1||l.is_catchup==='1';
     const icon=isCatchup?'<span style="color:var(--teal);margin-right:4px;">⏪</span>':'<span style="color:var(--green);margin-right:4px;">▶</span>';
     const sendung=l.epg_title
-      ?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>${isCatchup&&l.catchup_time?`<span style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-left:4px;">ab ${l.catchup_time.split(' ')[1]||''}</span>`:''}`
+      ?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>`
       :`<span style="color:var(--text2);font-size:10px;">—</span>`;
     return `<tr>
       <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
       <td><strong>${esc(l.user_name)}</strong></td>
       <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
       <td style="font-family:var(--mono);font-size:11px;">${isCatchup?'Catchup':fmtDur(l.duration_seconds)}</td>
     </tr>`;
   }).join('');
