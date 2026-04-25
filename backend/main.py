@@ -316,20 +316,13 @@ async def serve_playlist(token: str):
                 seen.add(cid)
                 channels.append(c)
 
-    # Sort channels by group order:
-    # 1. Custom groups with numeric prefix (01. Kinder etc.) by prefix number
-    # 2. Provider groups by saved provider_group_order
-    # 3. Everything else alphabetically
-    _provider_order = db.get_provider_group_order()
-
+    # Sort channels by group prefix number, then alphabetically
     def _group_sort_key(ch):
         gt = ch.get("group_title", "")
         m = re.match(r"^([0-9]+)\.", gt)
         if m:
             return (0, int(m.group(1)), gt)
-        if gt in _provider_order:
-            return (1, _provider_order[gt], gt)
-        return (2, 0, gt)
+        return (1, 0, gt)
 
     channels.sort(key=_group_sort_key)
 
@@ -1199,15 +1192,6 @@ def reorder_user_groups(body: dict, _=Depends(check_admin)):
     db.reorder_user_groups([int(i) for i in ordered_ids])
     return {"ok": True}
 
-@admin_app.get("/api/channels/provider-group-order")
-def get_provider_group_order(_=Depends(check_admin)):
-    return db.get_provider_group_order()
-
-@admin_app.post("/api/channels/provider-group-order")
-def set_provider_group_order(body: dict, _=Depends(check_admin)):
-    ordered_names = body.get("ordered_names", [])
-    db.set_provider_group_order(ordered_names)
-    return {"ok": True}
 
 @admin_app.get("/api/user-groups/{group_id}/channels")
 def get_user_group_channels(group_id: int, _=Depends(check_admin)):
