@@ -291,23 +291,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         decoded_url.split("/")[-2] if "/ch" in decoded_url else decoded_url.split("/")[-1].split("?")[0]
     )
 
-    # ── CHECK MAX STREAMS (SID-based, returns 429)
-    max_s = user.get("max_streams", 1) or 0
-    if max_s > 0:
-        _cleanup_sessions()
-        uid = user["id"]
-        import hashlib as _hl3
-        _fwd3 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
-        _ip3 = _fwd3 or (request.client.host if request.client else "")
-        _ua3 = request.headers.get("user-agent","")[:60]
-        _sid3 = _hl3.md5(f"{token}::{_ip3}::{_ua3}".encode()).hexdigest()[:16]
-        _this_key = f"{token}::sid::{_sid3}"
-        other = [s for s in _sessions.values()
-                 if s["user_id"] == uid and s.get("session_key") != _this_key]
-        if len(other) >= max_s:
-            logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
-            raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
     # ── CATCHUP MODE ──────────────────────────────────────────────────────────
+    # Catchup requests bypass max-stream check – they don't hold a live session
     if utc:
         try:
             # Build archive URL: replace mono.m3u8 with index.m3u8 + utc param
@@ -338,6 +323,23 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             # Fall through to live
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
+    # Check max concurrent streams only for live mode
+    max_s = user.get("max_streams", 1) or 0
+    if max_s > 0:
+        _cleanup_sessions()
+        uid = user["id"]
+        import hashlib as _hl3
+        _fwd3 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
+        _ip3 = _fwd3 or (request.client.host if request.client else "")
+        _ua3 = request.headers.get("user-agent","")[:60]
+        _sid3 = _hl3.md5(f"{token}::{_ip3}::{_ua3}".encode()).hexdigest()[:16]
+        _this_key = f"{token}::sid::{_sid3}"
+        other = [s for s in _sessions.values()
+                 if s["user_id"] == uid and s.get("session_key") != _this_key]
+        if len(other) >= max_s:
+            logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
+            raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
+
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
