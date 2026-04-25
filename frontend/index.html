@@ -177,6 +177,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .ch-card:active{cursor:grabbing;}
 .ch-card.dragging{opacity:.35;border-color:var(--teal);}
 .ch-card.drag-over{border-color:var(--teal);border-style:dashed;background:rgba(0,229,200,.04);}
+[id^="ugrow-"].dragging{opacity:.35;border-color:var(--teal) !important;}
+[id^="ugrow-"].drag-over{border-color:var(--teal) !important;border-style:dashed !important;background:rgba(0,229,200,.04);}
 .ch-card.disabled{opacity:.38;}
 .ch-logo{width:26px;height:26px;object-fit:contain;flex-shrink:0;border-radius:2px;}
 .ch-ph{width:26px;height:26px;background:var(--bg3);border-radius:2px;
@@ -248,6 +250,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('users',this)"><span class="nav-icon">👥</span>Benutzer</div>
       <div class="nav-section">Quellen</div>
       <div class="nav-item" onclick="nav('channels',this)"><span class="nav-icon">📺</span>Kanäle</div>
+      <div class="nav-item" onclick="nav('groups',this)"><span class="nav-icon">🏷</span>Gruppen</div>
       <div class="nav-item" onclick="nav('epg',this)"><span class="nav-icon">📅</span>EPG</div>
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('logs',this)"><span class="nav-icon">📋</span>Verlauf</div>
@@ -321,6 +324,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div style="display:flex;gap:6px;">
             <button class="btn" onclick="openImport()">↓ M3U importieren</button>
             <button class="btn" onclick="refreshCh()">↻ Neu laden</button>
+            <button class="btn" onclick="openGroupManager()">🏷 Gruppen</button>
           </div>
         </div>
         <div class="ch-toolbar">
@@ -336,6 +340,31 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </p>
         <div class="channel-grid" id="ch-grid">
           <div class="empty-state" style="grid-column:1/-1">Noch keine Kanäle. M3U importieren ↑</div>
+        </div>
+      </div>
+
+      <!-- User Groups -->
+      <div id="page-groups" class="content-area" style="display:none">
+        <div class="section-hdr">
+          <span class="section-title">Eigene Gruppen</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input class="search-input" id="new-ugroup-name" placeholder="Gruppenname, z.B. Kinder" style="width:200px;">
+            <button class="btn primary" onclick="createUserGroup()">+ Neue Gruppe</button>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:12px;font-family:var(--mono);">
+          💡 Erstelle eigene Gruppen und weise Kanäle zu. User sehen dann nur die Kanäle ihrer Gruppe — egal welche Anbieter-Gruppe der Kanal hat.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
+          <span style="font-size:12px;color:var(--text);">Nummerierung in IPTV-App anzeigen</span>
+          <span style="font-size:11px;color:var(--text2);font-family:var(--mono);">(z.B. "01. Kinder", "02. Sport" — erzwingt Sortierung in IPTV Pro)</span>
+          <label style="margin-left:auto;display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="group-prefix-toggle" onchange="saveGroupPrefix(this.checked)" style="accent-color:var(--teal);width:16px;height:16px;">
+            <span id="group-prefix-label" style="font-size:12px;color:var(--text2);">Aus</span>
+          </label>
+        </div>
+        <div id="ugroups-list">
+          <div class="empty-state">Keine Gruppen vorhanden. Oben neue Gruppe anlegen.</div>
         </div>
       </div>
 
@@ -552,6 +581,17 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <label class="form-label">M3U Quell-URL</label>
               <input class="form-input" id="cfg-m3u" placeholder="http://anbieter.tv/playlist.m3u">
             </div>
+            <div class="form-group">
+              <label class="form-label">M3U Auto-Refresh</label>
+              <select class="form-select" id="cfg-m3u-refresh">
+                <option value="0">Deaktiviert</option>
+                <option value="6">Alle 6 Stunden</option>
+                <option value="12">Alle 12 Stunden</option>
+                <option value="24">Alle 24 Stunden</option>
+                <option value="48">Alle 48 Stunden</option>
+              </select>
+              <div class="form-hint" id="cfg-m3u-last-refresh"></div>
+            </div>
             <button class="btn primary" onclick="saveUrls()">Speichern</button>
           </div>
 
@@ -617,9 +657,53 @@ tr:hover td{background:rgba(255,255,255,.02);}
       </select>
       <div class="form-hint">Verhindert Weitergabe des Links.</div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Erlaubte Kanalgruppen (optional)</label>
+      <div id="nu-groups-wrap" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);">
+        <div style="font-size:11px;color:var(--text2);">Kanäle werden nach Import geladen…</div>
+      </div>
+      <div class="form-hint">Leer lassen = alle Gruppen erlaubt. Auswahl = nur diese Gruppen in der Playlist.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeM('modal-adduser')">Abbrechen</button>
       <button class="btn primary" onclick="addUser()">Erstellen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Group Channel Editor Modal -->
+<div class="modal-bg" id="modal-group-editor">
+  <div class="modal" style="width:800px;max-width:95vw;">
+    <div class="modal-title" id="group-editor-title">Kanäle für Gruppe</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
+      <input class="search-input" id="group-editor-search" placeholder="Kanal suchen…" oninput="renderGroupEditorChannels()" style="flex:1;min-width:150px;">
+      <select class="group-filter" id="group-editor-grp" onchange="renderGroupEditorChannels()">
+        <option value="">Alle Anbieter-Gruppen</option>
+      </select>
+      <span id="group-editor-count" style="font-family:var(--mono);font-size:11px;color:var(--text2);white-space:nowrap;">0 ausgewählt</span>
+    </div>
+    <div id="group-editor-channels" style="max-height:420px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
+      <div class="empty-state">Lädt…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeM('modal-group-editor')">Abbrechen</button>
+      <button class="btn primary" onclick="saveGroupChannels()">💾 Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Group Manager Modal -->
+<div class="modal-bg" id="modal-groups">
+  <div class="modal" style="width:700px;max-width:95vw;">
+    <div class="modal-title">🏷 Gruppen verwalten</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">
+      Klicke auf einen Gruppennamen um ihn umzubenennen. Das Mapping bleibt auch nach einem M3U-Refresh erhalten.
+    </p>
+    <div id="groups-manager-content" style="max-height:450px;overflow-y:auto;">
+      <div class="empty-state">Lädt…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeM('modal-groups')">Schließen</button>
     </div>
   </div>
 </div>
@@ -636,6 +720,21 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <div class="modal-actions">
       <button class="btn" onclick="closeM('modal-import')">Abbrechen</button>
       <button class="btn primary" id="import-btn" onclick="doImport()">Importieren</button>
+    </div>
+  </div>
+</div>
+
+<!-- User Groups Modal -->
+<div class="modal-bg" id="modal-ugroups">
+  <div class="modal" style="width:600px;max-width:95vw;">
+    <div class="modal-title" id="ugroups-title">Kanalgruppen · User</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">Leer lassen = alle Gruppen erlaubt. Auswahl = nur diese Gruppen in der Playlist sichtbar.</p>
+    <div id="ugroups-content" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);">
+      <div class="empty-state">Lädt…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeM('modal-ugroups')">Abbrechen</button>
+      <button class="btn primary" id="ugroups-save-btn">Speichern</button>
     </div>
   </div>
 </div>
@@ -709,6 +808,7 @@ function nav(page, el) {
   if(page==='dashboard') loadStats();
   if(page==='users') loadUsers();
   if(page==='channels') loadCh();
+  if(page==='groups') { loadUserGroups(); loadGroupPrefixSetting(); }
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='logs') loadLogs();
   if(page==='settings') loadSettings();
@@ -782,32 +882,42 @@ async function loadStats() {
       }
     }
 
-    // ── Zuletzt geschaut ──────────────────────────────────────────────────────
+    // ── Zuletzt geschaut — direkt aus Verlauf API ────────────────────────────
     const feed=document.getElementById('recent-feed');
     if(feed){
-      const allLogs=(s.recent_logs||[]);
-      if(!allLogs.length){
-        feed.innerHTML='<div class="empty-state">Noch keine Einträge</div>';
-      } else {
-        feed.innerHTML=allLogs.map(l=>{
-          const isCatchup=l.is_catchup===1||l.is_catchup==='1';
-          const dt=l.started_at?new Date(l.started_at+'Z'):null;
-          const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
-          const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
-          const icon=isCatchup?'<span style="font-size:12px;color:var(--teal);flex-shrink:0;">⏪</span>':'<span style="font-size:12px;color:var(--green);flex-shrink:0;">▶</span>';
-          const dur=l.duration>0?fmtDur(l.duration):'—';
-          const title=l.epg_title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;color:var(--teal);">📺 ${esc(l.epg_title)}</span>`:'';
-          return `<div class="session-row" style="opacity:.85;padding:8px 14px;">
-            ${icon}
-            <span style="font-family:var(--mono);font-size:9px;color:var(--text2);white-space:nowrap;flex-shrink:0;">${dateStr} ${timeStr}</span>
-            <strong style="font-size:12px;">${esc(l.user)}</strong>
-            <span style="color:var(--text2);margin:0 4px;">→</span>
-            <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
-            ${title}
-            <span class="session-meta">${dur}</span>
-          </div>`;
-        }).join('');
-      }
+      try {
+        const logs=await api('GET','/api/logs?limit=30');
+        if(!logs.length){
+          feed.innerHTML='<div class="empty-state">Noch keine Einträge</div>';
+        } else {
+          const tbody=logs.map(l=>{
+            const isCatchup=l.is_catchup===1||l.is_catchup==='1';
+            const icon=isCatchup?'<span style="color:var(--teal);">⏪</span>':'<span style="color:var(--green);">▶</span>';
+            const dt=l.started_at?new Date(l.started_at+'Z'):null;
+            const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
+            const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
+            const sendung=l.epg_title?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>`:'<span style="color:var(--text2);">—</span>';
+            const dur=l.duration_seconds>0?fmtDur(l.duration_seconds):'—';
+            return `<tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--text2);">${dateStr} ${timeStr}</td>
+              <td style="padding:6px 8px;font-size:12px;">${icon} <strong>${esc(l.user_name)}</strong></td>
+              <td style="padding:6px 8px;font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</td>
+              <td style="padding:6px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
+              <td style="padding:6px 8px;font-family:var(--mono);font-size:11px;text-align:right;color:var(--text2);">${dur}</td>
+            </tr>`;
+          }).join('');
+          feed.innerHTML=`<table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="border-bottom:2px solid var(--border);">
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">ZEIT</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">BENUTZER</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">KANAL</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">SENDUNG</th>
+              <th style="padding:6px 8px;text-align:right;font-size:10px;color:var(--text2);font-family:var(--mono);">DAUER</th>
+            </tr></thead>
+            <tbody>${tbody}</tbody>
+          </table>`;
+        }
+      } catch(e){ feed.innerHTML='<div class="empty-state">Fehler beim Laden</div>'; }
     }
   } catch(e){console.error('stats error',e);}
 }
@@ -850,6 +960,7 @@ async function loadUsers() {
       <td style="font-family:var(--mono);font-size:10px;">${timeAgo(u.last_seen)}</td>
       <td>
         <div class="action-cell">
+          <button class="btn sm" onclick="userGroups(${u.id},'${esc(u.name)}','${esc(u.allowed_groups||'')}')" title="Kanalgruppen verwalten">🔒 Gruppen</button>
           <button class="btn sm" onclick="userLogs(${u.id},'${esc(u.name)}')">Log</button>
           <button class="btn sm" onclick="regenToken(${u.id},'${esc(u.name)}')" title="Neuen Token generieren (alte URL wird ungültig)">🔄 Token</button>
           <button class="btn sm" onclick="toggleUser(${u.id},${u.active})">${u.active?'Sperren':'Freigeben'}</button>
@@ -890,15 +1001,88 @@ async function doCopy(url, btn) {
   }
 }
 
-function openAddUser(){ document.getElementById('modal-adduser').classList.add('open'); }
+async function openAddUser(){
+  document.getElementById('modal-adduser').classList.add('open');
+  // Load groups for checkbox list
+  const wrap=document.getElementById('nu-groups-wrap');
+  try {
+    const [providerGroups, userGroups] = await Promise.all([
+      api('GET','/api/channels/groups'),
+      api('GET','/api/user-groups')
+    ]);
+    const allGroupItems = [
+      ...userGroups.map(g => ({name: g.name, isCustom: true})),
+      ...providerGroups.map(g => ({name: g, isCustom: false}))
+    ];
+    if(!allGroupItems.length){
+      wrap.innerHTML='<div style="font-size:11px;color:var(--text2);">Noch keine Kanäle oder Gruppen.</div>';
+    } else {
+      wrap.innerHTML=(userGroups.length?'<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:4px 0;">EIGENE GRUPPEN</div>':'')
+        +userGroups.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;">
+          <input type="checkbox" value="${esc(g.name)}" style="accent-color:var(--teal);">
+          <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
+          <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>
+        </label>`).join('')
+        +(providerGroups.length?'<div style="font-size:10px;color:var(--text2);font-family:var(--mono);padding:6px 0 4px;">ANBIETER-GRUPPEN</div>':'')
+        +providerGroups.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;">
+          <input type="checkbox" value="${esc(g)}" style="accent-color:var(--teal);">
+          <span>${esc(g)}</span>
+        </label>`).join('');
+    }
+  } catch(e){ wrap.innerHTML='<div style="font-size:11px;color:var(--text2);">Fehler beim Laden.</div>'; }
+}
+
+async function userGroups(id, name, currentGroups){
+  document.getElementById('ugroups-title').textContent=`Kanalgruppen · ${name}`;
+  document.getElementById('modal-ugroups').classList.add('open');
+  const wrap=document.getElementById('ugroups-content');
+  wrap.innerHTML='<div class="empty-state">Lädt…</div>';
+  try {
+    const [providerGroups2, userGroups2] = await Promise.all([
+      api('GET','/api/channels/groups'),
+      api('GET','/api/user-groups')
+    ]);
+    const selected=new Set((currentGroups||'').split(',').map(g=>g.trim()).filter(Boolean));
+    const allItems2 = [
+      ...userGroups2.map(g=>({name:g.name, label:`🏷 ${g.name}`, count:g.channel_count, isCustom:true})),
+      ...providerGroups2.map(g=>({name:g, label:g, count:null, isCustom:false}))
+    ];
+    if(!allItems2.length){
+      wrap.innerHTML='<div class="empty-state">Noch keine Kanäle oder Gruppen.</div>';
+    } else {
+      wrap.innerHTML=(userGroups2.length?'<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:6px 0 4px;">EIGENE GRUPPEN</div>':'')
+        +userGroups2.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <input type="checkbox" value="${esc(g.name)}" ${selected.has(g.name)?'checked':''} style="accent-color:var(--teal);">
+          <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
+          <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>
+        </label>`).join('')
+        +(providerGroups2.length?'<div style="font-size:10px;color:var(--text2);font-family:var(--mono);padding:6px 0 4px;">ANBIETER-GRUPPEN</div>':'')
+        +providerGroups2.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+          <input type="checkbox" value="${esc(g)}" ${selected.has(g)?'checked':''} style="accent-color:var(--teal);">
+          <span>${esc(g)}</span>
+        </label>`).join('');
+    }
+    document.getElementById('ugroups-save-btn').onclick=async()=>{
+      const checks=wrap.querySelectorAll('input[type=checkbox]:checked');
+      const allowed_groups=[...checks].map(c=>c.value);
+      await api('PUT',`/api/users/${id}/groups`,{allowed_groups});
+      closeM('modal-ugroups');
+      loadUsers();
+      showToast(allowed_groups.length?`${allowed_groups.length} Gruppe(n) gesetzt`:'Alle Gruppen erlaubt');
+    };
+  } catch(e){ wrap.innerHTML='<div class="empty-state">Fehler.</div>'; }
+}
 
 async function addUser() {
   const name=document.getElementById('nu-name').value.trim();
   const notes=document.getElementById('nu-notes').value.trim();
   const max_streams=parseInt(document.getElementById('nu-max').value);
   if(!name) return showToast('Name erforderlich',true);
+  // Collect selected groups
+  const groupChecks=document.querySelectorAll('#nu-groups-wrap input[type=checkbox]:checked');
+  const allowed_groups=[...groupChecks].map(c=>c.value).join(',')||null;
   try {
-    await api('POST','/api/users',{name,notes,max_streams});
+    await api('POST','/api/users',{name,notes,max_streams,allowed_groups});
     closeM('modal-adduser');
     document.getElementById('nu-name').value='';
     document.getElementById('nu-notes').value='';
@@ -955,6 +1139,208 @@ async function userLogs(id,name) {
           </tr>`;
         }).join('')}
       </tbody></table></div>`;
+}
+
+// ── User Groups ───────────────────────────────────────────────────────────────
+let _allChForGroups = [];
+
+async function loadUserGroups() {
+  const [groups, chs] = await Promise.all([
+    api('GET', '/api/user-groups'),
+    api('GET', '/api/channels')
+  ]);
+  _allChForGroups = chs;
+  const wrap = document.getElementById('ugroups-list');
+  if (!groups.length) {
+    wrap.innerHTML = '<div class="empty-state">Keine Gruppen. Oben eine anlegen.</div>';
+    return;
+  }
+  let _ugDragId = null;
+  let _ugOrder = groups.map(g => g.id);
+
+  wrap.innerHTML = groups.map((g, idx) => `
+    <div class="table-wrap" id="ugrow-${g.id}" style="margin-bottom:12px;cursor:grab;"
+         draggable="true"
+         ondragstart="ugDragStart(event,${g.id})"
+         ondragover="ugDragOver(event,${g.id})"
+         ondrop="ugDrop(event,${g.id})"
+         ondragend="ugDragEnd()">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:var(--bg2);">
+        <span style="color:var(--text2);cursor:grab;font-size:16px;flex-shrink:0;" title="Ziehen zum Sortieren">⠿</span>
+        <span style="font-weight:700;font-size:14px;">${esc(g.name)}</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${g.channel_count} Kanäle</span>
+        <div style="margin-left:auto;display:flex;gap:6px;">
+          <button class="btn sm primary" onclick="openGroupChannelEditor(${g.id},'${esc(g.name)}')">✏ Kanäle bearbeiten</button>
+          <button class="btn sm danger" onclick="deleteUserGroup(${g.id},'${esc(g.name)}')">✕</button>
+        </div>
+      </div>
+      <div id="ugch-preview-${g.id}" style="padding:8px 14px;font-size:11px;color:var(--text2);font-family:var(--mono);">
+        Lädt…
+      </div>
+    </div>
+  `).join('');
+
+  // Drag & Drop handlers scoped to this render
+  window.ugDragStart = (e, id) => {
+    _ugDragId = id;
+    setTimeout(() => document.getElementById('ugrow-'+id)?.classList.add('dragging'), 0);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  window.ugDragOver = (e, id) => {
+    e.preventDefault();
+    document.getElementById('ugrow-'+id)?.classList.add('drag-over');
+  };
+  window.ugDragEnd = () => {
+    document.querySelectorAll('[id^="ugrow-"]').forEach(el => el.classList.remove('dragging','drag-over'));
+  };
+  window.ugDrop = async (e, targetId) => {
+    e.preventDefault();
+    ugDragEnd();
+    if (_ugDragId === targetId) return;
+    const fromIdx = _ugOrder.indexOf(_ugDragId);
+    const toIdx = _ugOrder.indexOf(targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    _ugOrder.splice(fromIdx, 1);
+    _ugOrder.splice(toIdx, 0, _ugDragId);
+    // Reorder DOM
+    const wrap2 = document.getElementById('ugroups-list');
+    _ugOrder.forEach(id => {
+      const el = document.getElementById('ugrow-'+id);
+      if (el) wrap2.appendChild(el);
+    });
+    // Save to backend
+    await api('POST', '/api/user-groups/reorder', {ordered_ids: _ugOrder});
+    showToast('Reihenfolge gespeichert');
+  };
+
+  // Load channel previews for each group
+  for (const g of groups) {
+    api('GET', `/api/user-groups/${g.id}/channels`).then(ids => {
+      const el = document.getElementById(`ugch-preview-${g.id}`);
+      if (!el) return;
+      if (!ids.length) { el.textContent = 'Keine Kanäle zugewiesen'; return; }
+      const names = ids.slice(0,8).map(id => {
+        const ch = _allChForGroups.find(c => c.id === id);
+        return ch ? esc(ch.name) : '?';
+      });
+      el.textContent = names.join(' · ') + (ids.length > 8 ? ` · +${ids.length-8} weitere` : '');
+    });
+  }
+}
+
+async function loadGroupPrefixSetting() {
+  try {
+    const s = await api('GET', '/api/settings');
+    const enabled = s.group_sort_prefix !== '0';
+    const cb = document.getElementById('group-prefix-toggle');
+    const lbl = document.getElementById('group-prefix-label');
+    if (cb) cb.checked = enabled;
+    if (lbl) lbl.textContent = enabled ? 'An' : 'Aus';
+  } catch(e) {}
+}
+
+async function saveGroupPrefix(enabled) {
+  await api('POST', '/api/settings', {group_sort_prefix: enabled ? '1' : '0'});
+  document.getElementById('group-prefix-label').textContent = enabled ? 'An' : 'Aus';
+  showToast(enabled ? 'Nummerierung aktiviert — Playlist neu laden in IPTV-App' : 'Nummerierung deaktiviert');
+}
+
+async function createUserGroup() {
+  const name = document.getElementById('new-ugroup-name').value.trim();
+  if (!name) return showToast('Name eingeben', true);
+  try {
+    await api('POST', '/api/user-groups', {name});
+    document.getElementById('new-ugroup-name').value = '';
+    showToast(`Gruppe "${name}" angelegt`);
+    loadUserGroups();
+  } catch(e) {
+    const msg = e.message || '';
+    if (msg.includes('already exists') || msg.includes('409')) {
+      showToast(`Gruppe "${name}" existiert bereits`, true);
+    } else {
+      showToast(msg || 'Fehler beim Anlegen', true);
+    }
+  }
+}
+
+async function deleteUserGroup(id, name) {
+  if (!confirm(`Gruppe "${name}" wirklich löschen?
+
+Kanäle bleiben erhalten, nur die Gruppenzuweisung wird gelöscht.`)) return;
+  await api('DELETE', `/api/user-groups/${id}`);
+  showToast(`Gruppe "${name}" gelöscht`);
+  loadUserGroups();
+}
+
+let _editingGroupId = null;
+let _editingGroupName = '';
+let _selectedChannelIds = new Set();
+
+async function openGroupChannelEditor(groupId, groupName) {
+  _editingGroupId = groupId;
+  _editingGroupName = groupName;
+  _selectedChannelIds = new Set();
+
+  // Show modal
+  document.getElementById('modal-group-editor').classList.add('open');
+  document.getElementById('group-editor-title').textContent = `Kanäle für: ${groupName}`;
+  document.getElementById('group-editor-search').value = '';
+
+  // Load current channel ids for this group
+  const [currentIds, chs, grps] = await Promise.all([
+    api('GET', `/api/user-groups/${groupId}/channels`),
+    api('GET', '/api/channels'),
+    api('GET', '/api/channels/groups')
+  ]);
+  _allChForGroups = chs;
+  currentIds.forEach(id => _selectedChannelIds.add(id));
+
+  // Populate group filter
+  const grpSel = document.getElementById('group-editor-grp');
+  grpSel.innerHTML = '<option value="">Alle Anbieter-Gruppen</option>' +
+    grps.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+
+  renderGroupEditorChannels();
+}
+
+function renderGroupEditorChannels() {
+  const q = document.getElementById('group-editor-search').value.toLowerCase();
+  const grp = document.getElementById('group-editor-grp').value;
+  let list = _allChForGroups.filter(c => c.enabled);
+  if (grp) list = list.filter(c => c.group_title === grp);
+  if (q) list = list.filter(c => c.name.toLowerCase().includes(q));
+
+  const selectedFirst = [...list.filter(c => _selectedChannelIds.has(c.id)),
+                         ...list.filter(c => !_selectedChannelIds.has(c.id))];
+
+  document.getElementById('group-editor-count').textContent =
+    `${_selectedChannelIds.size} ausgewählt · ${list.length} angezeigt`;
+
+  document.getElementById('group-editor-channels').innerHTML = selectedFirst.map(ch => {
+    const sel = _selectedChannelIds.has(ch.id);
+    return `<label style="display:flex;align-items:center;gap:10px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--border);${sel?'background:rgba(0,229,200,.05);':''}">
+      <input type="checkbox" ${sel?'checked':''} onchange="toggleGroupChannel(${ch.id},this.checked)" style="accent-color:var(--teal);flex-shrink:0;">
+      ${ch.tvg_logo?`<img src="${esc(ch.tvg_logo)}" style="width:24px;height:24px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'">`:'<span style="width:24px;flex-shrink:0;">📺</span>'}
+      <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(ch.name)}</span>
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text2);flex-shrink:0;">${esc(ch.group_title||'')}</span>
+    </label>`;
+  }).join('') || '<div class="empty-state">Keine Kanäle gefunden</div>';
+}
+
+function toggleGroupChannel(channelId, checked) {
+  if (checked) _selectedChannelIds.add(channelId);
+  else _selectedChannelIds.delete(channelId);
+  document.getElementById('group-editor-count').textContent =
+    `${_selectedChannelIds.size} ausgewählt`;
+}
+
+async function saveGroupChannels() {
+  await api('POST', `/api/user-groups/${_editingGroupId}/channels`, {
+    channel_ids: [..._selectedChannelIds]
+  });
+  closeM('modal-group-editor');
+  showToast(`${_selectedChannelIds.size} Kanäle in "${_editingGroupName}" gespeichert`);
+  loadUserGroups();
 }
 
 // ── Channels ──────────────────────────────────────────────────────────────────
@@ -1020,6 +1406,81 @@ async function toggleCh(id,enabled) {
   const i=allCh.findIndex(c=>c.id===id);
   if(i>=0) allCh[i].enabled=enabled?0:1;
   filterCh();
+}
+
+async function openGroupManager() {
+  document.getElementById('modal-groups').classList.add('open');
+  await loadGroupManager();
+}
+
+async function loadGroupManager() {
+  const wrap = document.getElementById('groups-manager-content');
+  wrap.innerHTML = '<div class="empty-state">Lädt…</div>';
+  try {
+    const [groups, mappings] = await Promise.all([
+      api('GET', '/api/channels/groups'),
+      api('GET', '/api/channels/group-mappings')
+    ]);
+    const mappingMap = {};
+    mappings.forEach(m => mappingMap[m.original_name] = m.custom_name);
+
+    if (!groups || !groups.length) {
+      wrap.innerHTML = '<div class="empty-state">Keine Gruppen vorhanden. M3U importieren.</div>';
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="padding:8px;text-align:left;font-size:11px;color:var(--text2);">ORIGINAL (vom Anbieter)</th>
+            <th style="padding:8px;text-align:left;font-size:11px;color:var(--text2);">DEIN NAME</th>
+            <th style="padding:8px;width:80px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${groups.map(g => {
+            const custom = mappingMap[g] || g;
+            const hasMapping = !!mappingMap[g];
+            const originalName = Object.keys(mappingMap).find(k => mappingMap[k] === g) || g;
+            return `<tr style="border-bottom:1px solid var(--border);" id="grp-row-${btoa(g).replace(/=/g,'')}">
+              <td style="padding:8px;font-family:var(--mono);font-size:11px;color:var(--text2);">${esc(g)}</td>
+              <td style="padding:8px;">
+                <input class="form-input" style="margin:0;padding:5px 8px;font-size:12px;"
+                  value="${esc(custom)}"
+                  id="grp-input-${btoa(g).replace(/=/g,'')}"
+                  placeholder="${esc(g)}">
+              </td>
+              <td style="padding:8px;text-align:right;">
+                <button class="btn sm primary" onclick="saveGroupRename('${esc(g)}')">✓</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:12px;font-size:11px;color:var(--text2);font-family:var(--mono);">
+        💡 Originalnamen wiederherstellen: einfach Feld leer lassen und speichern.
+      </div>`;
+  } catch(e) {
+    wrap.innerHTML = '<div class="empty-state">Fehler beim Laden.</div>';
+  }
+}
+
+async function saveGroupRename(originalName) {
+  const key = btoa(originalName).replace(/=/g, '');
+  const input = document.getElementById(`grp-input-${key}`);
+  if (!input) return;
+  const newName = input.value.trim();
+  if (!newName || newName === originalName) {
+    // Revert to original
+    await api('POST', '/api/channels/group-mapping-delete', {original_name: originalName});
+    showToast(`"${originalName}" wiederhergestellt`);
+  } else {
+    await api('POST', '/api/channels/group-rename', {old_name: originalName, new_name: newName});
+    showToast(`Umbenannt zu "${newName}"`);
+  }
+  await loadCh();
+  await loadGroupManager();
 }
 
 async function grpToggle(val) {
@@ -1189,6 +1650,15 @@ async function loadSettings() {
   document.getElementById('cfg-ref').value=s.hls_referer||'';
   document.getElementById('cfg-timeout').value=s.hls_timeout||'10';
   document.getElementById('cfg-rtimeout').value=s.hls_read_timeout||'30';
+  const refreshSel=document.getElementById('cfg-m3u-refresh');
+  if(refreshSel) refreshSel.value=s.m3u_refresh_hours||'0';
+  const lastEl=document.getElementById('cfg-m3u-last-refresh');
+  if(lastEl && s.m3u_last_refresh && parseFloat(s.m3u_last_refresh)>0){
+    const d=new Date(parseFloat(s.m3u_last_refresh)*1000);
+    lastEl.textContent='Letzter Refresh: '+d.toLocaleString('de-DE');
+  } else if(lastEl){
+    lastEl.textContent=s.m3u_refresh_hours&&s.m3u_refresh_hours!=='0'?'Noch kein automatischer Refresh':'Auto-Refresh deaktiviert';
+  }
 }
 
 async function saveUrls() {
@@ -1196,10 +1666,12 @@ async function saveUrls() {
     base_url:document.getElementById('cfg-base').value.trim(),
     proxy_url:document.getElementById('cfg-proxy').value.trim(),
     short_domain:document.getElementById('cfg-short-domain').value.trim(),
-    source_m3u_url:document.getElementById('cfg-m3u').value.trim()
+    source_m3u_url:document.getElementById('cfg-m3u').value.trim(),
+    m3u_refresh_hours:document.getElementById('cfg-m3u-refresh').value
   });
-  showToast('URLs gespeichert – Benutzer neu laden für Short URLs');
+  showToast('URLs gespeichert');
   loadUsers();
+  loadSettings();
 }
 
 async function saveHls() {
