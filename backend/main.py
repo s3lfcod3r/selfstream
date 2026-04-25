@@ -424,7 +424,11 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     user_id=user["id"], channel=channel_name, stream_url=decoded_url,
                     is_catchup=1, catchup_time=dt_str, epg_title=_catchup_epg_title
                 )
-                db.end_watch_log(log_id, 0)
+                # Don't end immediately – track duration via segment requests
+                _catchup_key = f"catchup::{token}::{channel_name}"
+                _catchup_sessions[_catchup_key] = {
+                    "log_id": log_id, "start": time.time(), "last_seen": time.time(), "token": token
+                }
                 logger.info(f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})")
             except Exception as _ce:
                 logger.warning(f"Catchup log failed: {_ce}")
@@ -491,6 +495,10 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
 _sessions: dict = {}
 SESSION_MEM_TTL = 35  # seconds without segment = session dead
 
+# Catchup session tracking (log_id → {start, last_seen, token})
+_catchup_sessions: dict = {}
+CATCHUP_TTL = 60  # seconds without segment = catchup done
+
 def _cleanup_sessions():
     """Remove stale sessions from memory and end their DB records."""
     now = time.time()
@@ -499,11 +507,20 @@ def _cleanup_sessions():
         s = _sessions.pop(k)
         try:
             db.session_end(s["token"])
-            # Update epg_title at end if not set at start
             epg_end = _get_now_playing(s["channel"])
             epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
             db.end_watch_log(s["log_id"], int(now - s["start"]), epg_title=epg_title_end)
             logger.info(f"Session expired (TTL): {k}")
+        except Exception:
+            pass
+    # Cleanup stale catchup sessions
+    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > CATCHUP_TTL]
+    for k in stale_cu:
+        s = _catchup_sessions.pop(k)
+        try:
+            duration = int(now - s["start"])
+            db.end_watch_log(s["log_id"], duration)
+            logger.info(f"Catchup session ended (TTL): {k} duration={duration}s")
         except Exception:
             pass
 
@@ -536,6 +553,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
 
     # Catchup segments bypass session tracking completely – they are VOD, not live
     if catchup == "1":
+        # Refresh catchup session last_seen for duration tracking
+        _now_cu = time.time()
+        for _ck, _cv in _catchup_sessions.items():
+            if _cv["token"] == token:
+                _catchup_sessions[_ck]["last_seen"] = _now_cu
+                break
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
