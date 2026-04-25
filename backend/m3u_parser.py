@@ -62,7 +62,8 @@ def build_m3u(channels: List[Dict], proxy_base: str, user_token: str,
     lines.append(f"#EXTM3U{epg_attr}")
 
     for ch in channels:
-        group = ch.get("group_title") or ch.get("group", "")
+        # custom_group overrides group_title if set
+        group = ch.get("custom_group") or ch.get("group_title") or ch.get("group", "")
         tvg_rec = ch.get("tvg_rec") or ""
         tvg_id = ch.get("tvg_id", "")
 

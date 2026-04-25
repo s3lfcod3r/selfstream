@@ -73,18 +73,34 @@ class Database:
                     accessed_at TEXT DEFAULT (datetime('now'))
                 );
 
+                -- Custom channel groups (admin-defined)
+                CREATE TABLE IF NOT EXISTS channel_groups (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name       TEXT NOT NULL UNIQUE,
+                    icon       TEXT DEFAULT '',
+                    sort_order INTEGER DEFAULT 0
+                );
+
+                -- Which groups each user can see
+                CREATE TABLE IF NOT EXISTS user_groups (
+                    user_id    INTEGER NOT NULL,
+                    group_name TEXT NOT NULL,
+                    PRIMARY KEY (user_id, group_name)
+                );
+
                 -- Global channel list parsed from source m3u
                 CREATE TABLE IF NOT EXISTS channels (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name       TEXT NOT NULL,
-                    group_title TEXT DEFAULT '',
-                    tvg_id     TEXT DEFAULT '',
-                    tvg_logo   TEXT DEFAULT '',
-                    tvg_rec    TEXT DEFAULT '',
-                    stream_url TEXT NOT NULL,
-                    enabled    INTEGER DEFAULT 1,
-                    sort_order INTEGER DEFAULT 0,
-                    raw_extinf TEXT DEFAULT ''
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name         TEXT NOT NULL,
+                    group_title  TEXT DEFAULT '',
+                    custom_group TEXT DEFAULT '',
+                    tvg_id       TEXT DEFAULT '',
+                    tvg_logo     TEXT DEFAULT '',
+                    tvg_rec      TEXT DEFAULT '',
+                    stream_url   TEXT NOT NULL,
+                    enabled      INTEGER DEFAULT 1,
+                    sort_order   INTEGER DEFAULT 0,
+                    raw_extinf   TEXT DEFAULT ''
                 );
 
                 -- EPG channel whitelist (which channels to include in filtered EPG)
@@ -108,8 +124,21 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_user    ON watch_logs(user_id);
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_started ON watch_logs(started_at);
                 CREATE INDEX IF NOT EXISTS idx_channels_group     ON channels(group_title);
+                CREATE INDEX IF NOT EXISTS idx_channels_custom    ON channels(custom_group);
                 CREATE INDEX IF NOT EXISTS idx_channels_enabled   ON channels(enabled);
             """)
+            # Runtime migrations for existing DBs
+            try:
+                con.execute("ALTER TABLE channels ADD COLUMN custom_group TEXT DEFAULT ''")
+            except Exception: pass
+            # Insert default groups
+            con.executemany(
+                "INSERT OR IGNORE INTO channel_groups (name, icon, sort_order) VALUES (?,?,?)",
+                [("Privates TV","📺",1),("Öffentlich-Rechtlich","📡",2),
+                 ("Sport","⚽",3),("Kinder","🧒",4),("Kino & Serien","🎬",5),
+                 ("Doku & Info","📰",6),("Musik","🎵",7),
+                 ("International","🌍",8),("Sonstige","📻",9)]
+            )
 
     # ── Settings ──────────────────────────────────────────────────────────────
 
@@ -283,6 +312,84 @@ class Database:
                 q += " WHERE enabled = 1"
             q += " ORDER BY sort_order, name"
             return [dict(r) for r in con.execute(q).fetchall()]
+
+    # ── Channel Groups ────────────────────────────────────────────────────────
+
+    def get_custom_groups(self) -> List[Dict]:
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT * FROM channel_groups ORDER BY sort_order, name"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_custom_group(self, name: str, icon: str = "", sort_order: int = 0) -> Dict:
+        with self.conn() as con:
+            cur = con.execute(
+                "INSERT INTO channel_groups (name, icon, sort_order) VALUES (?,?,?)",
+                (name, icon, sort_order)
+            )
+            return {"id": cur.lastrowid, "name": name, "icon": icon, "sort_order": sort_order}
+
+    def update_custom_group(self, group_id: int, data: dict):
+        allowed = {"name", "icon", "sort_order"}
+        fields = {k: v for k, v in data.items() if k in allowed}
+        if not fields: return
+        sets = ", ".join(f"{k}=?" for k in fields)
+        with self.conn() as con:
+            con.execute(f"UPDATE channel_groups SET {sets} WHERE id=?",
+                       list(fields.values()) + [group_id])
+
+    def delete_custom_group(self, group_id: int):
+        with self.conn() as con:
+            grp = con.execute(
+                "SELECT name FROM channel_groups WHERE id=?", (group_id,)
+            ).fetchone()
+            if grp:
+                con.execute("UPDATE channels SET custom_group='' WHERE custom_group=?", (grp["name"],))
+                con.execute("DELETE FROM user_groups WHERE group_name=?", (grp["name"],))
+            con.execute("DELETE FROM channel_groups WHERE id=?", (group_id,))
+
+    def set_channel_custom_group(self, channel_id: int, group_name: str):
+        with self.conn() as con:
+            con.execute("UPDATE channels SET custom_group=? WHERE id=?", (group_name, channel_id))
+
+    def bulk_set_channel_group(self, channel_ids: List[int], group_name: str):
+        """Assign multiple channels to a group at once."""
+        with self.conn() as con:
+            for cid in channel_ids:
+                con.execute("UPDATE channels SET custom_group=? WHERE id=?", (group_name, cid))
+
+    # ── User Groups ───────────────────────────────────────────────────────────
+
+    def get_user_groups(self, user_id: int) -> List[str]:
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT group_name FROM user_groups WHERE user_id=? ORDER BY group_name",
+                (user_id,)
+            ).fetchall()
+            return [r["group_name"] for r in rows]
+
+    def set_user_groups(self, user_id: int, group_names: List[str]):
+        """Replace all group assignments for a user."""
+        with self.conn() as con:
+            con.execute("DELETE FROM user_groups WHERE user_id=?", (user_id,))
+            con.executemany(
+                "INSERT INTO user_groups (user_id, group_name) VALUES (?,?)",
+                [(user_id, g) for g in group_names]
+            )
+
+    def get_channels_for_user(self, user_id: int) -> List[Dict]:
+        """Get channels filtered by user's assigned groups. If no groups assigned, return all."""
+        user_grps = self.get_user_groups(user_id)
+        channels = self.get_channels(enabled_only=True)
+        if not user_grps:
+            return channels  # No restriction = all channels
+        result = []
+        for ch in channels:
+            effective_group = ch.get("custom_group") or ch.get("group_title", "")
+            if effective_group in user_grps:
+                result.append(ch)
+        return result
 
     def get_channel_groups(self) -> List[str]:
         with self.conn() as con:

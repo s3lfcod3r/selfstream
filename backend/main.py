@@ -160,7 +160,7 @@ async def serve_playlist(token: str):
     if not user or not user["active"]:
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
 
-    channels = db.get_channels(enabled_only=True)
+    channels = db.get_channels_for_user(user["id"])
     proxy_url = db.get_proxy_url()
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
 
@@ -797,6 +797,46 @@ def list_channels(group: str = None, _=Depends(check_admin)):
     if group:
         channels = [c for c in channels if c["group_title"] == group]
     return channels
+
+# ── Custom Groups API ─────────────────────────────────────────────────────
+
+@admin_app.get("/api/groups")
+def list_custom_groups(_=Depends(check_admin)):
+    return db.get_custom_groups()
+
+@admin_app.post("/api/groups")
+def create_group(body: dict, _=Depends(check_admin)):
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    return db.create_custom_group(name, body.get("icon",""), body.get("sort_order", 0))
+
+@admin_app.put("/api/groups/{group_id}")
+def update_group(group_id: int, body: dict, _=Depends(check_admin)):
+    db.update_custom_group(group_id, body)
+    return {"ok": True}
+
+@admin_app.delete("/api/groups/{group_id}")
+def delete_group(group_id: int, _=Depends(check_admin)):
+    db.delete_custom_group(group_id)
+    return {"ok": True}
+
+@admin_app.put("/api/channels/{channel_id}/group")
+def set_channel_group(channel_id: int, body: dict, _=Depends(check_admin)):
+    db.set_channel_custom_group(channel_id, body.get("group", ""))
+    return {"ok": True}
+
+# ── User Groups API ────────────────────────────────────────────────────────
+
+@admin_app.get("/api/users/{user_id}/groups")
+def get_user_groups(user_id: int, _=Depends(check_admin)):
+    return db.get_user_groups(user_id)
+
+@admin_app.put("/api/users/{user_id}/groups")
+def set_user_groups(user_id: int, body: dict, _=Depends(check_admin)):
+    groups = body.get("groups", [])
+    db.set_user_groups(user_id, groups)
+    return {"ok": True}
 
 @admin_app.get("/api/channels/groups")
 def list_groups(_=Depends(check_admin)):
