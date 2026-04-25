@@ -749,13 +749,13 @@ async function loadStats() {
         const durStr=durSec>3600?`${Math.floor(durSec/3600)}h ${Math.floor((durSec%3600)/60)}m`
                     :durSec>60?`${Math.floor(durSec/60)}m ${durSec%60}s`:`${durSec}s`;
         const np=sess.now_playing||{};
-        return `<div class="session-row" style="padding:10px 14px;">
+        return `<div class="session-row" style="padding:10px 14px;flex-wrap:nowrap;overflow:hidden;">
           <div class="live-dot active" style="flex-shrink:0;"></div>
-          <strong>${esc(sess.user)}</strong>
-          <span style="color:var(--text2);margin:0 6px;">→</span>
-          <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">${esc(sess.channel)}</span>
-          ${np.title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;">📺 <span style="color:var(--teal);font-weight:600;">${esc(np.title)}</span> <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${np.start||''}–${np.stop||''}</span></span>`:''}
-          <span class="session-meta">${timeStr ? `seit ${timeStr} · ${durStr}` : ''}</span>
+          <strong style="flex-shrink:0;">${esc(sess.user)}</strong>
+          <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(sess.channel)}</span>
+          ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${np.start||''}–${np.stop||''}</span>`:''}
+          <span class="session-meta" style="flex-shrink:0;">${timeStr ? `seit ${timeStr} · ${durStr}` : ''}</span>
         </div>`;
       }).join('');
     }
