@@ -34,7 +34,9 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 - **Watch Tracking** – Channel, show title, duration, timestamp — all stored
 - **Admin Dashboard** – Live Sessions, Live Catchup, History, Users, Channels, EPG, Settings
 - **Custom Groups** – Create your own channel groups (e.g. Kids, Sports, Docs) and assign users
-- **Group Sorting** – Number groups to force category order in IPTV Pro (e.g. "01. Kids", "02. Sports")
+- **Custom Groups** – Create your own channel groups (e.g. Kids, Sports, Docs) and assign users
+- **Group & Provider Sorting** – Drag & drop to sort both custom and provider groups; numbering forces order in IPTV Pro
+- **Brute-Force Protection** – Admin login locked after 10 failed attempts
 - **Short URLs** – Short playlist URLs via custom domain
 - **Channel Manager** – Enable/disable, sort, filter channels by group
 - **EPG Manager** – Multiple EPG sources, time filter (1/3/7 days), auto-refresh
@@ -159,6 +161,8 @@ Create your own channel groups independent of provider groups:
 
 **IPTV Pro category order:** Enable numbering in the Groups tab to force the right sort order in IPTV Pro (e.g. "01. Kids", "02. Sports", "03. Docs").
 
+**Provider group order:** Use the drag & drop list in the Groups tab to sort all groups (custom and provider) in one unified list — the saved order is applied to every playlist.
+
 ---
 
 ## URLs & Endpoints
@@ -244,7 +248,9 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **Watch-Tracking** – Kanal, Sendung, Dauer, Zeitpunkt – alles gespeichert
 - **Admin-Dashboard** – Live Sessions, Live Catchup, Verlauf, Benutzer, Kanäle, EPG, Einstellungen
 - **Eigene Gruppen** – Eigene Kanalgruppen erstellen (z.B. Kinder, Sport, Doku) und Usern zuweisen
-- **Gruppen-Sortierung** – Nummerierung für korrekte Kategorien-Reihenfolge in IPTV Pro (z.B. "01. Kinder")
+- **Eigene Gruppen** – Eigene Kanalgruppen erstellen (z.B. Kinder, Sport, Doku) und Usern zuweisen
+- **Gruppen- & Anbieter-Sortierung** – Drag & Drop zum Sortieren aller Gruppen; Nummerierung erzwingt Reihenfolge in IPTV Pro
+- **Brute-Force-Schutz** – Admin-Login wird nach 10 Fehlversuchen gesperrt
 - **Short URLs** – Kurze Playlist-URLs über eigene Domain
 - **Kanal-Manager** – Kanäle aktivieren/deaktivieren, sortieren, nach Gruppen filtern
 - **EPG-Manager** – Mehrere EPG-Quellen, Zeitfilter (1/3/7 Tage), Auto-Refresh
@@ -368,6 +374,8 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 4. User sieht nur die Kanäle seiner Gruppe — egal wie der Anbieter sie nennt
 
 **IPTV Pro Sortierung:** Nummerierung im Gruppen-Tab aktivieren um die Kategorien-Reihenfolge in IPTV Pro zu erzwingen (z.B. "01. Kinder", "02. Sport", "03. Doku").
+
+**Anbieter-Gruppen Reihenfolge:** Im Gruppen-Tab per Drag & Drop alle Gruppen (eigene + Anbieter) in einer gemeinsamen Liste sortieren — die gespeicherte Reihenfolge wird auf jede Playlist angewendet.
 
 ---
 
