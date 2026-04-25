@@ -8,333 +8,304 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0a0f; --bg2: #111118; --bg3: #1a1a24;
-    --border: #2a2a3a; --border2: #3a3a50;
-    --accent: #00e5c8; --accent2: #1db8d4;
-    --green: #00ff88; --red: #ff3366;
-    --text: #e8e8f0; --text2: #8888aa;
-    --mono: 'IBM Plex Mono', monospace;
-    --sans: 'IBM Plex Sans', sans-serif;
+    --bg:#0d1117;--bg2:#161b22;--bg3:#1c2333;
+    --border:#21262d;--border2:#30363d;
+    --teal:#00e5c8;--teal2:#00b5a0;--blue:#1db8d4;
+    --green:#00ff88;--red:#f85149;
+    --text:#e6edf3;--text2:#8b949e;--text3:#484f58;
+    --mono:'IBM Plex Mono',monospace;
+    --sans:'IBM Plex Sans',sans-serif;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing:border-box; margin:0; padding:0; }
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: radial-gradient(ellipse at 30% 40%, #0d0d2a 0%, #0a0a0f 60%);
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    overflow:hidden;
   }
 
+  /* Background — identical to index.html login-bg + login-grid */
+  .bg {
+    position:fixed;inset:0;background:#090d13;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 20% 20%,rgba(0,229,200,.1) 0%,transparent 60%),
+      radial-gradient(ellipse 60% 40% at 80% 80%,rgba(29,184,212,.07) 0%,transparent 50%);
+  }
+  .bg-grid {
+    position:fixed;inset:0;
+    background:
+      repeating-linear-gradient(0deg,transparent,transparent 40px,rgba(0,229,200,.018) 40px,rgba(0,229,200,.018) 41px),
+      repeating-linear-gradient(90deg,transparent,transparent 40px,rgba(0,229,200,.018) 40px,rgba(0,229,200,.018) 41px);
+  }
+
+  /* Wizard box — identical to index.html login-box */
   .wizard {
-    width: 480px;
-    max-width: 95vw;
+    position:relative;z-index:2;
+    width:460px;max-width:95vw;
+    background:rgba(17,24,34,.94);
+    border:1px solid var(--border2);
+    backdrop-filter:blur(16px);
+    box-shadow:0 32px 80px rgba(0,0,0,.6);
+    padding:44px;
+    animation:fadeUp .5s cubic-bezier(.16,1,.3,1) both;
+  }
+  @keyframes fadeUp {
+    from{opacity:0;transform:translateY(20px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+  .wizard::before {
+    content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,var(--blue),var(--teal));
   }
 
-  .wizard-header {
-    margin-bottom: 40px;
+  /* Logo — same as login-logo-wrap in index.html */
+  .logo-wrap {
+    text-align:center;
+    margin-bottom:32px;
+  }
+  .logo-wrap img {
+    max-width:220px;max-height:120px;object-fit:contain;
+    filter:drop-shadow(0 0 28px rgba(0,229,200,.4));
   }
 
-  .logo {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.35em;
-    color: var(--teal);
-    text-transform: uppercase;
-    margin-bottom: 12px;
-  }
-
-  h1 {
-    font-size: 28px;
-    font-weight: 600;
-    margin-bottom: 8px;
-  }
-
-  .subtitle {
-    color: var(--text2);
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
+  /* Steps bar */
   .steps {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 32px;
+    display:flex;gap:6px;
+    margin-bottom:32px;
   }
-
   .step-dot {
-    flex: 1;
-    height: 3px;
-    background: var(--border2);
-    border-radius: 2px;
-    transition: background 0.4s;
+    flex:1;height:2px;
+    background:var(--border2);border-radius:2px;
+    transition:background .4s,box-shadow .4s;
+  }
+  .step-dot.done {
+    background:var(--teal);
+    box-shadow:0 0 6px rgba(0,229,200,.5);
   }
 
-  .step-dot.done { background: var(--teal); }
-
-  .card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    padding: 32px;
-    position: relative;
-    overflow: hidden;
-    margin-bottom: 16px;
+  /* Steps */
+  .step { display:none; }
+  .step.active {
+    display:block;
+    animation:stepIn .3s cubic-bezier(.16,1,.3,1) both;
   }
-
-  .card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--blue), var(--teal));
+  @keyframes stepIn {
+    from{opacity:0;transform:translateX(10px);}
+    to{opacity:1;transform:translateX(0);}
   }
-
-  .step { display: none; }
-  .step.active { display: block; }
 
   .step-label {
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    color: var(--teal);
-    text-transform: uppercase;
-    margin-bottom: 20px;
+    font-family:var(--mono);font-size:9px;
+    letter-spacing:.2em;color:var(--teal);
+    text-transform:uppercase;margin-bottom:22px;
   }
 
-  .form-group { margin-bottom: 20px; }
+  .form-group { margin-bottom:20px; }
 
   label {
-    display: block;
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.15em;
-    color: var(--text2);
-    text-transform: uppercase;
-    margin-bottom: 8px;
+    display:block;font-family:var(--mono);
+    font-size:9px;letter-spacing:.15em;
+    color:var(--text2);text-transform:uppercase;
+    margin-bottom:8px;
   }
 
   input {
-    width: 100%;
-    padding: 12px 16px;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 14px;
-    outline: none;
-    transition: border-color 0.2s;
+    width:100%;padding:11px 14px;
+    background:var(--bg3);border:1px solid var(--border);
+    color:var(--text);font-family:var(--mono);font-size:13px;
+    outline:none;transition:border-color .2s;
   }
-
-  input:focus { border-color: var(--teal); }
+  input:focus { border-color:var(--teal); }
+  input::placeholder { color:var(--text3); }
 
   .hint {
-    font-size: 12px;
-    color: var(--text2);
-    margin-top: 6px;
-    line-height: 1.5;
+    font-size:11px;color:var(--text2);
+    margin-top:7px;line-height:1.5;
+    font-family:var(--mono);
   }
-
   .hint code {
-    background: var(--bg3);
-    padding: 1px 6px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--teal);
+    background:rgba(0,229,200,.08);
+    border:1px solid rgba(0,229,200,.15);
+    padding:1px 5px;color:var(--teal);font-size:10px;
   }
 
+  /* Button — same style as index.html .btn.primary.full */
   .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 24px;
-    background: transparent;
-    border: 1px solid var(--teal);
-    color: var(--teal);
-    cursor: pointer;
-    font-family: var(--mono);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    transition: all 0.2s;
-    background: rgba(0,212,255,0.05);
-    width: 100%;
-    justify-content: center;
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;padding:11px 24px;
+    background:rgba(0,229,200,.06);
+    border:1px solid var(--teal);color:var(--teal);
+    cursor:pointer;font-family:var(--mono);
+    font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    transition:all .2s;margin-top:4px;
   }
-
-  .btn:hover { background: rgba(0,212,255,0.15); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn:hover { background:rgba(0,229,200,.14); }
+  .btn:disabled { opacity:.4;cursor:not-allowed; }
 
   .error-msg {
-    color: var(--red);
-    font-family: var(--mono);
-    font-size: 12px;
-    margin-top: 12px;
-    display: none;
+    color:var(--red);font-family:var(--mono);font-size:11px;
+    margin-top:12px;display:none;
+    padding:9px 12px;
+    background:rgba(248,81,73,.06);
+    border:1px solid rgba(248,81,73,.2);
   }
 
   /* Success */
+  .success-wrap { text-align:center;padding:8px 0; }
   .success-icon {
-    width: 56px; height: 56px;
-    border: 2px solid var(--green);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
-    color: var(--green);
-    margin: 0 auto 24px;
-    box-shadow: 0 0 24px rgba(0,255,136,0.2);
+    width:60px;height:60px;
+    border:1.5px solid var(--green);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:26px;color:var(--green);
+    margin:0 auto 22px;
+    box-shadow:0 0 28px rgba(0,255,136,.2),inset 0 0 16px rgba(0,255,136,.04);
+    animation:pop .5s cubic-bezier(.16,1,.3,1) both;
   }
-
-  .success-text {
-    text-align: center;
-    margin-bottom: 24px;
+  @keyframes pop {
+    from{transform:scale(.5);opacity:0;}
+    to{transform:scale(1);opacity:1;}
   }
-
-  .success-text h2 { font-size: 22px; margin-bottom: 8px; }
-  .success-text p { color: var(--text2); font-size: 14px; }
-
+  .success-title {
+    font-size:22px;font-weight:600;margin-bottom:8px;
+  }
+  .success-sub {
+    color:var(--text2);font-size:13px;
+    font-family:var(--mono);line-height:1.6;margin-bottom:24px;
+  }
   .url-display {
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    padding: 12px 16px;
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--teal);
-    text-align: center;
-    margin-bottom: 20px;
-    word-break: break-all;
+    background:var(--bg3);border:1px solid rgba(0,229,200,.2);
+    padding:12px 16px;font-family:var(--mono);font-size:12px;
+    color:var(--teal);text-align:center;
+    margin-bottom:20px;word-break:break-all;
   }
 </style>
 </head>
 <body>
+<div class="bg"></div>
+<div class="bg-grid"></div>
+
 <div class="wizard">
-  <div class="wizard-header">
-    <div style="text-align:center;margin-bottom:12px;"><img src="/logo.png" style="height:72px;"></div>
-    <h1>Ersteinrichtung</h1>
-    <p class="subtitle">Richte deinen IPTV-Proxy in wenigen Schritten ein.</p>
+
+  <!-- Logo — same as index.html login screen -->
+  <div class="logo-wrap">
+    <img src="/logo.png" alt="selfstream" onerror="this.src='/frontend/logo.png'">
   </div>
 
+  <!-- Step dots -->
   <div class="steps">
     <div class="step-dot done" id="dot-1"></div>
     <div class="step-dot" id="dot-2"></div>
     <div class="step-dot" id="dot-3"></div>
   </div>
 
-  <div class="card">
-
-    <!-- Step 1: Admin Password -->
-    <div class="step active" id="step-1">
-      <div class="step-label">Schritt 1 von 3 · Admin-Zugang</div>
-      <div class="form-group">
-        <label>Admin-Passwort</label>
-        <input type="password" id="s1-token" placeholder="Mindestens 8 Zeichen…" />
-        <div class="hint">Dieses Passwort schützt das Admin-Panel. Wähle etwas Sicheres.</div>
-      </div>
-      <div class="form-group">
-        <label>Passwort bestätigen</label>
-        <input type="password" id="s1-token2" placeholder="Nochmals eingeben…" />
-      </div>
-      <div class="error-msg" id="err-1"></div>
-      <button class="btn" onclick="step1Next()">Weiter →</button>
+  <!-- Step 1: Password -->
+  <div class="step active" id="step-1">
+    <div class="step-label">Schritt 1 von 3 · Admin-Zugang</div>
+    <div class="form-group">
+      <label>Admin-Passwort</label>
+      <input type="password" id="s1-token" placeholder="Mindestens 8 Zeichen…" autocomplete="new-password">
+      <div class="hint">Schützt das Admin-Panel. Wähle etwas Sicheres.</div>
     </div>
-
-    <!-- Step 2: Base URL -->
-    <div class="step" id="step-2">
-      <div class="step-label">Schritt 2 von 3 · Server-Adresse</div>
-      <div class="form-group">
-        <label>Admin Panel URL (dieser Port, z.B. 8081)</label>
-        <input type="text" id="s2-url" placeholder="http://192.168.1.69:8081" />
-        <div class="hint">Adresse dieses Admin-Panels. Beispiel: <code>http://192.168.1.69:8081</code></div>
-      </div>
-      <div class="form-group">
-        <label>IPTV Proxy URL (Port 8000) – für Playlist-Links</label>
-        <input type="text" id="s2-proxy-url" placeholder="http://192.168.1.69:8000" />
-        <div class="hint">Wird in alle M3U-Playlist-URLs eingebaut. Immer Port 8000.</div>
-      </div>
-      <div class="error-msg" id="err-2"></div>
-      <button class="btn" onclick="step2Next()">Weiter →</button>
+    <div class="form-group">
+      <label>Passwort bestätigen</label>
+      <input type="password" id="s1-token2" placeholder="Nochmals eingeben…" autocomplete="new-password">
     </div>
+    <div class="error-msg" id="err-1"></div>
+    <button class="btn" onclick="step1Next()">Weiter →</button>
+  </div>
 
-    <!-- Step 3: Done -->
-    <div class="step" id="step-3">
-      <div class="step-label">Schritt 3 von 3 · Abgeschlossen</div>
+  <!-- Step 2: URLs -->
+  <div class="step" id="step-2">
+    <div class="step-label">Schritt 2 von 3 · Server-Adresse</div>
+    <div class="form-group">
+      <label>Admin Panel URL</label>
+      <input type="text" id="s2-url" placeholder="http://192.168.1.69:8080">
+      <div class="hint">Adresse dieses Panels. Beispiel: <code>http://192.168.1.69:8080</code></div>
+    </div>
+    <div class="form-group">
+      <label>IPTV Proxy URL (Port 8000)</label>
+      <input type="text" id="s2-proxy-url" placeholder="http://192.168.1.69:8000">
+      <div class="hint">Wird in alle M3U-Playlist-URLs eingebaut. Immer Port 8000.</div>
+    </div>
+    <div class="error-msg" id="err-2"></div>
+    <button class="btn" onclick="step2Next()">Einrichten →</button>
+  </div>
+
+  <!-- Step 3: Done -->
+  <div class="step" id="step-3">
+    <div class="step-label">Schritt 3 von 3 · Abgeschlossen</div>
+    <div class="success-wrap">
       <div class="success-icon">✓</div>
-      <div class="success-text">
-        <h2>selfstream ist bereit!</h2>
-        <p>Dein IPTV-Proxy läuft. Öffne das Admin-Panel um Benutzer anzulegen.</p>
-      </div>
+      <div class="success-title">selfstream ist bereit!</div>
+      <div class="success-sub">Dein IPTV-Proxy läuft.<br>Öffne das Admin-Panel um Benutzer anzulegen.</div>
       <div class="url-display" id="admin-url"></div>
       <button class="btn" onclick="goToAdmin()">Admin Panel öffnen →</button>
     </div>
-
   </div>
+
 </div>
 
 <script>
-let adminToken = '';
-let baseUrl = '';
+let adminToken = '', baseUrl = '';
 
 function showError(id, msg) {
   const el = document.getElementById(id);
-  el.textContent = msg;
-  el.style.display = 'block';
+  el.textContent = msg; el.style.display = 'block';
 }
-function hideError(id) {
-  document.getElementById(id).style.display = 'none';
-}
+function hideError(id) { document.getElementById(id).style.display = 'none'; }
 
 function step1Next() {
   hideError('err-1');
   const t1 = document.getElementById('s1-token').value;
   const t2 = document.getElementById('s1-token2').value;
   if (t1.length < 8) return showError('err-1', 'Passwort muss mindestens 8 Zeichen haben.');
-  if (t1 !== t2) return showError('err-1', 'Passwörter stimmen nicht überein.');
+  if (t1 !== t2)     return showError('err-1', 'Passwörter stimmen nicht überein.');
   adminToken = t1;
   document.getElementById('step-1').classList.remove('active');
   document.getElementById('step-2').classList.add('active');
   document.getElementById('dot-2').classList.add('done');
-
-  // Pre-fill base url with current host
-  const guessed = window.location.protocol + '//' + window.location.hostname + ':' + window.location.port;
-  const guessedProxy = window.location.protocol + '//' + window.location.hostname + ':8000';
-  document.getElementById('s2-proxy-url').value = guessedProxy;
-  document.getElementById('s2-url').value = guessed;
+  const h = window.location.hostname, p = window.location.port;
+  document.getElementById('s2-url').value       = `${window.location.protocol}//${h}:${p}`;
+  document.getElementById('s2-proxy-url').value = `${window.location.protocol}//${h}:8000`;
 }
 
 async function step2Next() {
   hideError('err-2');
-  const url = document.getElementById('s2-url').value.trim().replace(/\/$/, '');
+  const url      = document.getElementById('s2-url').value.trim().replace(/\/$/, '');
   const proxyUrl = document.getElementById('s2-proxy-url').value.trim().replace(/\/$/, '');
-  if (!url.startsWith('http')) return showError('err-2', 'URL muss mit http:// oder https:// beginnen.');
+  if (!url.startsWith('http'))      return showError('err-2', 'URL muss mit http:// oder https:// beginnen.');
   if (!proxyUrl.startsWith('http')) return showError('err-2', 'Proxy URL muss mit http:// beginnen.');
   baseUrl = url;
-
+  const btn = document.querySelector('#step-2 .btn');
+  btn.disabled = true; btn.textContent = 'Speichern…';
   try {
     const r = await fetch('/api/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ admin_token: adminToken, base_url: baseUrl, proxy_url: proxyUrl })
     });
-    if (!r.ok) {
-      const d = await r.json();
-      return showError('err-2', d.detail || 'Fehler beim Speichern.');
-    }
+    if (!r.ok) { const d = await r.json(); return showError('err-2', d.detail || 'Fehler beim Speichern.'); }
   } catch(e) {
     return showError('err-2', 'Verbindungsfehler. Ist der Server erreichbar?');
-  }
-
+  } finally { btn.disabled = false; btn.textContent = 'Einrichten →'; }
   document.getElementById('step-2').classList.remove('active');
   document.getElementById('step-3').classList.add('active');
   document.getElementById('dot-3').classList.add('done');
   document.getElementById('admin-url').textContent = baseUrl + '/admin';
 }
 
-function goToAdmin() {
-  window.location.href = '/admin';
-}
+function goToAdmin() { window.location.href = '/admin'; }
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (document.getElementById('step-1').classList.contains('active')) step1Next();
+  else if (document.getElementById('step-2').classList.contains('active')) step2Next();
+});
 </script>
 </body>
 </html>
