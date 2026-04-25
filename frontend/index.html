@@ -283,6 +283,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
 
         <div class="section-hdr" style="margin-top:8px;">
+          <span class="section-title">⏪ Catchup Sessions</span>
+        </div>
+        <div class="table-wrap" id="catchup-wrap">
+          <div class="empty-state">Keine Catchup-Zugriffe gerade</div>
+        </div>
+
+        <div class="section-hdr" style="margin-top:8px;">
           <span class="section-title">Zuletzt geschaut</span>
         </div>
         <div class="table-wrap" id="recent-feed">
@@ -729,6 +736,8 @@ async function loadStats() {
     lbl.textContent=`${s.active_streams} aktive Stream${s.active_streams!==1?'s':''}`;
 
     const now=Math.floor(Date.now()/1000);
+
+    // ── Live Sessions ──────────────────────────────────────────────────────────
     const wrap=document.getElementById('sessions-wrap');
     if(!s.active_sessions||!s.active_sessions.length){
       wrap.innerHTML='<div class="empty-state">Keine aktiven Streams gerade</div>';
@@ -736,47 +745,72 @@ async function loadStats() {
       wrap.innerHTML=s.active_sessions.map(sess=>{
         const durSec=sess.started_at?now-sess.started_at:0;
         const dt=sess.started_at?new Date(sess.started_at*1000):null;
-        const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
         const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
         const durStr=durSec>3600?`${Math.floor(durSec/3600)}h ${Math.floor((durSec%3600)/60)}m`
                     :durSec>60?`${Math.floor(durSec/60)}m ${durSec%60}s`:`${durSec}s`;
         const np=sess.now_playing||{};
-        const epgLine=np.title?`<div style="margin-top:3px;padding-left:22px;font-size:10px;color:var(--text2);font-family:var(--mono);">📺 <span style="color:var(--teal);">${esc(np.title)}</span> <span style="color:var(--text2);">${np.start||''}–${np.stop||''}</span>${np.desc?` · <span style="opacity:.7;">${esc(np.desc)}</span>`:''}</div>`:'';
-        return `<div class="session-row" style="flex-wrap:wrap;">
+        const epgLine=np.title
+          ? `<div style="margin-top:4px;padding-left:20px;font-size:11px;color:var(--text2);">
+               📺 <span style="color:var(--teal);font-weight:600;">${esc(np.title)}</span>
+               <span style="color:var(--text2);margin-left:6px;font-family:var(--mono);font-size:10px;">${np.start||''}–${np.stop||''}</span>
+               ${np.desc?`<span style="opacity:.6;font-size:10px;"> · ${esc(np.desc)}</span>`:''}
+             </div>` : '';
+        return `<div class="session-row" style="flex-wrap:wrap;padding:10px 14px;">
           <div class="live-dot active" style="flex-shrink:0;"></div>
           <strong>${esc(sess.user)}</strong>
-          <span style="color:var(--text2);margin:0 4px;">→</span>
-          <span style="font-family:var(--mono);font-size:11px;">${esc(sess.channel)}</span>
-          ${sess.ip?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(sess.ip)}</span>`:''}
-          <span class="session-meta">${dateStr&&timeStr?`${dateStr} ${timeStr} · ${durStr}`:''}</span>
-          ${epgLine?`<div style="width:100%;">${epgLine}</div>`:''}
+          <span style="color:var(--text2);margin:0 6px;">→</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">${esc(sess.channel)}</span>
+          <span class="session-meta">${timeStr ? `seit ${timeStr} · ${durStr}` : ''}</span>
+          ${epgLine ? `<div style="width:100%;">${epgLine}</div>` : ''}
         </div>`;
       }).join('');
     }
 
-    // Recent logs feed below sessions
+    // ── Catchup Sessions (from recent_logs) ───────────────────────────────────
+    const cwrap=document.getElementById('catchup-wrap');
+    if(cwrap){
+      const catchupLogs=(s.recent_logs||[]).filter(l=>l.is_catchup===1||l.is_catchup==='1');
+      if(!catchupLogs.length){
+        cwrap.innerHTML='<div class="empty-state">Keine Catchup-Zugriffe</div>';
+      } else {
+        cwrap.innerHTML=catchupLogs.map(l=>{
+          const dt=l.started_at?new Date(l.started_at+'Z'):null;
+          const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
+          const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}):'';
+          const title=l.epg_title||l.channel;
+          return `<div class="session-row" style="padding:10px 14px;">
+            <span style="font-size:13px;color:var(--teal);flex-shrink:0;">⏪</span>
+            <strong>${esc(l.user)}</strong>
+            <span style="color:var(--text2);margin:0 6px;">→</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
+            ${l.epg_title?`<span style="font-size:11px;color:var(--text);margin-left:4px;">· ${esc(l.epg_title)}</span>`:''}
+            ${l.catchup_time?`<span style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-left:6px;">(${esc(l.catchup_time)})</span>`:''}
+            <span class="session-meta">${dateStr} ${timeStr}</span>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // ── Zuletzt geschaut ──────────────────────────────────────────────────────
     const feed=document.getElementById('recent-feed');
     if(feed){
-      if(!s.recent_logs||!s.recent_logs.length){
+      const liveLogs=(s.recent_logs||[]).filter(l=>!l.is_catchup||l.is_catchup===0||l.is_catchup==='0');
+      if(!liveLogs.length){
         feed.innerHTML='<div class="empty-state">Noch keine Einträge</div>';
       } else {
-        feed.innerHTML=s.recent_logs.map(l=>{
+        feed.innerHTML=liveLogs.map(l=>{
           const dt=l.started_at?new Date(l.started_at+'Z'):null;
           const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
           const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
-          const isCatchup=l.is_catchup===1||l.is_catchup==='1';
-          const icon=isCatchup?'⏪':'▶';
-          const iconColor=isCatchup?'var(--teal)':'var(--green)';
-          const catchupLabel=isCatchup&&l.catchup_time?`<span style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-left:4px;">(${esc(l.catchup_time)})</span>`:'';
-          return `<div class="session-row" style="opacity:.85;">
-            <span style="font-size:12px;color:${iconColor};flex-shrink:0;">${icon}</span>
+          const np=l.now_playing||{};
+          const displayTitle=np.title||'';
+          return `<div class="session-row" style="opacity:.85;padding:8px 14px;">
+            <span style="font-size:12px;color:var(--green);flex-shrink:0;">▶</span>
             <span style="font-family:var(--mono);font-size:9px;color:var(--text2);white-space:nowrap;flex-shrink:0;">${dateStr} ${timeStr}</span>
             <strong style="font-size:12px;">${esc(l.user)}</strong>
             <span style="color:var(--text2);margin:0 4px;">→</span>
-            <span style="font-family:var(--mono);font-size:11px;">${esc(l.channel)}</span>
-            ${catchupLabel}
-            ${l.ip?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(l.ip)}</span>`:''}
-            <span class="session-meta">${isCatchup?'Catchup':fmtDur(l.duration)}</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
+            <span class="session-meta">${fmtDur(l.duration)}</span>
           </div>`;
         }).join('');
       }
