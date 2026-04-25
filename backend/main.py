@@ -420,17 +420,31 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
 
     # Catchup segments bypass session tracking completely – they are VOD, not live
     if catchup == "1":
-        async def stream_catchup_segment():
-            try:
-                timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
-                async with httpx.AsyncClient(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
-                    async with client.stream("GET", decoded_url) as resp:
-                        async for chunk in resp.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
-                            yield chunk
-            except Exception as e:
-                logger.error(f"Catchup segment error: {e}")
-        media_type = "application/vnd.apple.mpegurl" if not is_ts else "video/mp2t"
-        return StreamingResponse(stream_catchup_segment(), media_type=media_type, headers={"Cache-Control": "no-cache"})
+        try:
+            timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
+                if not is_ts:
+                    # Sub-playlist (m3u8): rewrite segment URLs so they also carry catchup=1
+                    resp = await client.get(decoded_url)
+                    resp.raise_for_status()
+                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, proxy_url, token, catchup=True)
+                    return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
+                                        headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
+                else:
+                    # Actual TS segment: stream through directly
+                    async def stream_catchup_ts():
+                        try:
+                            async with httpx.AsyncClient(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
+                                async with c2.stream("GET", decoded_url) as r2:
+                                    async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
+                                        yield chunk
+                        except Exception as e:
+                            logger.error(f"Catchup TS segment error: {e}")
+                    return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
+                                            headers={"Cache-Control": "no-cache"})
+        except Exception as e:
+            logger.error(f"Catchup segment error: {e}")
+            raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
 
     if is_ts:
         parts = decoded_url.split("/")
