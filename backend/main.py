@@ -37,134 +37,72 @@ async def startup():
 
 
 def _generate_error_video():
-    """Generate error video .ts files using FFmpeg, with Pillow as fallback."""
-    import subprocess, shutil
+    """Generate an error JPEG image using Pillow for max-streams display."""
+    out_path = "/data/error-max-streams.jpg"
+    # Always regenerate to pick up new logo
+    # if os.path.exists(out_path): return
 
-    def _make_with_ffmpeg(out_ts, title, subtitle, sub2, color_hex):
-        """Generate a 10s looping error video with text using FFmpeg."""
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            return False
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import base64
+
+        # Canvas 1280x720 dark background
+        img = Image.new("RGB", (1280, 720), color=(10, 14, 21))
+        draw = ImageDraw.Draw(img)
+
+        # Try to load selfstream logo
         logo_path = "/data/custom_login_logo.png"
         if not os.path.exists(logo_path):
             logo_path = "/app/frontend/logo.png"
 
-        # Build drawtext filter
-        font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        font_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-
-        drawtext = (
-            f"drawtext=fontfile={font}:text='{title}':"
-            f"fontcolor={color_hex}:fontsize=52:x=(w-text_w)/2:y=490,"
-            f"drawtext=fontfile={font_reg}:text='{subtitle}':"
-            f"fontcolor=0xB4BEC8:fontsize=26:x=(w-text_w)/2:y=556,"
-            f"drawtext=fontfile={font_reg}:text='{sub2}':"
-            f"fontcolor=0x8B949E:fontsize=20:x=(w-text_w)/2:y=596"
-        )
-
-        # Check if logo exists and has transparency
-        overlay_filter = ""
-        if os.path.exists(logo_path):
-            overlay_filter = f"[0:v][1:v]overlay=(W-w)/2:45[bg];[bg]"
-            inputs = ["-f", "lavfi", "-i", f"color=c=0x0D1117:size=1280x720:rate=25",
-                     "-i", logo_path]
-            vf = f"{overlay_filter}{drawtext}"
-        else:
-            inputs = ["-f", "lavfi", "-i", f"color=c=0x0D1117:size=1280x720:rate=25"]
-            vf = drawtext
-
-        cmd = [ffmpeg, "-y"] + inputs + [
-            "-vf", vf,
-            "-t", "10",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-            "-an", "-f", "mpegts", out_ts
-        ]
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=60)
-            if result.returncode == 0 and os.path.exists(out_ts):
-                logger.info(f"FFmpeg error video generated: {out_ts}")
-                return True
-            else:
-                logger.warning(f"FFmpeg failed: {result.stderr.decode()[:300]}")
-                return False
-        except Exception as e:
-            logger.warning(f"FFmpeg error: {e}")
-            return False
+            logo = Image.open(logo_path).convert("RGBA")
+            logo.thumbnail((220, 220), Image.LANCZOS)
+            # Create background patch same color as canvas, then paste logo with alpha
+            logo_bg = Image.new("RGBA", logo.size, (10, 14, 21, 255))
+            logo_bg.paste(logo, (0, 0), logo)
+            logo_final = logo_bg.convert("RGB")
+            lx = (1280 - logo_final.width) // 2
+            img.paste(logo_final, (lx, 60))
+        except Exception:
+            pass
 
-    def _make_with_pillow(out_jpg, title, subtitle, sub2, accent):
-        """Fallback: generate JPEG with Pillow."""
+        # Draw stop symbol
+        draw.ellipse([540, 280, 740, 480], outline=(248, 81, 73), width=8)
+        draw.rectangle([600, 350, 680, 410], fill=(248, 81, 73))
+
+        # Main error text
         try:
-            from PIL import Image, ImageDraw, ImageFont
-            BG = (13, 17, 23)
-            img = Image.new("RGB", (1280, 720), BG)
-            draw = ImageDraw.Draw(img)
-            logo_path = "/data/custom_login_logo.png"
-            if not os.path.exists(logo_path):
-                logo_path = "/app/frontend/logo.png"
-            try:
-                logo = Image.open(logo_path).convert("RGBA")
-                logo.thumbnail((220, 236), Image.LANCZOS)
-                data = logo.load()
-                for y in range(logo.height):
-                    for x in range(logo.width):
-                        r,g,b,a = data[x,y]
-                        if r<35 and g<42 and b<50: data[x,y]=(r,g,b,0)
-                img.paste(logo, ((1280-logo.width)//2, 45), logo)
-            except Exception: pass
-            cx, cy = 640, 385
-            if accent == (248,81,73):
-                draw.ellipse([cx-85,cy-85,cx+85,cy+85], outline=accent, width=8)
-                draw.rectangle([cx-40,cy-40,cx+40,cy+40], fill=accent)
-            else:
-                draw.rounded_rectangle([cx-52,cy-12,cx+52,cy+68], radius=10, fill=accent)
-                draw.arc([cx-37,cy-68,cx+37,cy+28], start=180, end=0, fill=accent, width=11)
-                draw.ellipse([cx-13,cy+10,cx+13,cy+36], fill=BG)
-                draw.rectangle([cx-7,cy+23,cx+7,cy+52], fill=BG)
-            try:
-                fb = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-                fm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-                fs = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
-            except: fb = fm = fs = ImageFont.load_default()
-            for font, text, y, color in [
-                (fb, title, 492, accent),
-                (fm, subtitle, 556, (180,190,200)),
-                (fs, sub2, 596, (139,148,158)),
-            ]:
-                bb = draw.textbbox((0,0), text, font=font)
-                draw.text(((1280-(bb[2]-bb[0]))//2, y), text, font=font, fill=color)
-            draw.rectangle([16,16,1264,704], outline=(30,40,55), width=2)
-            img.save(out_jpg, "JPEG", quality=90)
-            logger.info(f"Pillow error image generated: {out_jpg}")
-            return True
-        except Exception as e:
-            logger.warning(f"Pillow error: {e}")
-            return False
+            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 42)
+            font_med = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 26)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+        except Exception:
+            font_large = ImageFont.load_default()
+            font_med = font_large
+            font_small = font_large
 
-    # Generate max-streams error
-    ts_path = "/data/error-max-streams.ts"
-    jpg_path = "/data/error-max-streams.jpg"
-    if not _make_with_ffmpeg(ts_path,
-            "Max. Streams erreicht",
-            "Bitte beende einen anderen Stream und versuche es erneut.",
-            f"Neue Verbindung moeglich nach ca. {SESSION_MEM_TTL} Sekunden.",
-            "0xF85149"):
-        _make_with_pillow(jpg_path, "Max. Streams erreicht",
-            "Bitte beende einen anderen Stream und versuche es erneut.",
-            f"Neue Verbindung moeglich nach ca. {SESSION_MEM_TTL} Sekunden.",
-            (248,81,73))
+        text1 = "Max. Streams erreicht"
+        text2 = "Bitte beende einen anderen Stream"
+        text3 = "und versuche es erneut."
 
-    # Generate banned error
-    ban_ts = "/data/error-banned.ts"
-    ban_jpg = "/data/error-banned.jpg"
-    if not _make_with_ffmpeg(ban_ts,
-            "Zugang gesperrt",
-            "Dein Zugang wurde vom Administrator deaktiviert.",
-            "Bitte wende dich an den Administrator.",
-            "0xD29922"):
-        _make_with_pillow(ban_jpg, "Zugang gesperrt",
-            "Dein Zugang wurde vom Administrator deaktiviert.",
-            "Bitte wende dich an den Administrator.",
-            (210,153,34))
+        # Center text
+        for font, text, y, color in [
+            (font_large, text1, 500, (248, 81, 73)),
+            (font_med, text2, 558, (180, 190, 200)),
+            (font_small, text3, 596, (139, 148, 158)),
+        ]:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            w = bbox[2] - bbox[0]
+            draw.text(((1280 - w) // 2, y), text, font=font, fill=color)
+
+        # Subtle border
+        draw.rectangle([20, 20, 1260, 700], outline=(30, 40, 55), width=2)
+
+        img.save(out_path, "JPEG", quality=85)
+        logger.info(f"Error image generated: {out_path}")
+
+    except Exception as e:
+        logger.warning(f"Error image generation failed: {e}")
 
 
 def get_hls_settings() -> dict:
@@ -185,7 +123,7 @@ def make_headers(hls: dict) -> dict:
     return h
 
 
-def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str) -> str:
+def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str, sid: str = None) -> str:
     base = original_url.rsplit("/", 1)[0] + "/"
     lines = content.splitlines()
     out = []
@@ -204,7 +142,10 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
         else:
             abs_url = base + stripped
         encoded = urllib.parse.quote(abs_url, safe="")
-        out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
+        if sid:
+            out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
+        else:
+            out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
     return "\n".join(out)
 
 
@@ -275,62 +216,6 @@ async def error_banned_jpg():
     if os.path.exists(jpg_path):
         return FileResponse(jpg_path, media_type="image/jpeg")
     return Response(content=b"", media_type="image/jpeg")
-
-@proxy_app.get("/iptv/error-max-streams.m3u8")
-async def error_max_streams_m3u8():
-    """HLS playlist for max-streams error video."""
-    from fastapi.responses import Response
-    proxy_url = db.get_proxy_url()
-    # Use .ts if FFmpeg generated it, else fallback to jpg
-    ts_path = "/data/error-max-streams.ts"
-    if os.path.exists(ts_path):
-        seg_url = f"{proxy_url}/iptv/error-max-streams.ts"
-    else:
-        seg_url = f"{proxy_url}/iptv/error-stream.jpg"
-    m3u8 = (
-        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n"
-        "#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n"
-        f"#EXTINF:10.0,\n{seg_url}\n"
-        f"#EXTINF:10.0,\n{seg_url}\n"
-        f"#EXTINF:10.0,\n{seg_url}\n"
-        "#EXT-X-ENDLIST\n"
-    )
-    return Response(content=m3u8, media_type="application/x-mpegURL")
-
-@proxy_app.get("/iptv/error-max-streams.ts")
-async def error_max_streams_ts():
-    from fastapi.responses import FileResponse, Response
-    ts_path = "/data/error-max-streams.ts"
-    if os.path.exists(ts_path):
-        return FileResponse(ts_path, media_type="video/mp2t")
-    return Response(content=b"", media_type="video/mp2t")
-
-@proxy_app.get("/iptv/error-banned.m3u8")
-async def error_banned_m3u8():
-    from fastapi.responses import Response
-    proxy_url = db.get_proxy_url()
-    ts_path = "/data/error-banned.ts"
-    if os.path.exists(ts_path):
-        seg_url = f"{proxy_url}/iptv/error-banned.ts"
-    else:
-        seg_url = f"{proxy_url}/iptv/error-banned.jpg"
-    m3u8 = (
-        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n"
-        "#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n"
-        f"#EXTINF:10.0,\n{seg_url}\n"
-        f"#EXTINF:10.0,\n{seg_url}\n"
-        f"#EXTINF:10.0,\n{seg_url}\n"
-        "#EXT-X-ENDLIST\n"
-    )
-    return Response(content=m3u8, media_type="application/x-mpegURL")
-
-@proxy_app.get("/iptv/error-banned.ts")
-async def error_banned_ts():
-    from fastapi.responses import FileResponse, Response
-    ts_path = "/data/error-banned.ts"
-    if os.path.exists(ts_path):
-        return FileResponse(ts_path, media_type="video/mp2t")
-    return Response(content=b"", media_type="video/mp2t")
 
 
 @proxy_app.get("/iptv/error-max-streams.png")
@@ -406,19 +291,22 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         decoded_url.split("/")[-2] if "/ch" in decoded_url else decoded_url.split("/")[-1].split("?")[0]
     )
 
-    # ── CHECK MAX STREAMS
+    # ── CHECK MAX STREAMS (SID-based, returns 429)
     max_s = user.get("max_streams", 1) or 0
     if max_s > 0:
-        import time as _t
         _cleanup_sessions()
         uid = user["id"]
-        stable = [s for s in _sessions.values() if s["user_id"]==uid and (_t.time()-s["start"])>35]
-        if len(stable) >= max_s:
-            logger.warning(f"Stream blocked: {user['name']} {len(stable)}/{max_s}")
-            _pu = db.get_proxy_url()
-            _eu = f"{_pu}/iptv/error-stream.jpg"
-            _em = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + _eu + "\n#EXT-X-ENDLIST\n"
-            return HTMLResponse(content=_em, media_type="application/x-mpegURL", headers={"Cache-Control":"no-cache"})
+        import hashlib as _hl3
+        _fwd3 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
+        _ip3 = _fwd3 or (request.client.host if request.client else "")
+        _ua3 = request.headers.get("user-agent","")[:60]
+        _sid3 = _hl3.md5(f"{token}::{_ip3}::{_ua3}".encode()).hexdigest()[:16]
+        _this_key = f"{token}::sid::{_sid3}"
+        other = [s for s in _sessions.values()
+                 if s["user_id"] == uid and s.get("session_key") != _this_key]
+        if len(other) >= max_s:
+            logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
+            raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
     # ── CATCHUP MODE ──────────────────────────────────────────────────────────
     if utc:
         try:
@@ -460,7 +348,13 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             resp.raise_for_status()
             playlist_content = resp.text
 
-        rewritten = rewrite_hls_playlist(playlist_content, decoded_url, proxy_url, token)
+        # Generate stable SID: same device = same SID = same session
+        import hashlib as _hl2
+        _fwd2 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
+        _ip2 = _fwd2 or (request.client.host if request.client else "")
+        _ua2 = request.headers.get("user-agent","")[:60]
+        sid = _hl2.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
+        rewritten = rewrite_hls_playlist(playlist_content, decoded_url, proxy_url, token, sid=sid)
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
         return HTMLResponse(
             content=rewritten,
@@ -502,7 +396,7 @@ def _user_has_session(user_id: int, session_key: str) -> bool:
 
 
 @proxy_app.get("/iptv/{token}/segment")
-async def proxy_segment(token: str, url: str, request: Request = None):
+async def proxy_segment(token: str, url: str, sid: str = None, request: Request = None):
     user = db.get_user_by_token(token)
     if not user:
         raise HTTPException(status_code=403, detail="Invalid token")
@@ -535,12 +429,13 @@ async def proxy_segment(token: str, url: str, request: Request = None):
             forwarded = request.headers.get("x-forwarded-for")
             client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "")
 
-        # Session fingerprint = token + IP + User-Agent
-        # Same IP but different User-Agent = different device (e.g. brother at home with router NAT)
+        # Use SID if provided (stable per-device session key from playlist)
         ua = request.headers.get("user-agent", "") if request else ""
-        # Normalize UA: take first 40 chars to avoid tiny differences
         ua_short = ua[:40].strip()
-        session_key = f"{token}::{client_ip}::{ua_short}"
+        if sid:
+            session_key = f"{token}::sid::{sid}"
+        else:
+            session_key = f"{token}::{client_ip}::{ua_short}"
         user_id = user["id"]
 
         now = time.time()
