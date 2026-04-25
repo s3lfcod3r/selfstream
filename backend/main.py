@@ -123,7 +123,7 @@ def make_headers(hls: dict) -> dict:
     return h
 
 
-def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str, sid: str = None) -> str:
+def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str, sid: str = None, catchup: bool = False) -> str:
     base = original_url.rsplit("/", 1)[0] + "/"
     lines = content.splitlines()
     out = []
@@ -142,7 +142,9 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
         else:
             abs_url = base + stripped
         encoded = urllib.parse.quote(abs_url, safe="")
-        if sid:
+        if catchup:
+            out.append(f"{proxy_base}/iptv/{token}/segment?catchup=1&url={encoded}")
+        elif sid:
             out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
         else:
             out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
@@ -309,8 +311,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 resp.raise_for_status()
                 archive_content = resp.text
 
-            # Rewrite segment URLs through our proxy
-            rewritten = rewrite_hls_playlist(archive_content, archive_url, proxy_url, token)
+            # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
+            rewritten = rewrite_hls_playlist(archive_content, archive_url, proxy_url, token, catchup=True)
             dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
             return HTMLResponse(
@@ -398,7 +400,7 @@ def _user_has_session(user_id: int, session_key: str) -> bool:
 
 
 @proxy_app.get("/iptv/{token}/segment")
-async def proxy_segment(token: str, url: str, sid: str = None, request: Request = None):
+async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = None, request: Request = None):
     user = db.get_user_by_token(token)
     if not user:
         raise HTTPException(status_code=403, detail="Invalid token")
@@ -415,6 +417,20 @@ async def proxy_segment(token: str, url: str, sid: str = None, request: Request 
     hls = get_hls_settings()
     proxy_url = db.get_proxy_url()
     is_ts = not (decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0])
+
+    # Catchup segments bypass session tracking completely – they are VOD, not live
+    if catchup == "1":
+        async def stream_catchup_segment():
+            try:
+                timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
+                async with httpx.AsyncClient(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
+                    async with client.stream("GET", decoded_url) as resp:
+                        async for chunk in resp.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
+                            yield chunk
+            except Exception as e:
+                logger.error(f"Catchup segment error: {e}")
+        media_type = "application/vnd.apple.mpegurl" if not is_ts else "video/mp2t"
+        return StreamingResponse(stream_catchup_segment(), media_type=media_type, headers={"Cache-Control": "no-cache"})
 
     if is_ts:
         parts = decoded_url.split("/")
