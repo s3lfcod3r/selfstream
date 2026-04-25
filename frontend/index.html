@@ -283,13 +283,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
 
         <div class="section-hdr" style="margin-top:8px;">
-          <span class="section-title">⏪ Catchup Sessions</span>
-        </div>
-        <div class="table-wrap" id="catchup-wrap">
-          <div class="empty-state">Keine Catchup-Zugriffe gerade</div>
-        </div>
-
-        <div class="section-hdr" style="margin-top:8px;">
           <span class="section-title">Zuletzt geschaut</span>
         </div>
         <div class="table-wrap" id="recent-feed">
@@ -742,7 +735,8 @@ async function loadStats() {
     if(!s.active_sessions||!s.active_sessions.length){
       wrap.innerHTML='<div class="empty-state">Keine aktiven Streams gerade</div>';
     } else {
-      wrap.innerHTML=s.active_sessions.map(sess=>{
+      // Live sessions
+      const liveRows = s.active_sessions.map(sess=>{
         const durSec=sess.started_at?now-sess.started_at:0;
         const dt=sess.started_at?new Date(sess.started_at*1000):null;
         const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
@@ -757,33 +751,27 @@ async function loadStats() {
           ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${np.start||''}–${np.stop||''}</span>`:''}
           <span class="session-meta" style="flex-shrink:0;">${timeStr ? `seit ${timeStr} · ${durStr}` : ''}</span>
         </div>`;
-      }).join('');
-    }
-
-    // ── Catchup Sessions (from recent_logs) ───────────────────────────────────
-    const cwrap=document.getElementById('catchup-wrap');
-    if(cwrap){
-      const catchupLogs=(s.recent_logs||[]).filter(l=>l.is_catchup===1||l.is_catchup==='1');
-      if(!catchupLogs.length){
-        cwrap.innerHTML='<div class="empty-state">Keine Catchup-Zugriffe</div>';
-      } else {
-        cwrap.innerHTML=catchupLogs.map(l=>{
-          const dt=l.started_at?new Date(l.started_at+'Z'):null;
-          const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
-          const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
-          // catchup_time = "YYYY-MM-DD HH:MM" → show as time only
-          const ctParts=l.catchup_time?l.catchup_time.split(' '):'';
-          const ctTime=ctParts&&ctParts[1]?ctParts[1]:'';
-          return `<div class="session-row" style="padding:10px 14px;">
-            <span style="font-size:13px;color:var(--teal);flex-shrink:0;">⏪</span>
-            <strong>${esc(l.user)}</strong>
-            <span style="color:var(--text2);margin:0 6px;">→</span>
-            <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
-            ${l.epg_title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;">📺 <span style="color:var(--teal);font-weight:600;">${esc(l.epg_title)}</span></span>`:''}
-            <span class="session-meta">${dateStr} ${timeStr}</span>
-          </div>`;
-        }).join('');
-      }
+      });
+      // Active catchup sessions (started within last 2 min, duration=0 = still open)
+      const activeCatchup=(s.recent_logs||[]).filter(l=>{
+        if(!l.is_catchup&&l.is_catchup!==1&&l.is_catchup!=='1') return false;
+        // Show only if started recently and duration still 0 (open)
+        const dt=l.started_at?new Date(l.started_at+'Z'):null;
+        const age=dt?(Date.now()-dt.getTime())/1000:999;
+        return l.duration===0 && age < 120;
+      });
+      const catchupRows=activeCatchup.map(l=>{
+        const np=l.epg_title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;margin:0 4px;">${esc(l.epg_title)}</span>`:'';
+        return `<div class="session-row" style="padding:10px 14px;flex-wrap:nowrap;overflow:hidden;">
+          <span style="width:10px;height:10px;border-radius:50%;background:var(--teal);flex-shrink:0;display:inline-block;"></span>
+          <strong style="flex-shrink:0;">${esc(l.user)}</strong>
+          <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(l.channel)}</span>
+          ${np}
+          <span class="session-meta" style="flex-shrink:0;">⏪ Catchup</span>
+        </div>`;
+      });
+      wrap.innerHTML = [...liveRows, ...catchupRows].join('') || '<div class="empty-state">Keine aktiven Streams gerade</div>';
     }
 
     // ── Zuletzt geschaut ──────────────────────────────────────────────────────
