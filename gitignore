@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+.venv/
+venv/
+env/
+
+# Data & Database
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# EPG Cache
+epg_cache.xml
+
+# Custom logos / uploads
+custom_*.png
+custom_*.jpg
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test artifacts
+{backend,frontend,data}/
