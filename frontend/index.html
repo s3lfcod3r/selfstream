@@ -749,18 +749,13 @@ async function loadStats() {
         const durStr=durSec>3600?`${Math.floor(durSec/3600)}h ${Math.floor((durSec%3600)/60)}m`
                     :durSec>60?`${Math.floor(durSec/60)}m ${durSec%60}s`:`${durSec}s`;
         const np=sess.now_playing||{};
-        const epgLine=np.title
-          ? `<div style="margin-top:4px;padding-left:20px;font-size:11px;">
-               📺 <span style="color:var(--teal);font-weight:600;">${esc(np.title)}</span>
-               <span style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-left:8px;">${np.start||''}–${np.stop||''}</span>
-             </div>` : '';
-        return `<div class="session-row" style="flex-wrap:wrap;padding:10px 14px;">
+        return `<div class="session-row" style="padding:10px 14px;">
           <div class="live-dot active" style="flex-shrink:0;"></div>
           <strong>${esc(sess.user)}</strong>
           <span style="color:var(--text2);margin:0 6px;">→</span>
           <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">${esc(sess.channel)}</span>
+          ${np.title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;">📺 <span style="color:var(--teal);font-weight:600;">${esc(np.title)}</span> <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${np.start||''}–${np.stop||''}</span></span>`:''}
           <span class="session-meta">${timeStr ? `seit ${timeStr} · ${durStr}` : ''}</span>
-          ${epgLine ? `<div style="width:100%;">${epgLine}</div>` : ''}
         </div>`;
       }).join('');
     }
@@ -779,16 +774,13 @@ async function loadStats() {
           // catchup_time = "YYYY-MM-DD HH:MM" → show as time only
           const ctParts=l.catchup_time?l.catchup_time.split(' '):'';
           const ctTime=ctParts&&ctParts[1]?ctParts[1]:'';
-          return `<div class="session-row" style="flex-wrap:wrap;padding:10px 14px;">
+          return `<div class="session-row" style="padding:10px 14px;">
             <span style="font-size:13px;color:var(--teal);flex-shrink:0;">⏪</span>
             <strong>${esc(l.user)}</strong>
             <span style="color:var(--text2);margin:0 6px;">→</span>
             <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
+            ${l.epg_title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;">📺 <span style="color:var(--teal);font-weight:600;">${esc(l.epg_title)}</span>${ctTime?` <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">ab ${ctTime}</span>`:''}</span>`:''}
             <span class="session-meta">${dateStr} ${timeStr}</span>
-            ${l.epg_title||l.catchup_time?`<div style="width:100%;margin-top:4px;padding-left:20px;font-size:11px;">
-              📺 <span style="color:var(--teal);font-weight:600;">${esc(l.epg_title||'—')}</span>
-              ${ctTime?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-left:8px;">ab ${ctTime}</span>`:''}
-            </div>`:''}
           </div>`;
         }).join('');
       }
