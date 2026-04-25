@@ -1246,17 +1246,30 @@ async function loadProviderGroupOrder() {
   const wrap = document.getElementById('provider-groups-sortable');
   if (!wrap) return;
   try {
-    const [groups, saved] = await Promise.all([
+    const [providerGroups, userGroups, saved] = await Promise.all([
       api('GET', '/api/channels/groups'),
+      api('GET', '/api/user-groups'),
       api('GET', '/api/channels/provider-group-order')
     ]);
     const savedMap = saved || {};
-    _providerGroupOrder = [...groups].sort((a, b) => {
-      const ai = savedMap[a] !== undefined ? savedMap[a] : 9999;
-      const bi = savedMap[b] !== undefined ? savedMap[b] : 9999;
-      if (ai !== bi) return ai - bi;
-      return a.localeCompare(b);
+    // Merge: custom groups (with 🏷 marker) + provider groups
+    const customNames = userGroups.map(g => ({name: g.name, isCustom: true}));
+    const providerNames = providerGroups.map(g => ({name: g, isCustom: false}));
+    const allGroups = [...customNames, ...providerNames];
+    // Remove duplicates (provider group that has same name as custom group)
+    const seen = new Set();
+    const merged = allGroups.filter(g => {
+      if (seen.has(g.name)) return false;
+      seen.add(g.name); return true;
     });
+    // Sort by saved order
+    merged.sort((a, b) => {
+      const ai = savedMap[a.name] !== undefined ? savedMap[a.name] : 9999;
+      const bi = savedMap[b.name] !== undefined ? savedMap[b.name] : 9999;
+      if (ai !== bi) return ai - bi;
+      return a.name.localeCompare(b.name);
+    });
+    _providerGroupOrder = merged;
     renderProviderGroups();
   } catch(e) {
     wrap.innerHTML = '<div class="empty-state">Fehler beim Laden.</div>';
@@ -1266,18 +1279,22 @@ async function loadProviderGroupOrder() {
 function renderProviderGroups() {
   const wrap = document.getElementById('provider-groups-sortable');
   if (!wrap) return;
-  wrap.innerHTML = _providerGroupOrder.map((g, i) => `
-    <div id="pgrow-${i}" draggable="true"
-      style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--border);cursor:grab;transition:opacity .15s;"
+  wrap.innerHTML = _providerGroupOrder.map((g, i) => {
+    const isCustom = g.isCustom;
+    const label = isCustom
+      ? `<span style="color:var(--teal);">🏷 ${esc(g.name)}</span><span style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-left:4px;opacity:.6;">eigene</span>`
+      : `<span style="font-family:var(--mono);font-size:11px;color:var(--text);">${esc(g.name)}</span>`;
+    return `<div id="pgrow-${i}" draggable="true"
+      style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid var(--border);cursor:grab;transition:opacity .15s;${isCustom?'background:rgba(0,229,200,.03);':''}"
       ondragstart="pgDragStart(event,${i})"
       ondragover="pgDragOver(event,${i})"
       ondrop="pgDrop(event,${i})"
       ondragend="pgDragEnd()">
       <span style="color:var(--text3);font-family:var(--mono);font-size:10px;width:22px;text-align:right;flex-shrink:0;">${i+1}.</span>
       <span style="color:var(--text2);flex-shrink:0;">⠿</span>
-      <span style="font-family:var(--mono);font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g)}</span>
-    </div>
-  `).join('');
+      ${label}
+    </div>`;
+  }).join('');
 
   window.pgDragStart = (e, idx) => {
     _pgDragId = idx;
@@ -1306,7 +1323,7 @@ function renderProviderGroups() {
 }
 
 async function saveProviderGroupOrder() {
-  await api('POST', '/api/channels/provider-group-order', {ordered_names: _providerGroupOrder});
+  await api('POST', '/api/channels/provider-group-order', {ordered_names: _providerGroupOrder.map(g => g.name)});
   showToast('Reihenfolge gespeichert — Playlist in IPTV-App neu laden');
 }
 
