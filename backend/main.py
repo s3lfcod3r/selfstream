@@ -316,17 +316,20 @@ async def serve_playlist(token: str):
                 seen.add(cid)
                 channels.append(c)
 
-    # Sort channels: custom groups by prefix number, provider groups by saved order
-    _provider_order = db.get_provider_group_order()
+    # Sort channels: use unified saved order (covers both custom and provider groups)
+    _saved_order = db.get_provider_group_order()
 
     def _group_sort_key(ch):
         gt = ch.get("group_title", "")
-        m = re.match(r"^([0-9]+)\.", gt)
-        if m:
-            return (0, int(m.group(1)), gt)
-        if gt in _provider_order:
-            return (1, _provider_order[gt], gt)
-        return (2, 0, gt)
+        # Strip numeric prefix like "01. Kinder" to get base name for lookup
+        m = re.match(r"^[0-9]+\.\s*(.+)$", gt)
+        base = m.group(1) if m else gt
+        # Check saved order by display name or base name
+        if gt in _saved_order:
+            return (0, _saved_order[gt], gt)
+        if base in _saved_order:
+            return (0, _saved_order[base], gt)
+        return (1, 0, gt)
 
     channels.sort(key=_group_sort_key)
 
