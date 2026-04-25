@@ -355,6 +355,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <p style="font-size:12px;color:var(--text2);margin-bottom:12px;font-family:var(--mono);">
           💡 Erstelle eigene Gruppen und weise Kanäle zu. User sehen dann nur die Kanäle ihrer Gruppe — egal welche Anbieter-Gruppe der Kanal hat.
         </p>
+        <details style="margin-bottom:16px;border:1px solid var(--border);background:var(--bg2);">
+          <summary style="padding:10px 14px;cursor:pointer;font-family:var(--mono);font-size:10px;letter-spacing:.15em;color:var(--text2);text-transform:uppercase;user-select:none;list-style:none;display:flex;align-items:center;gap:8px;">
+            <span>▶</span> Anbieter-Gruppen (Reihenfolge in IPTV Pro)
+          </summary>
+          <div id="provider-groups-list" style="padding:10px 14px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--text2);line-height:2;">
+            Lädt…
+          </div>
+        </details>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
           <span style="font-size:12px;color:var(--text);">Nummerierung in IPTV-App anzeigen</span>
           <span style="font-size:11px;color:var(--text2);font-family:var(--mono);">(z.B. "01. Kinder", "02. Sport" — erzwingt Sortierung in IPTV Pro)</span>
@@ -1227,6 +1235,25 @@ async function loadUserGroups() {
     });
   }
 }
+
+// Load provider groups list for info display
+document.addEventListener('DOMContentLoaded', () => {
+  const det = document.querySelector('details');
+  if (det) det.addEventListener('toggle', async () => {
+    if (!det.open) return;
+    const wrap = document.getElementById('provider-groups-list');
+    try {
+      const groups = await api('GET', '/api/channels/groups');
+      if (!groups.length) { wrap.textContent = 'Keine Anbieter-Gruppen vorhanden.'; return; }
+      wrap.innerHTML = groups.map((g, i) =>
+        `<div style="padding:3px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+          <span style="color:var(--text3);width:24px;text-align:right;">${i+1}.</span>
+          <span style="color:var(--text);">${esc(g)}</span>
+        </div>`
+      ).join('');
+    } catch(e) { wrap.textContent = 'Fehler beim Laden.'; }
+  });
+});
 
 async function loadGroupPrefixSetting() {
   try {
