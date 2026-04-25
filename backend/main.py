@@ -897,10 +897,41 @@ def do_setup(body: dict):
         db.set_setting("proxy_url", proxy_url)
     return {"ok": True}
 
-def check_admin(x_admin_token: str = Header(...)):
+# Brute-force protection: track failed attempts per IP
+_failed_attempts: dict = {}  # {ip: {"count": int, "blocked_until": float}}
+MAX_ATTEMPTS = 10
+BLOCK_SECONDS = 300  # 5 minutes
+
+def check_admin(x_admin_token: str = Header(...), request: Request = None):
+    import hmac
+    # Get client IP
+    ip = ""
+    if request:
+        fwd = request.headers.get("x-forwarded-for", "")
+        ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "")
+
+    now = time.time()
+    attempt = _failed_attempts.get(ip, {"count": 0, "blocked_until": 0})
+
+    # Check if blocked
+    if attempt["blocked_until"] > now:
+        remaining = int(attempt["blocked_until"] - now)
+        raise HTTPException(status_code=429, detail=f"Too many failed attempts. Try again in {remaining}s.")
+
     admin_token = db.get_admin_token()
-    if not admin_token or x_admin_token != admin_token:
+
+    # Use hmac.compare_digest to prevent timing attacks
+    if not admin_token or not hmac.compare_digest(x_admin_token, admin_token):
+        attempt["count"] += 1
+        if attempt["count"] >= MAX_ATTEMPTS:
+            attempt["blocked_until"] = now + BLOCK_SECONDS
+            logger.warning(f"Admin login blocked for {ip} after {MAX_ATTEMPTS} failed attempts")
+        _failed_attempts[ip] = attempt
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Success – reset counter
+    if ip in _failed_attempts:
+        del _failed_attempts[ip]
 
 @admin_app.get("/api/users")
 def list_users(_=Depends(check_admin)):
