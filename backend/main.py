@@ -1,11 +1,15 @@
 import os
 import uuid
 import time
+import hmac
+import hashlib
+import sqlite3
 import httpx
 import asyncio
 import logging
 import urllib.parse
 import re
+import xml.etree.ElementTree as ET
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 
@@ -447,11 +451,10 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     if max_s > 0:
         _cleanup_sessions()
         uid = user["id"]
-        import hashlib as _hl3
         _fwd3 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
         _ip3 = _fwd3 or (request.client.host if request.client else "")
         _ua3 = request.headers.get("user-agent","")[:60]
-        _sid3 = _hl3.md5(f"{token}::{_ip3}::{_ua3}".encode()).hexdigest()[:16]
+        _sid3 = hashlib.md5(f"{token}::{_ip3}::{_ua3}".encode()).hexdigest()[:16]
         _this_key = f"{token}::sid::{_sid3}"
         other = [s for s in _sessions.values()
                  if s["user_id"] == uid and s.get("session_key") != _this_key]
@@ -470,11 +473,10 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             playlist_content = resp.text
 
         # Generate stable SID: same device = same SID = same session
-        import hashlib as _hl2
         _fwd2 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
         _ip2 = _fwd2 or (request.client.host if request.client else "")
         _ua2 = request.headers.get("user-agent","")[:60]
-        sid = _hl2.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
+        sid = hashlib.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
         rewritten = rewrite_hls_playlist(playlist_content, decoded_url, proxy_url, token, sid=sid)
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
         return HTMLResponse(
@@ -701,7 +703,6 @@ async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str 
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Channel not found")
-    import sqlite3
     ch = dict(row)
     stream_url = ch["stream_url"]
     encoded = urllib.parse.quote(stream_url, safe="")
@@ -903,7 +904,6 @@ MAX_ATTEMPTS = 10
 BLOCK_SECONDS = 300  # 5 minutes
 
 def check_admin(x_admin_token: str = Header(...), request: Request = None):
-    import hmac
     # Get client IP
     ip = ""
     if request:
@@ -1257,13 +1257,6 @@ def _get_now_playing(channel_name: str) -> dict:
         logger.warning(f"EPG now_playing error for '{channel_name}': {e}")
         return {}
 
-
-@admin_app.get("/api/epg/now-playing")
-def epg_now_playing_test(channel: str, _=Depends(check_admin)):
-    """Debug: check what EPG now_playing returns for a channel name."""
-    result = _get_now_playing(channel)
-    ch_rec = db.get_channel_by_name(channel) or {}
-    return {"channel": channel, "tvg_id": ch_rec.get("tvg_id",""), "now_playing": result, "epg_cached": bool(_epg_cache.get("content"))}
 
 @admin_app.get("/api/stats")
 def get_stats(_=Depends(check_admin)):
