@@ -347,44 +347,56 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </table>
         </div>
         <div class="epg-global">
-          <strong style="color:var(--text);">Globale EPG-URL</strong> – direkt in IPTV-App eintragen (gleich für alle):<br>
-          <div class="epg-url-row">
-            <span class="epg-url-val" id="global-epg-val">—</span>
-            <button class="copy-btn" onclick="copyEpgGlobal()">📋 Kopieren</button>
+          <strong style="color:var(--text);">Globale EPG-URL</strong> – direkt in IPTV-App eintragen (gleich für alle):
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <span class="epg-url-val" id="global-epg-val" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">—</span>
+            <button class="copy-btn" style="flex-shrink:0;" onclick="copyEpgGlobal()">📋 Kopieren</button>
           </div>
           <div style="margin-top:12px;">
             <div style="font-family:var(--mono);font-size:9px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Tage-gefilterte URLs (auch als Short URL):</div>
             <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10px;">
               <tr style="border-bottom:1px solid var(--border);">
-                <td style="padding:6px 0;color:var(--text2);width:55px;">1 Tag</td>
-                <td style="padding:6px 8px;color:var(--teal);font-size:10px;" id="epg-1d-val">—</td>
-                <td style="padding:6px 0;color:var(--text2);width:50px;">Short:</td>
-                <td style="padding:6px 8px;color:var(--green);font-size:10px;" id="epg-1d-short">—</td>
-                <td style="white-space:nowrap;padding:4px;">
+                <td style="padding:6px 0;color:var(--text2);white-space:nowrap;width:50px;">1 Tag</td>
+                <td style="padding:6px 4px 6px 8px;color:var(--teal);font-size:10px;white-space:nowrap;" id="epg-1d-val">—</td>
+                <td style="padding:4px 8px 4px 0;white-space:nowrap;">
                   <button class="btn sm" onclick="doCopy(document.getElementById('epg-1d-val').textContent,this)">📋 Lang</button>
+                </td>
+                <td style="padding:6px 4px 6px 12px;color:var(--text2);white-space:nowrap;">Short:</td>
+                <td style="padding:6px 4px 6px 8px;color:var(--green);font-size:10px;white-space:nowrap;" id="epg-1d-short">—</td>
+                <td style="padding:4px 0;white-space:nowrap;">
                   <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-1d-short').textContent,this)">📋 Short</button>
+                </td>
+                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;">
                   <button class="btn sm" onclick="downloadEpgDays(1)">⬇ 1T</button>
                 </td>
               </tr>
               <tr style="border-bottom:1px solid var(--border);">
-                <td style="padding:6px 0;color:var(--text2);">3 Tage</td>
-                <td style="padding:6px 8px;color:var(--teal);font-size:10px;" id="epg-3d-val">—</td>
-                <td style="padding:6px 0;color:var(--text2);">Short:</td>
-                <td style="padding:6px 8px;color:var(--green);font-size:10px;" id="epg-3d-short">—</td>
-                <td style="white-space:nowrap;padding:4px;">
+                <td style="padding:6px 0;color:var(--text2);white-space:nowrap;">3 Tage</td>
+                <td style="padding:6px 4px 6px 8px;color:var(--teal);font-size:10px;white-space:nowrap;" id="epg-3d-val">—</td>
+                <td style="padding:4px 8px 4px 0;white-space:nowrap;">
                   <button class="btn sm" onclick="doCopy(document.getElementById('epg-3d-val').textContent,this)">📋 Lang</button>
+                </td>
+                <td style="padding:6px 4px 6px 12px;color:var(--text2);white-space:nowrap;">Short:</td>
+                <td style="padding:6px 4px 6px 8px;color:var(--green);font-size:10px;white-space:nowrap;" id="epg-3d-short">—</td>
+                <td style="padding:4px 0;white-space:nowrap;">
                   <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-3d-short').textContent,this)">📋 Short</button>
+                </td>
+                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;">
                   <button class="btn sm" onclick="downloadEpgDays(3)">⬇ 3T</button>
                 </td>
               </tr>
               <tr>
-                <td style="padding:6px 0;color:var(--text2);">7 Tage</td>
-                <td style="padding:6px 8px;color:var(--teal);font-size:10px;" id="epg-7d-val">—</td>
-                <td style="padding:6px 0;color:var(--text2);">Short:</td>
-                <td style="padding:6px 8px;color:var(--green);font-size:10px;" id="epg-7d-short">—</td>
-                <td style="white-space:nowrap;padding:4px;">
+                <td style="padding:6px 0;color:var(--text2);white-space:nowrap;">7 Tage</td>
+                <td style="padding:6px 4px 6px 8px;color:var(--teal);font-size:10px;white-space:nowrap;" id="epg-7d-val">—</td>
+                <td style="padding:4px 8px 4px 0;white-space:nowrap;">
                   <button class="btn sm" onclick="doCopy(document.getElementById('epg-7d-val').textContent,this)">📋 Lang</button>
+                </td>
+                <td style="padding:6px 4px 6px 12px;color:var(--text2);white-space:nowrap;">Short:</td>
+                <td style="padding:6px 4px 6px 8px;color:var(--green);font-size:10px;white-space:nowrap;" id="epg-7d-short">—</td>
+                <td style="padding:4px 0;white-space:nowrap;">
                   <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-7d-short').textContent,this)">📋 Short</button>
+                </td>
+                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;">
                   <button class="btn sm" onclick="downloadEpgDays(7)">⬇ 7T</button>
                 </td>
               </tr>
