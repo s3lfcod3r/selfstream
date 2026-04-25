@@ -13,7 +13,7 @@
 
 ## Features
 
-- **User-Management** – Jedes Familienmitglied bekommt eine eigene M3U-URL mit Token
+- **User-Management** – Jedes User bekommt eine eigene M3U-URL mit Token
 - **Max. Streams pro User** – Konfigurierbar, blockiert zusätzliche Geräte mit HTTP 429
 - **Catchup / Timeshift** – Vergangene Sendungen schauen, funktioniert mit IPTV Pro & TiviMate
 - **EPG-Integration** – Programm-Info wird im Dashboard angezeigt (was läuft gerade, was wurde geschaut)
@@ -139,7 +139,7 @@ Beim Installieren über Unraid Community Apps werden folgende Felder angezeigt:
 2. Name eingeben (z.B. "Papa", "Mama")
 3. M3U-URL des IPTV-Anbieters eintragen
 4. Max. Streams einstellen (Standard: 1)
-5. Generierte Playlist-URL an Familienmitglied weitergeben:
+5. Generierte Playlist-URL an User weitergeben:
 
 ```
 http://DEINE-IP:8000/iptv/TOKEN/playlist.m3u
