@@ -750,10 +750,9 @@ async function loadStats() {
                     :durSec>60?`${Math.floor(durSec/60)}m ${durSec%60}s`:`${durSec}s`;
         const np=sess.now_playing||{};
         const epgLine=np.title
-          ? `<div style="margin-top:4px;padding-left:20px;font-size:11px;color:var(--text2);">
+          ? `<div style="margin-top:4px;padding-left:20px;font-size:11px;">
                📺 <span style="color:var(--teal);font-weight:600;">${esc(np.title)}</span>
-               <span style="color:var(--text2);margin-left:6px;font-family:var(--mono);font-size:10px;">${np.start||''}–${np.stop||''}</span>
-               ${np.desc?`<span style="opacity:.6;font-size:10px;"> · ${esc(np.desc)}</span>`:''}
+               <span style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-left:8px;">${np.start||''}–${np.stop||''}</span>
              </div>` : '';
         return `<div class="session-row" style="flex-wrap:wrap;padding:10px 14px;">
           <div class="live-dot active" style="flex-shrink:0;"></div>
@@ -776,16 +775,20 @@ async function loadStats() {
         cwrap.innerHTML=catchupLogs.map(l=>{
           const dt=l.started_at?new Date(l.started_at+'Z'):null;
           const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
-          const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}):'';
-          const title=l.epg_title||l.channel;
-          return `<div class="session-row" style="padding:10px 14px;">
+          const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
+          // catchup_time = "YYYY-MM-DD HH:MM" → show as time only
+          const ctParts=l.catchup_time?l.catchup_time.split(' '):'';
+          const ctTime=ctParts&&ctParts[1]?ctParts[1]:'';
+          return `<div class="session-row" style="flex-wrap:wrap;padding:10px 14px;">
             <span style="font-size:13px;color:var(--teal);flex-shrink:0;">⏪</span>
             <strong>${esc(l.user)}</strong>
             <span style="color:var(--text2);margin:0 6px;">→</span>
             <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
-            ${l.epg_title?`<span style="font-size:11px;color:var(--text);margin-left:4px;">· ${esc(l.epg_title)}</span>`:''}
-            ${l.catchup_time?`<span style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-left:6px;">(${esc(l.catchup_time)})</span>`:''}
             <span class="session-meta">${dateStr} ${timeStr}</span>
+            ${l.epg_title||l.catchup_time?`<div style="width:100%;margin-top:4px;padding-left:20px;font-size:11px;">
+              📺 <span style="color:var(--teal);font-weight:600;">${esc(l.epg_title||'—')}</span>
+              ${ctTime?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-left:8px;">ab ${ctTime}</span>`:''}
+            </div>`:''}
           </div>`;
         }).join('');
       }
