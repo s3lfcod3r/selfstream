@@ -789,23 +789,26 @@ async function loadStats() {
     // ── Zuletzt geschaut ──────────────────────────────────────────────────────
     const feed=document.getElementById('recent-feed');
     if(feed){
-      const liveLogs=(s.recent_logs||[]).filter(l=>!l.is_catchup||l.is_catchup===0||l.is_catchup==='0');
-      if(!liveLogs.length){
+      const allLogs=(s.recent_logs||[]);
+      if(!allLogs.length){
         feed.innerHTML='<div class="empty-state">Noch keine Einträge</div>';
       } else {
-        feed.innerHTML=liveLogs.map(l=>{
+        feed.innerHTML=allLogs.map(l=>{
+          const isCatchup=l.is_catchup===1||l.is_catchup==='1';
           const dt=l.started_at?new Date(l.started_at+'Z'):null;
           const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
           const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
-          const np=l.now_playing||{};
-          const displayTitle=np.title||'';
+          const icon=isCatchup?'<span style="font-size:12px;color:var(--teal);flex-shrink:0;">⏪</span>':'<span style="font-size:12px;color:var(--green);flex-shrink:0;">▶</span>';
+          const dur=l.duration>0?fmtDur(l.duration):'—';
+          const title=l.epg_title?`<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;color:var(--teal);">📺 ${esc(l.epg_title)}</span>`:'';
           return `<div class="session-row" style="opacity:.85;padding:8px 14px;">
-            <span style="font-size:12px;color:var(--green);flex-shrink:0;">▶</span>
+            ${icon}
             <span style="font-family:var(--mono);font-size:9px;color:var(--text2);white-space:nowrap;flex-shrink:0;">${dateStr} ${timeStr}</span>
             <strong style="font-size:12px;">${esc(l.user)}</strong>
             <span style="color:var(--text2);margin:0 4px;">→</span>
             <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
-            <span class="session-meta">${fmtDur(l.duration)}</span>
+            ${title}
+            <span class="session-meta">${dur}</span>
           </div>`;
         }).join('');
       }
@@ -952,7 +955,7 @@ async function userLogs(id,name) {
             <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
             <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
             <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
-            <td style="font-family:var(--mono);font-size:11px;">${isCatchup?'Catchup':fmtDur(l.duration_seconds)}</td>
+            <td style="font-family:var(--mono);font-size:11px;">${l.duration_seconds>0?fmtDur(l.duration_seconds):'—'}</td>
           </tr>`;
         }).join('')}
       </tbody></table></div>`;
@@ -1166,7 +1169,7 @@ async function loadLogs() {
       <td><strong>${esc(l.user_name)}</strong></td>
       <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
       <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
-      <td style="font-family:var(--mono);font-size:11px;">${isCatchup?'Catchup':fmtDur(l.duration_seconds)}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${l.duration_seconds>0?fmtDur(l.duration_seconds):'—'}</td>
     </tr>`;
   }).join('');
 }
