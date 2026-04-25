@@ -1038,7 +1038,7 @@ def _get_now_playing(channel_name: str) -> dict:
                     break
 
         if not tvg_id:
-            logger.debug(f"EPG now_playing: no tvg_id found for '{channel_name}'")
+            logger.warning(f"EPG now_playing: no tvg_id found for '{channel_name}'")
             return {}
 
         # Find currently running programme
@@ -1061,14 +1061,21 @@ def _get_now_playing(channel_name: str) -> dict:
                         "stop":  stop.strftime("%H:%M"),
                     }
             except Exception as pe:
-                logger.debug(f"EPG parse error: {pe}")
+                logger.warning(f"EPG parse error: {pe}")
                 continue
-        logger.debug(f"EPG now_playing: no current programme for '{channel_name}' (tvg_id={tvg_id}, programmes checked={matched})")
+        logger.warning(f"EPG now_playing: no current programme for '{channel_name}' (tvg_id={tvg_id}, programmes checked={matched})")
         return {}
     except Exception as e:
         logger.warning(f"EPG now_playing error for '{channel_name}': {e}")
         return {}
 
+
+@admin_app.get("/api/epg/now-playing")
+def epg_now_playing_test(channel: str, _=Depends(check_admin)):
+    """Debug: check what EPG now_playing returns for a channel name."""
+    result = _get_now_playing(channel)
+    ch_rec = db.get_channel_by_name(channel) or {}
+    return {"channel": channel, "tvg_id": ch_rec.get("tvg_id",""), "now_playing": result, "epg_cached": bool(_epg_cache.get("content"))}
 
 @admin_app.get("/api/stats")
 def get_stats(_=Depends(check_admin)):
