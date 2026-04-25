@@ -355,16 +355,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <p style="font-size:12px;color:var(--text2);margin-bottom:12px;font-family:var(--mono);">
           💡 Erstelle eigene Gruppen und weise Kanäle zu. User sehen dann nur die Kanäle ihrer Gruppe — egal welche Anbieter-Gruppe der Kanal hat.
         </p>
-        <div style="margin-bottom:16px;border:1px solid var(--border);background:var(--bg2);">
-          <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
-            <span style="font-family:var(--mono);font-size:10px;letter-spacing:.15em;color:var(--text2);text-transform:uppercase;">⠿ Anbieter-Gruppen Reihenfolge</span>
-            <span style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:4px;">— Drag & Drop zum Sortieren</span>
-            <button class="btn sm primary" style="margin-left:auto;" onclick="saveProviderGroupOrder()">💾 Speichern</button>
-          </div>
-          <div id="provider-groups-sortable" style="max-height:280px;overflow-y:auto;padding:8px 14px;">
-            <div class="empty-state" style="font-size:11px;">Lädt…</div>
-          </div>
-        </div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
           <span style="font-size:12px;color:var(--text);">Nummerierung in IPTV-App anzeigen</span>
           <span style="font-size:11px;color:var(--text2);font-family:var(--mono);">(z.B. "01. Kinder", "02. Sport" — erzwingt Sortierung in IPTV Pro)</span>
@@ -818,7 +808,7 @@ function nav(page, el) {
   if(page==='dashboard') loadStats();
   if(page==='users') loadUsers();
   if(page==='channels') loadCh();
-  if(page==='groups') { loadUserGroups(); loadGroupPrefixSetting(); loadProviderGroupOrder(); }
+  if(page==='groups') { loadUserGroups(); loadGroupPrefixSetting(); }
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='logs') loadLogs();
   if(page==='settings') loadSettings();
@@ -1236,78 +1226,6 @@ async function loadUserGroups() {
       el.textContent = names.join(' · ') + (ids.length > 8 ? ` · +${ids.length-8} weitere` : '');
     });
   }
-}
-
-// ── Provider Group Order Drag & Drop ─────────────────────────────────────────
-let _providerGroupOrder = [];
-let _pgDragId = null;
-
-async function loadProviderGroupOrder() {
-  const wrap = document.getElementById('provider-groups-sortable');
-  if (!wrap) return;
-  try {
-    const [groups, saved] = await Promise.all([
-      api('GET', '/api/channels/groups'),
-      api('GET', '/api/channels/provider-group-order')
-    ]);
-    const savedMap = saved || {};
-    _providerGroupOrder = [...groups].sort((a, b) => {
-      const ai = savedMap[a] !== undefined ? savedMap[a] : 9999;
-      const bi = savedMap[b] !== undefined ? savedMap[b] : 9999;
-      if (ai !== bi) return ai - bi;
-      return a.localeCompare(b);
-    });
-    renderProviderGroups();
-  } catch(e) {
-    wrap.innerHTML = '<div class="empty-state">Fehler beim Laden.</div>';
-  }
-}
-
-function renderProviderGroups() {
-  const wrap = document.getElementById('provider-groups-sortable');
-  if (!wrap) return;
-  wrap.innerHTML = _providerGroupOrder.map((g, i) => `
-    <div id="pgrow-${i}" draggable="true"
-      style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--border);cursor:grab;transition:opacity .15s;"
-      ondragstart="pgDragStart(event,${i})"
-      ondragover="pgDragOver(event,${i})"
-      ondrop="pgDrop(event,${i})"
-      ondragend="pgDragEnd()">
-      <span style="color:var(--text3);font-family:var(--mono);font-size:10px;width:22px;text-align:right;flex-shrink:0;">${i+1}.</span>
-      <span style="color:var(--text2);flex-shrink:0;">⠿</span>
-      <span style="font-family:var(--mono);font-size:11px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g)}</span>
-    </div>
-  `).join('');
-
-  window.pgDragStart = (e, idx) => {
-    _pgDragId = idx;
-    setTimeout(() => { const el = document.getElementById('pgrow-'+idx); if(el) el.style.opacity = '0.35'; }, 0);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-  window.pgDragOver = (e, idx) => {
-    e.preventDefault();
-    const el = document.getElementById('pgrow-'+idx);
-    if (el) el.style.borderColor = 'var(--teal)';
-  };
-  window.pgDragEnd = () => {
-    _providerGroupOrder.forEach((_, i) => {
-      const el = document.getElementById('pgrow-'+i);
-      if (el) { el.style.opacity = '1'; el.style.borderColor = ''; }
-    });
-  };
-  window.pgDrop = (e, targetIdx) => {
-    e.preventDefault();
-    pgDragEnd();
-    if (_pgDragId === null || _pgDragId === targetIdx) return;
-    const moved = _providerGroupOrder.splice(_pgDragId, 1)[0];
-    _providerGroupOrder.splice(targetIdx, 0, moved);
-    renderProviderGroups();
-  };
-}
-
-async function saveProviderGroupOrder() {
-  await api('POST', '/api/channels/provider-group-order', {ordered_names: _providerGroupOrder});
-  showToast('Reihenfolge gespeichert — Playlist in IPTV-App neu laden');
 }
 
 async function loadGroupPrefixSetting() {
