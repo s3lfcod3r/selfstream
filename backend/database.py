@@ -66,6 +66,7 @@ class Database:
                     duration_seconds INTEGER DEFAULT 0,
                     is_catchup       INTEGER DEFAULT 0,
                     catchup_time     TEXT DEFAULT NULL,
+                    epg_title        TEXT DEFAULT NULL,
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 );
                 -- Migration: add is_catchup/catchup_time if missing
@@ -394,20 +395,26 @@ class Database:
 
     # ── Watch Logs ────────────────────────────────────────────────────────────
 
-    def start_watch_log(self, user_id: int, channel: str, stream_url: str, ip_address: str = "", is_catchup: int = 0, catchup_time: str = None) -> int:
+    def start_watch_log(self, user_id: int, channel: str, stream_url: str, ip_address: str = "", is_catchup: int = 0, catchup_time: str = None, epg_title: str = None) -> int:
         with self.conn() as con:
             cur = con.execute(
-                "INSERT INTO watch_logs (user_id, channel, stream_url, ip_address, is_catchup, catchup_time) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, channel, stream_url, ip_address, is_catchup, catchup_time)
+                "INSERT INTO watch_logs (user_id, channel, stream_url, ip_address, is_catchup, catchup_time, epg_title) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, channel, stream_url, ip_address, is_catchup, catchup_time, epg_title)
             )
             return cur.lastrowid
 
-    def end_watch_log(self, log_id: int, duration_seconds: int):
+    def end_watch_log(self, log_id: int, duration_seconds: int, epg_title: str = None):
         with self.conn() as con:
-            con.execute(
-                "UPDATE watch_logs SET ended_at = datetime('now'), duration_seconds = ? WHERE id = ?",
-                (duration_seconds, log_id)
-            )
+            if epg_title:
+                con.execute(
+                    "UPDATE watch_logs SET ended_at = datetime('now'), duration_seconds = ?, epg_title = ? WHERE id = ?",
+                    (duration_seconds, epg_title, log_id)
+                )
+            else:
+                con.execute(
+                    "UPDATE watch_logs SET ended_at = datetime('now'), duration_seconds = ? WHERE id = ?",
+                    (duration_seconds, log_id)
+                )
 
     def log_playlist_access(self, user_id: int):
         with self.conn() as con:
@@ -432,7 +439,7 @@ class Database:
             return [dict(r) for r in rows]
 
     def migrate_watch_logs(self):
-        """Add is_catchup/catchup_time columns if they don't exist yet (upgrade from older version)."""
+        """Add columns if they don't exist yet (upgrade from older version)."""
         try:
             with self.conn() as con:
                 cols = [r[1] for r in con.execute("PRAGMA table_info(watch_logs)").fetchall()]
@@ -440,6 +447,8 @@ class Database:
                     con.execute("ALTER TABLE watch_logs ADD COLUMN is_catchup INTEGER DEFAULT 0")
                 if "catchup_time" not in cols:
                     con.execute("ALTER TABLE watch_logs ADD COLUMN catchup_time TEXT DEFAULT NULL")
+                if "epg_title" not in cols:
+                    con.execute("ALTER TABLE watch_logs ADD COLUMN epg_title TEXT DEFAULT NULL")
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"migrate_watch_logs: {e}")

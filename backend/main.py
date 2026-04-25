@@ -28,12 +28,77 @@ for a in (proxy_app, admin_app):
 
 db = Database()
 
+async def _fetch_and_cache_epg():
+    """Fetch EPG from source, update memory + disk cache."""
+    global _epg_cache
+    try:
+        epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
+        if not epg_sources:
+            return False
+        source_url = epg_sources[0]
+        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+            resp = await client.get(source_url)
+            resp.raise_for_status()
+            content = resp.text
+        filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
+        if filter_epg:
+            content = _filter_epg_xml(content)
+        now = int(time.time())
+        _epg_cache = {"content": content, "fetched_at": now, "url": source_url}
+        with open("/data/epg_cache.xml", "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.info(f"EPG auto-fetched and cached ({len(content)//1024}KB)")
+        return True
+    except Exception as e:
+        logger.warning(f"EPG auto-fetch failed: {e}")
+        return False
+
+
+async def _epg_watchdog():
+    """Background task: ensure EPG cache is always populated."""
+    global _epg_cache
+    await asyncio.sleep(5)  # wait for startup to complete
+
+    while True:
+        try:
+            refresh_hours = int(db.get_setting("epg_refresh_hours", "6") or "6")
+            refresh_secs = refresh_hours * 3600
+            now = int(time.time())
+            cache_age = now - _epg_cache.get("fetched_at", 0)
+            cache_ok = _epg_cache.get("content") and cache_age < refresh_secs
+
+            if not cache_ok:
+                # Try memory cache missing → load from disk first
+                if not _epg_cache.get("content"):
+                    try:
+                        with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
+                            content = f.read()
+                        if content:
+                            _epg_cache["content"] = content
+                            _epg_cache["fetched_at"] = int(os.path.getmtime("/data/epg_cache.xml"))
+                            logger.info("EPG loaded from disk cache")
+                            cache_age = now - _epg_cache["fetched_at"]
+                            cache_ok = cache_age < refresh_secs
+                    except Exception:
+                        pass
+
+                if not cache_ok:
+                    logger.info("EPG watchdog: cache stale or missing, fetching...")
+                    await _fetch_and_cache_epg()
+
+        except Exception as e:
+            logger.warning(f"EPG watchdog error: {e}")
+
+        await asyncio.sleep(300)  # check every 5 minutes
+
+
 @proxy_app.on_event("startup")
 @admin_app.on_event("startup")
 async def startup():
     db.init()
     db.migrate_watch_logs()
     _generate_error_video()
+    asyncio.create_task(_epg_watchdog())
     logger.info("selfstream started")
 
 
@@ -318,12 +383,49 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
             # Log catchup access (no session, just a single log entry)
             try:
+                # Look up EPG title for this catchup timestamp
+                _catchup_epg_title = None
+                try:
+                    import xml.etree.ElementTree as _ET
+                    _epg_content = _epg_cache.get("content")
+                    if not _epg_content:
+                        try:
+                            with open("/data/epg_cache.xml","r",encoding="utf-8") as _ef:
+                                _epg_content = _ef.read()
+                        except Exception:
+                            pass
+                    if _epg_content:
+                        _root = _ET.fromstring(_epg_content)
+                        _ch_rec = db.get_channel_by_name(channel_name) or {}
+                        _tvg_id = _ch_rec.get("tvg_id","").strip()
+                        if not _tvg_id:
+                            for _cel in _root.findall("channel"):
+                                _dn = _cel.findtext("display-name") or ""
+                                if channel_name.lower() in _dn.lower() or _dn.lower() in channel_name.lower():
+                                    _tvg_id = _cel.get("id","")
+                                    break
+                        if _tvg_id:
+                            _ct = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                            _fmt = "%Y%m%d%H%M%S %z"
+                            for _prog in _root.findall("programme"):
+                                if _prog.get("channel","") != _tvg_id:
+                                    continue
+                                try:
+                                    _ps = datetime.strptime(_prog.get("start",""), _fmt)
+                                    _pe = datetime.strptime(_prog.get("stop",""),  _fmt)
+                                    if _ps <= _ct <= _pe:
+                                        _catchup_epg_title = _prog.findtext("title") or None
+                                        break
+                                except Exception:
+                                    continue
+                except Exception:
+                    pass
                 log_id = db.start_watch_log(
                     user_id=user["id"], channel=channel_name, stream_url=decoded_url,
-                    is_catchup=1, catchup_time=dt_str
+                    is_catchup=1, catchup_time=dt_str, epg_title=_catchup_epg_title
                 )
                 db.end_watch_log(log_id, 0)
-                logger.info(f"Catchup logged: {user['name']} → {channel_name} @ {dt_str}")
+                logger.info(f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})")
             except Exception as _ce:
                 logger.warning(f"Catchup log failed: {_ce}")
             return HTMLResponse(
@@ -397,7 +499,10 @@ def _cleanup_sessions():
         s = _sessions.pop(k)
         try:
             db.session_end(s["token"])
-            db.end_watch_log(s["log_id"], int(now - s["start"]))
+            # Update epg_title at end if not set at start
+            epg_end = _get_now_playing(s["channel"])
+            epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
+            db.end_watch_log(s["log_id"], int(now - s["start"]), epg_title=epg_title_end)
             logger.info(f"Session expired (TTL): {k}")
         except Exception:
             pass
@@ -506,10 +611,13 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     logger.warning(f"Max streams blocked: {user['name']} {active_count}/{max_s} from {client_ip}")
                     raise HTTPException(status_code=429, detail=f"Max. {max_s} Stream(s) erlaubt")
             db.session_start(token, channel_name, ip_address=client_ip)
-            log_id = db.start_watch_log(user_id=user["id"], channel=channel_name, stream_url=decoded_url, ip_address=client_ip)
+            epg_now = _get_now_playing(channel_name)
+            epg_title_now = epg_now.get("title") if epg_now else None
+            log_id = db.start_watch_log(user_id=user["id"], channel=channel_name, stream_url=decoded_url, ip_address=client_ip, epg_title=epg_title_now)
             _sessions[session_key] = {
                 "channel": channel_name, "log_id": log_id, "start": now,
-                "last_seen": now, "user_id": user_id, "token": token, "session_key": session_key
+                "last_seen": now, "user_id": user_id, "token": token, "session_key": session_key,
+                "epg_title": epg_title_now
             }
             logger.info(f"Session started: {user['name']} ({client_ip}) → {channel_name}")
 
@@ -624,6 +732,12 @@ async def global_epg(force: str = None):
 
         _epg_cache = {"content": content_text, "fetched_at": now, "url": source_url}
         logger.info(f"EPG cached ({len(content_text)//1024}KB)")
+        # Write to disk so admin-app thread can read it too
+        try:
+            with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
+                _f.write(content_text)
+        except Exception as _e:
+            logger.warning(f"EPG disk cache write failed: {_e}")
         return HTMLResponse(content=content_text, media_type="application/xml",
                            headers={"X-EPG-Cache": "MISS"})
     except Exception as e:
@@ -711,6 +825,11 @@ async def global_epg_days(days: int, force: str = None):
                 resp.raise_for_status()
                 raw = resp.text
             _epg_cache = {"content": raw, "fetched_at": now_ts, "url": source_url}
+            try:
+                with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
+                    _f.write(raw)
+            except Exception as _e:
+                logger.warning(f"EPG disk cache write failed: {_e}")
         except Exception as e:
             raw = _epg_cache.get("content") or ""
             if not raw:
@@ -914,6 +1033,11 @@ async def download_epg_xml(days: int = 0, _=Depends(check_admin)):
                 resp.raise_for_status()
                 raw = resp.text
             _epg_cache = {"content": raw, "fetched_at": now_ts, "url": source_url}
+            try:
+                with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
+                    _f.write(raw)
+            except Exception as _e:
+                logger.warning(f"EPG disk cache write failed: {_e}")
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"EPG fetch failed: {e}")
     else:
@@ -1018,6 +1142,13 @@ def _get_now_playing(channel_name: str) -> dict:
     """Look up what is currently playing on a channel from the EPG cache."""
     try:
         content = _epg_cache.get("content")
+        if not content:
+            # Admin-app runs in separate thread – try reading from disk cache
+            try:
+                with open("/data/epg_cache.xml", "r", encoding="utf-8") as _f:
+                    content = _f.read()
+            except Exception:
+                pass
         if not content:
             return {}
         import xml.etree.ElementTree as ET
