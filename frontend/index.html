@@ -501,7 +501,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Zeit</th><th>Benutzer</th><th>Kanal</th><th>IP</th><th>Dauer</th></tr></thead>
+            <thead><tr><th>Zeit</th><th>Benutzer</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead>
             <tbody id="logs-tbody"></tbody>
           </table>
         </div>
@@ -941,12 +941,20 @@ async function userLogs(id,name) {
   document.getElementById('ulogs-content').innerHTML=!logs.length
     ?'<div class="empty-state">Noch keine Aktivität</div>'
     :`<div class="log-panel"><table style="width:100%"><thead><tr>
-        <th>Zeit</th><th>Kanal</th><th>Dauer</th></tr></thead><tbody>
-        ${logs.map(l=>`<tr>
-          <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${esc(l.channel)}</td>
-          <td style="font-family:var(--mono);font-size:11px;">${fmtDur(l.duration_seconds)}</td>
-        </tr>`).join('')}
+        <th>Zeit</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead><tbody>
+        ${logs.map(l=>{
+          const isCatchup=l.is_catchup===1||l.is_catchup==='1';
+          const icon=isCatchup?'<span style="color:var(--teal);margin-right:3px;">⏪</span>':'<span style="color:var(--green);margin-right:3px;">▶</span>';
+          const sendung=l.epg_title
+            ?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>${isCatchup&&l.catchup_time?`<span style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-left:3px;">ab ${l.catchup_time.split(' ')[1]||''}</span>`:''}`
+            :'<span style="color:var(--text2);">—</span>';
+          return `<tr>
+            <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
+            <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
+            <td style="font-family:var(--mono);font-size:11px;">${isCatchup?'Catchup':fmtDur(l.duration_seconds)}</td>
+          </tr>`;
+        }).join('')}
       </tbody></table></div>`;
 }
 
@@ -1146,14 +1154,21 @@ async function delEpg(id) {
 async function loadLogs() {
   const logs=await api('GET','/api/logs');
   const tbody=document.getElementById('logs-tbody');
-  if(!logs.length){ tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Keine Einträge</div></td></tr>'; return; }
-  tbody.innerHTML=logs.map(l=>`<tr>
-    <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
-    <td><strong>${esc(l.user_name)}</strong></td>
-    <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${esc(l.channel)}</td>
-    <td style="font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(l.ip_address||'—')}</td>
-    <td style="font-family:var(--mono);font-size:11px;">${fmtDur(l.duration_seconds)}</td>
-  </tr>`).join('');
+  if(!logs.length){ tbody.innerHTML='<tr><td colspan="5"><div class="empty-state">Keine Einträge</div></td></tr>'; return; }
+  tbody.innerHTML=logs.map(l=>{
+    const isCatchup=l.is_catchup===1||l.is_catchup==='1';
+    const icon=isCatchup?'<span style="color:var(--teal);margin-right:4px;">⏪</span>':'<span style="color:var(--green);margin-right:4px;">▶</span>';
+    const sendung=l.epg_title
+      ?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>${isCatchup&&l.catchup_time?`<span style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-left:4px;">ab ${l.catchup_time.split(' ')[1]||''}</span>`:''}`
+      :`<span style="color:var(--text2);font-size:10px;">—</span>`;
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
+      <td><strong>${esc(l.user_name)}</strong></td>
+      <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${isCatchup?'Catchup':fmtDur(l.duration_seconds)}</td>
+    </tr>`;
+  }).join('');
 }
 
 async function clearLogs() {
