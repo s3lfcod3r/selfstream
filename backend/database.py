@@ -64,8 +64,12 @@ class Database:
                     started_at       TEXT DEFAULT (datetime('now')),
                     ended_at         TEXT,
                     duration_seconds INTEGER DEFAULT 0,
+                    is_catchup       INTEGER DEFAULT 0,
+                    catchup_time     TEXT DEFAULT NULL,
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 );
+                -- Migration: add is_catchup/catchup_time if missing
+                CREATE TABLE IF NOT EXISTS _dummy_wl_migration (id INTEGER);
 
                 CREATE TABLE IF NOT EXISTS playlist_access (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -383,11 +387,11 @@ class Database:
 
     # ── Watch Logs ────────────────────────────────────────────────────────────
 
-    def start_watch_log(self, user_id: int, channel: str, stream_url: str, ip_address: str = "") -> int:
+    def start_watch_log(self, user_id: int, channel: str, stream_url: str, ip_address: str = "", is_catchup: int = 0, catchup_time: str = None) -> int:
         with self.conn() as con:
             cur = con.execute(
-                "INSERT INTO watch_logs (user_id, channel, stream_url, ip_address) VALUES (?, ?, ?, ?)",
-                (user_id, channel, stream_url, ip_address)
+                "INSERT INTO watch_logs (user_id, channel, stream_url, ip_address, is_catchup, catchup_time) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, channel, stream_url, ip_address, is_catchup, catchup_time)
             )
             return cur.lastrowid
 
@@ -419,6 +423,15 @@ class Database:
                 ORDER BY wl.started_at DESC LIMIT ?
             """, (limit,)).fetchall()
             return [dict(r) for r in rows]
+
+    def migrate_watch_logs(self):
+        """Add is_catchup/catchup_time columns if they don't exist yet (upgrade from older version)."""
+        with self.conn() as con:
+            cols = [r[1] for r in con.execute("PRAGMA table_info(watch_logs)").fetchall()]
+            if "is_catchup" not in cols:
+                con.execute("ALTER TABLE watch_logs ADD COLUMN is_catchup INTEGER DEFAULT 0")
+            if "catchup_time" not in cols:
+                con.execute("ALTER TABLE watch_logs ADD COLUMN catchup_time TEXT DEFAULT NULL")
 
     def get_epg_channels(self) -> List[Dict]:
         with self.conn() as con:

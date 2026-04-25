@@ -32,6 +32,7 @@ db = Database()
 @admin_app.on_event("startup")
 async def startup():
     db.init()
+    db.migrate_watch_logs()
     _generate_error_video()
     logger.info("selfstream started")
 
@@ -315,6 +316,15 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             rewritten = rewrite_hls_playlist(archive_content, archive_url, proxy_url, token, catchup=True)
             dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
+            # Log catchup access (no session, just a single log entry)
+            try:
+                log_id = db.start_watch_log(
+                    user_id=user["id"], channel=channel_name, stream_url=decoded_url,
+                    is_catchup=1, catchup_time=dt_str
+                )
+                db.end_watch_log(log_id, 0)
+            except Exception:
+                pass
             return HTMLResponse(
                 content=rewritten,
                 media_type="application/vnd.apple.mpegurl",
@@ -1003,18 +1013,73 @@ def delete_epg(epg_id: int, _=Depends(check_admin)):
     db.delete_epg_source(epg_id)
     return {"ok": True}
 
+def _get_now_playing(channel_name: str) -> dict:
+    """Look up what is currently playing on a channel from the EPG cache."""
+    try:
+        content = _epg_cache.get("content")
+        if not content:
+            return {}
+        import xml.etree.ElementTree as ET
+        from datetime import datetime, timezone
+        root = ET.fromstring(content)
+        now = datetime.now(timezone.utc)
+
+        # Find tvg_id for this channel name from our DB
+        ch_record = db.get_channel_by_url(channel_name) or {}
+        tvg_id = ch_record.get("tvg_id", "")
+
+        # Try to match by tvg_id first, then by display-name
+        for programme in root.findall("programme"):
+            chan = programme.get("channel", "")
+            if tvg_id and chan != tvg_id:
+                continue
+            if not tvg_id:
+                # fallback: match by display-name substring
+                disp = programme.findtext("display-name") or ""
+                if channel_name.lower() not in disp.lower() and disp.lower() not in channel_name.lower():
+                    continue
+            try:
+                fmt = "%Y%m%d%H%M%S %z"
+                start = datetime.strptime(programme.get("start",""), fmt)
+                stop  = datetime.strptime(programme.get("stop",""),  fmt)
+                if start <= now <= stop:
+                    title = programme.findtext("title") or ""
+                    desc  = programme.findtext("desc")  or ""
+                    return {
+                        "title": title,
+                        "desc": desc[:120] if desc else "",
+                        "start": start.strftime("%H:%M"),
+                        "stop":  stop.strftime("%H:%M"),
+                    }
+            except Exception:
+                continue
+        return {}
+    except Exception:
+        return {}
+
+
 @admin_app.get("/api/stats")
 def get_stats(_=Depends(check_admin)):
     users = db.get_all_users()
     _cleanup_sessions()
     active_sessions = db.get_active_sessions()
     ch_stats = db.get_channels_count()
-    recent_logs = db.get_all_logs(limit=10)
+    recent_logs = db.get_all_logs(limit=20)
+    sessions_out = []
+    for s in active_sessions:
+        now_playing = _get_now_playing(s["channel"])
+        sessions_out.append({
+            "user": s["user_name"],
+            "channel": s["channel"],
+            "started_at": s.get("started_at"),
+            "ip": s.get("ip_address", ""),
+            "now_playing": now_playing,
+        })
     return {
         "total_users": len(users),
         "active_streams": len(active_sessions),
-        "active_sessions": [{"user": s["user_name"], "channel": s["channel"], "started_at": s.get("started_at"), "ip": s.get("ip_address","")} for s in active_sessions],
-        "recent_logs": [{"user": l["user_name"], "channel": l["channel"], "started_at": l["started_at"], "duration": l["duration_seconds"], "ip": l.get("ip_address","")} for l in recent_logs],
+        "active_sessions": sessions_out,
+        "recent_logs": [{"user": l["user_name"], "channel": l["channel"], "started_at": l["started_at"], "duration": l["duration_seconds"], "ip": l.get("ip_address",""), "is_catchup": l.get("is_catchup",0), "catchup_time": l.get("catchup_time","")} for l in recent_logs],
         "watch_logs_today": db.get_logs_today_count(),
         "total_channels": ch_stats["total"] or 0,
         "enabled_channels": ch_stats["enabled"] or 0,
