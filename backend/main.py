@@ -1087,6 +1087,14 @@ async def setup_page():
     with open(f"{FRONTEND}/setup.html") as f:
         return HTMLResponse(f.read())
 
+@admin_app.get("/favicon.ico")
+async def favicon():
+    from fastapi.responses import FileResponse
+    favicon_path = "/data/favicon.ico"
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path, media_type="image/x-icon")
+    return FileResponse(f"{FRONTEND}/favicon.ico", media_type="image/x-icon")
+
 @admin_app.get("/logo.png")
 async def logo():
     from fastapi.responses import FileResponse
