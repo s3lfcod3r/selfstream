@@ -507,10 +507,11 @@ def _cleanup_sessions():
         s = _sessions.pop(k)
         try:
             db.session_end(s["token"])
+            # Try EPG title at end - more reliable than at start
             epg_end = _get_now_playing(s["channel"])
             epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
             db.end_watch_log(s["log_id"], int(now - s["start"]), epg_title=epg_title_end)
-            logger.info(f"Session expired (TTL): {k}")
+            logger.info(f"Session expired (TTL): {k} epg={epg_title_end}")
         except Exception:
             pass
     # Cleanup stale catchup sessions
@@ -614,10 +615,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         if session_key in _sessions:
             existing = _sessions[session_key]
             if existing["channel"] != channel_name:
-                # Channel switched – close old
+                # Channel switched – close old, save epg_title
                 _sessions.pop(session_key)
                 db.session_end(token)
-                db.end_watch_log(existing["log_id"], int(now - existing["start"]))
+                epg_sw = _get_now_playing(existing["channel"])
+                epg_title_sw = existing.get("epg_title") or (epg_sw.get("title") if epg_sw else None)
+                db.end_watch_log(existing["log_id"], int(now - existing["start"]), epg_title=epg_title_sw)
                 logger.info(f"Channel switch: {user['name']} ({client_ip}) → {channel_name}")
             else:
                 # Same channel – just refresh
