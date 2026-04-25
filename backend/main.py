@@ -1293,10 +1293,36 @@ def get_stats(_=Depends(check_admin)):
             "catchup_time": l.get("catchup_time",""),
             "epg_title": epg_title,
         })
+    # Build active catchup list from in-memory _catchup_sessions
+    _cleanup_sessions()
+    active_catchup_out = []
+    now_ts = time.time()
+    for ck, cv in list(_catchup_sessions.items()):
+        if now_ts - cv["last_seen"] < CATCHUP_TTL:
+            # Get user name and epg title from DB log
+            try:
+                with db.conn() as con:
+                    row = con.execute(
+                        "SELECT wl.channel, wl.epg_title, wl.catchup_time, u.name as user_name "
+                        "FROM watch_logs wl JOIN users u ON u.id = wl.user_id "
+                        "WHERE wl.id = ?", (cv["log_id"],)
+                    ).fetchone()
+                if row:
+                    active_catchup_out.append({
+                        "user": row["user_name"],
+                        "channel": row["channel"],
+                        "epg_title": row["epg_title"] or "",
+                        "catchup_time": row["catchup_time"] or "",
+                        "duration": int(now_ts - cv["start"]),
+                    })
+            except Exception:
+                pass
+
     return {
         "total_users": len(users),
         "active_streams": len(active_sessions),
         "active_sessions": sessions_out,
+        "active_catchup": active_catchup_out,
         "recent_logs": logs_out,
         "watch_logs_today": db.get_logs_today_count(),
         "total_channels": ch_stats["total"] or 0,
