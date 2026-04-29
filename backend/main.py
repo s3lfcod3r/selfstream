@@ -7,8 +7,6 @@ import sqlite3
 import httpx
 import asyncio
 import logging
-import threading
-import subprocess
 import urllib.parse
 import re
 import xml.etree.ElementTree as ET
@@ -34,9 +32,6 @@ for a in (proxy_app, admin_app):
 
 db = Database()
 
-# Segment timing events for buffering diagnosis
-_segment_events: list = []
-
 async def _fetch_and_cache_epg():
     """Fetch EPG from source, update memory + disk cache."""
     global _epg_cache
@@ -45,7 +40,7 @@ async def _fetch_and_cache_epg():
         if not epg_sources:
             return False
         source_url = epg_sources[0]
-        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
             resp = await client.get(source_url)
             resp.raise_for_status()
             content = resp.text
@@ -111,7 +106,7 @@ async def _m3u_watchdog():
                 if url:
                     logger.info("M3U watchdog: refreshing channels...")
                     try:
-                        async with make_iptv_client(timeout=60, follow_redirects=True) as client:
+                        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
                             resp = await client.get(url)
                             resp.raise_for_status()
                             channels = parse_m3u(resp.text)
@@ -133,13 +128,6 @@ async def startup():
     _generate_error_video()
     asyncio.create_task(_epg_watchdog())
     asyncio.create_task(_m3u_watchdog())
-    # Auto-start VPN if it was enabled before
-    if db.get_setting("vpn_enabled", "0") == "1":
-        result = vpn_start()
-        if result.get("ok"):
-            logger.info("VPN auto-start: OK")
-        else:
-            logger.warning(f"VPN auto-start failed: {result.get('error')}")
     logger.info("selfstream started")
 
 
@@ -212,65 +200,6 @@ def _generate_error_video():
         logger.warning(f"Error image generation failed: {e}")
 
 
-def vpn_make_transport() -> Optional[httpx.AsyncHTTPTransport]:
-    """Return an httpx transport bound to tun0 IP for split-tunnel VPN routing."""
-    if not vpn_is_running():
-        return None
-    tun_ip = vpn_get_tun_ip()
-    if not tun_ip:
-        return None
-    try:
-        return httpx.AsyncHTTPTransport(local_address=tun_ip)
-    except Exception as e:
-        logger.warning(f"VPN transport error: {e}")
-        return None
-
-
-SOCKS_PORT = 1080
-_socks_process: Optional[subprocess.Popen] = None
-
-
-def make_iptv_client(**kwargs) -> httpx.AsyncClient:
-    """Create an httpx client - uses direct connection (VPN tunnel handles routing)."""
-    return httpx.AsyncClient(**kwargs)
-
-
-def _start_socks_proxy(tun_ip: str):
-    pass  # Reserved for future use
-
-
-def _vpn_wait_for_tun(timeout: int = 30):
-    """Wait for tun0 to be ready, then fix local routing."""
-    import time
-    start = time.time()
-    while time.time() - start < timeout:
-        tun_ip = vpn_get_tun_ip()
-        if tun_ip:
-            _vpn_log_add(f"🌐 tun0 bereit: {tun_ip} – VPN aktiv!")
-            # Keep local network (192.168.x.x) routed via eth0, not VPN
-            try:
-                result = subprocess.run(
-                    ["ip", "route", "show", "default"],
-                    capture_output=True, text=True, timeout=2
-                )
-                # Find original gateway from eth0
-                for line in result.stdout.splitlines():
-                    if "eth0" in line and "via" in line:
-                        gw = line.split("via")[1].strip().split()[0]
-                        # Add route for local subnet via eth0
-                        subprocess.run(
-                            ["ip", "route", "add", "192.168.0.0/16", "via", gw, "dev", "eth0"],
-                            capture_output=True, timeout=2
-                        )
-                        _vpn_log_add(f"🏠 Lokales Netz via eth0 ({gw}) – Admin-Panel bleibt schnell")
-                        break
-            except Exception as e:
-                _vpn_log_add(f"⚠️ Route fix: {e}")
-            return
-        time.sleep(0.5)
-    _vpn_log_add("⚠️ tun0 Timeout")
-
-
 def get_hls_settings() -> dict:
     return {
         "hls_timeout":        int(db.get_setting("hls_timeout", "10")),
@@ -335,7 +264,7 @@ async def serve_playlist(token: str):
     if not channels:
         try:
             hls = get_hls_settings()
-            async with make_iptv_client(timeout=30, headers=make_headers(hls)) as client:
+            async with httpx.AsyncClient(timeout=30, headers=make_headers(hls)) as client:
                 resp = await client.get(user["m3u_source"])
                 resp.raise_for_status()
                 channels_raw = parse_m3u(resp.text)
@@ -418,7 +347,7 @@ async def serve_epg(token: str):
     if not epg_sources:
         raise HTTPException(status_code=404, detail="No EPG source configured")
     try:
-        async with make_iptv_client(timeout=60, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.get(epg_sources[0])
             resp.raise_for_status()
             return HTMLResponse(content=resp.text, media_type="application/xml")
@@ -525,7 +454,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             ch_token = decoded_url.split("token=")[-1] if "token=" in decoded_url else ""
             archive_url = f"{base_cdn}/index.m3u8?token={ch_token}&utc={utc}"
 
-            async with make_iptv_client(
+            async with httpx.AsyncClient(
                 timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
                 follow_redirects=True,
                 headers=make_headers(hls)
@@ -616,7 +545,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
 
     try:
-        async with make_iptv_client(
+        async with httpx.AsyncClient(
             timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
             follow_redirects=hls["hls_follow_redirects"],
             headers=make_headers(hls)
@@ -632,25 +561,6 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         sid = hashlib.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
         rewritten = rewrite_hls_playlist(playlist_content, decoded_url, proxy_url, token, sid=sid)
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
-
-        # Prefetch next 2 segments in background for smoother playback
-        try:
-            base_url = "/".join(decoded_url.split("/")[:-1])
-            seg_urls = []
-            prefetch_count = get_prefetch_count()
-            for line in playlist_content.splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and (".ts" in line or ".aac" in line):
-                    full_url = line if line.startswith("http") else f"{base_url}/{line}"
-                    if full_url not in _prefetch_cache:
-                        seg_urls.append(full_url)
-                    if len(seg_urls) >= prefetch_count:
-                        break
-            if prefetch_count > 0:
-                for seg_url in seg_urls:
-                    asyncio.create_task(_prefetch_segment(seg_url, hls))
-        except Exception:
-            pass
         return HTMLResponse(
             content=rewritten,
             media_type="application/vnd.apple.mpegurl",
@@ -669,90 +579,6 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
 _sessions: dict = {}
 SESSION_MEM_TTL = 35  # seconds without segment = session dead
 
-# Shared segment cache: {url: bytes} – downloaded segments shared across users
-# Prevents downloading the same segment multiple times when users watch the same channel
-_segment_cache: dict = {}
-_segment_cache_time: dict = {}  # {url: timestamp}
-_segment_in_progress: dict = {}  # {url: asyncio.Event} – deduplication lock
-SEGMENT_CACHE_MAX = 20
-SEGMENT_CACHE_TTL = 30  # seconds
-
-def get_prefetch_count() -> int:
-    """How many segments to prefetch ahead. 0 = disabled."""
-    try:
-        return int(db.get_setting("prefetch_segments", "2"))
-    except Exception:
-        return 2
-
-# Keep _prefetch_cache as alias for compatibility
-_prefetch_cache = _segment_cache
-
-
-_segment_cache_elapsed: dict = {}  # {url: elapsed_seconds} – original download time
-
-async def _get_segment(url: str, hls: dict) -> tuple:
-    """Download a segment, sharing the result if another coroutine is already fetching it.
-    Returns (data: bytes, elapsed: float) where elapsed is the original download time."""
-    now = time.time()
-
-    # Clean expired cache entries
-    expired = [u for u, t in _segment_cache_time.items() if now - t > SEGMENT_CACHE_TTL]
-    for u in expired:
-        _segment_cache.pop(u, None)
-        _segment_cache_time.pop(u, None)
-        _segment_cache_elapsed.pop(u, None)
-
-    # Cache hit – return instantly but with original download time
-    if url in _segment_cache:
-        return _segment_cache[url], _segment_cache_elapsed.get(url, 0.0)
-
-    # Atomic deduplication – setdefault is atomic in Python's GIL
-    # If we win the race, we get a new Event; if we lose, we get the existing one
-    evt = asyncio.Event()
-    existing = _segment_in_progress.setdefault(url, evt)
-    if existing is not evt:
-        # Another coroutine is already fetching – wait for it
-        await asyncio.wait_for(existing.wait(), timeout=30)
-        return _segment_cache.get(url, b""), _segment_cache_elapsed.get(url, 0.0)
-
-    # We won the race – fetch it
-    try:
-        buf = bytearray()
-        t_start = time.time()
-        async with make_iptv_client(
-            timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
-            follow_redirects=hls["hls_follow_redirects"],
-            headers=make_headers(hls)
-        ) as client:
-            async with client.stream("GET", url) as resp:
-                if resp.status_code == 200:
-                    async for chunk in resp.aiter_bytes(chunk_size=131072):
-                        buf.extend(chunk)
-        elapsed = time.time() - t_start
-        data = bytes(buf)
-        if len(data) > 100:
-            _segment_cache[url] = data
-            _segment_cache_time[url] = now
-            _segment_cache_elapsed[url] = elapsed
-            while len(_segment_cache) > SEGMENT_CACHE_MAX:
-                oldest = min(_segment_cache_time, key=_segment_cache_time.get)
-                _segment_cache.pop(oldest, None)
-                _segment_cache_time.pop(oldest, None)
-                _segment_cache_elapsed.pop(oldest, None)
-        return data, elapsed
-    finally:
-        _segment_in_progress.pop(url, None)
-        evt.set()
-
-
-async def _prefetch_segment(url: str, hls: dict):
-    """Prefetch a segment in the background using the shared cache."""
-    if url in _segment_cache:
-        return
-    try:
-        await _get_segment(url, hls)
-    except Exception:
-        pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
 CATCHUP_TTL = 60  # seconds without segment = catchup done
@@ -827,7 +653,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 break
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
-            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
                 if not is_ts:
                     # Sub-playlist (m3u8): rewrite segment URLs so they also carry catchup=1
                     resp = await client.get(decoded_url)
@@ -839,7 +665,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     # Actual TS segment: stream through directly
                     async def stream_catchup_ts():
                         try:
-                            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
+                            async with httpx.AsyncClient(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
                                 async with c2.stream("GET", decoded_url) as r2:
                                     async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
                                         yield chunk
@@ -908,14 +734,14 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             _sessions[session_key] = {
                 "channel": channel_name, "log_id": log_id, "start": now,
                 "last_seen": now, "user_id": user_id, "token": token, "session_key": session_key,
-                "epg_title": epg_title_now, "user_name": user["name"]
+                "epg_title": epg_title_now
             }
             logger.info(f"Session started: {user['name']} ({client_ip}) → {channel_name}")
 
     async def stream_segment():
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
-            async with make_iptv_client(
+            async with httpx.AsyncClient(
                 timeout=timeout,
                 follow_redirects=hls["hls_follow_redirects"],
                 headers=make_headers(hls)
@@ -927,83 +753,9 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     yield rewritten.encode()
                     return
                 else:
-                    for attempt in range(2):
-                        t_start = time.time()
-                        data, elapsed = await _get_segment(decoded_url, hls)
-                        total = len(data)
-
-                        # Track empty/tiny segments - these cause playback gaps
-                        if total < 1_000:
-                            seg_name = decoded_url.split("/")[-1].split("?")[0]
-                            user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
-                            channel_name = _sessions.get(session_key, {}).get("channel", "")
-                            logger.warning(f"⚠️ EMPTY SEGMENT [{user_name}] {seg_name}: {total} bytes → playback gap!")
-                            _segment_events.append({
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
-                                "type": "slow", "elapsed": round(elapsed, 2),
-                                "size_kb": round(total / 1024, 1), "mbps": 0.0,
-                                "seg": f"⚠️ LEER: {seg_name}"
-                            })
-                            if len(_segment_events) > 200:
-                                _segment_events.pop(0)
-                            if attempt == 0:
-                                # Remove from cache and retry
-                                _segment_cache.pop(decoded_url, None)
-                                await asyncio.sleep(0.5)
-                                continue
-                            break
-
-                        # Log timing for buffering diagnosis
-                        size_kb = total / 1024
-                        speed_mbps = (total * 8) / (elapsed * 1_000_000) if elapsed > 0 else 0
-                        seg_name = decoded_url.split("/")[-1].split("?")[0]
-                        user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
-                        channel_name = _sessions.get(session_key, {}).get("channel", "")
-                        debug_mode = db.get_setting("segment_debug", "0") == "1"
-
-                        if elapsed > 2.0:
-                            logger.warning(
-                                f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: "
-                                f"{elapsed:.1f}s, {size_kb:.0f}KB, {speed_mbps:.1f}Mbit/s → BUFFERING LIKELY"
-                            )
-                            _segment_events.append({
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
-                                "type": "slow", "elapsed": round(elapsed, 2),
-                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                "seg": seg_name
-                            })
-                        elif elapsed > 1.0:
-                            logger.info(
-                                f"🟡 DELAYED SEGMENT [{user_name}] {seg_name}: "
-                                f"{elapsed:.1f}s, {size_kb:.0f}KB, {speed_mbps:.1f}Mbit/s"
-                            )
-                            _segment_events.append({
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
-                                "type": "delayed", "elapsed": round(elapsed, 2),
-                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                "seg": seg_name
-                            })
-                        elif debug_mode:
-                            # Debug mode: log ALL segments including fast ones
-                            _segment_events.append({
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
-                                "type": "ok", "elapsed": round(elapsed, 2),
-                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                "seg": seg_name
-                            })
-
-                        if len(_segment_events) > 200:
-                            _segment_events.pop(0)
-
-                        # Deliver at local LAN speed
-                        chunk_size = 524288  # 512 KB
-                        for i in range(0, len(data), chunk_size):
-                            yield data[i:i + chunk_size]
-                        break
+                    async with client.stream("GET", decoded_url) as resp:
+                        async for chunk in resp.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
+                            yield chunk
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -1087,7 +839,7 @@ async def global_epg(force: str = None):
 
     try:
         logger.info(f"Fetching EPG from {source_url}")
-        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
             resp = await client.get(source_url)
             resp.raise_for_status()
             content_text = resp.text
@@ -1189,7 +941,7 @@ async def global_epg_days(days: int, force: str = None):
     )
     if not cache_valid:
         try:
-            async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
                 resp = await client.get(source_url)
                 resp.raise_for_status()
                 raw = resp.text
@@ -1484,26 +1236,18 @@ def remove_channel_from_group(group_id: int, channel_id: int, _=Depends(check_ad
 @admin_app.post("/api/channels/import")
 async def import_channels(body: dict, _=Depends(check_admin)):
     url = body.get("url", "").strip()
-    update_users = body.get("update_users", False)
     if not url:
         raise HTTPException(status_code=400, detail="url required")
     db.set_setting("source_m3u_url", url)
     try:
-        async with make_iptv_client(timeout=60, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             channels = parse_m3u(resp.text)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch M3U: {e}")
     db.upsert_channels(channels)
-    # Optionally update all existing users to use the new M3U URL
-    updated_users = 0
-    if update_users:
-        users = db.get_all_users()
-        for u in users:
-            db.update_user(u["id"], {"m3u_source": url})
-            updated_users += 1
-    return {"ok": True, "imported": len(channels), "updated_users": updated_users}
+    return {"ok": True, "imported": len(channels)}
 
 @admin_app.post("/api/channels/refresh")
 async def refresh_channels(_=Depends(check_admin)):
@@ -1511,7 +1255,7 @@ async def refresh_channels(_=Depends(check_admin)):
     if not url:
         raise HTTPException(status_code=400, detail="No source URL saved.")
     try:
-        async with make_iptv_client(timeout=60, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             channels = parse_m3u(resp.text)
@@ -1539,7 +1283,7 @@ async def download_epg_xml(days: int = 0, _=Depends(check_admin)):
 
     if not cache_valid:
         try:
-            async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
                 resp = await client.get(source_url)
                 resp.raise_for_status()
                 raw = resp.text
@@ -1589,7 +1333,7 @@ async def scan_epg_channels(_=Depends(check_admin)):
     if not epg_sources:
         raise HTTPException(status_code=404, detail="No active EPG source")
     try:
-        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
             resp = await client.get(epg_sources[0])
             resp.raise_for_status()
             xml_text = resp.text
@@ -1850,8 +1594,6 @@ def get_settings(_=Depends(check_admin)):
         "short_domain":         s.get("short_domain", ""),
         "m3u_refresh_hours":    s.get("m3u_refresh_hours", "0"),
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
-        "prefetch_segments":    s.get("prefetch_segments", "2"),
-        "segment_debug":        s.get("segment_debug", "0"),
     }
 
 @admin_app.post("/api/settings")
@@ -1860,7 +1602,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug"}
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix"}
     for key, val in body.items():
         if key in allowed:
             db.set_setting(key, str(val))
@@ -1942,470 +1684,3 @@ async def delete_logo(body: dict, _=Depends(check_admin)):
     if os.path.exists(filename):
         os.remove(filename)
     return {"ok": True}
-
-
-# ── VPN (OpenVPN) Integration ──────────────────────────────────────────────────
-
-VPN_SETTINGS_KEYS = {
-    "vpn_enabled", "vpn_user", "vpn_password", "vpn_ovpn_path"
-}
-
-_vpn_process: Optional[subprocess.Popen] = None
-_vpn_log: list = []
-VPN_OVPN_DIR = "/data/vpn"
-VPN_AUTH_FILE = "/data/vpn/auth.txt"
-VPN_LOG_MAX = 200
-
-
-def _vpn_log_add(line: str):
-    _vpn_log.append(line)
-    if len(_vpn_log) > VPN_LOG_MAX:
-        _vpn_log.pop(0)
-
-
-def _vpn_reader(proc: subprocess.Popen):
-    """Read OpenVPN stdout/stderr in background thread."""
-    try:
-        for line in proc.stdout:
-            line = line.strip()
-            if line:
-                _vpn_log_add(line)
-                logger.info(f"[openvpn] {line}")
-    except Exception:
-        pass
-
-
-def vpn_is_running() -> bool:
-    global _vpn_process
-    # Check process is alive
-    if _vpn_process is not None and _vpn_process.poll() is None:
-        return True
-    # Fallback: check if tun0 interface exists
-    try:
-        result = subprocess.run(["ip", "link", "show", "tun0"],
-                                capture_output=True, timeout=2)
-        return result.returncode == 0
-    except Exception:
-        return False
-
-
-def vpn_get_tun_ip() -> str:
-    """Get the IP address assigned to tun0 interface."""
-    try:
-        result = subprocess.run(
-            ["ip", "addr", "show", "tun0"],
-            capture_output=True, text=True, timeout=2
-        )
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("inet "):
-                return line.split()[1].split("/")[0]
-    except Exception:
-        pass
-    return ""
-
-
-def vpn_start() -> dict:
-    global _vpn_process, _vpn_log
-
-    if vpn_is_running():
-        return {"ok": False, "error": "VPN läuft bereits"}
-
-    ovpn_path = db.get_setting("vpn_ovpn_path", "")
-    vpn_user  = db.get_setting("vpn_user", "")
-    vpn_pass  = db.get_setting("vpn_password", "")
-
-    if not ovpn_path or not os.path.exists(ovpn_path):
-        return {"ok": False, "error": f"OVPN-Datei nicht gefunden: {ovpn_path}"}
-
-    os.makedirs(VPN_OVPN_DIR, exist_ok=True)
-
-    # Write auth file
-    if vpn_user and vpn_pass:
-        with open(VPN_AUTH_FILE, "w") as f:
-            f.write(f"{vpn_user}\n{vpn_pass}\n")
-        os.chmod(VPN_AUTH_FILE, 0o600)
-
-    # Write a modified ovpn with auth-nocache
-    split_ovpn_path = "/data/vpn/split.ovpn"
-    with open(ovpn_path, "r") as f:
-        ovpn_content = f.read()
-    if "auth-nocache" not in ovpn_content:
-        ovpn_content += "\nauth-nocache\n"
-    with open(split_ovpn_path, "w") as f:
-        f.write(ovpn_content)
-
-    cmd = [
-        "openvpn",
-        "--config", split_ovpn_path,
-    ]
-    if vpn_user and vpn_pass:
-        cmd += ["--auth-user-pass", VPN_AUTH_FILE]
-
-    _vpn_log = []
-    _vpn_log_add("⏳ OpenVPN wird gestartet (Split-Tunnel via SOCKS5)…")
-
-    try:
-        _vpn_process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        t = threading.Thread(target=_vpn_reader, args=(_vpn_process,), daemon=True)
-        t.start()
-        # Wait for tun0 and start SOCKS5 proxy in background
-        w = threading.Thread(target=_vpn_wait_for_tun, daemon=True)
-        w.start()
-        db.set_setting("vpn_enabled", "1")
-        return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-def vpn_stop() -> dict:
-    global _vpn_process, _socks_process
-    # Set DB flag FIRST to prevent auto-restart
-    db.set_setting("vpn_enabled", "0")
-
-    # Stop SOCKS proxy
-    if _socks_process is not None and _socks_process.poll() is None:
-        try:
-            _socks_process.terminate()
-            _socks_process.wait(timeout=5)
-        except Exception:
-            pass
-    _socks_process = None
-
-    if _vpn_process is not None:
-        try:
-            _vpn_process.terminate()
-            _vpn_process.wait(timeout=10)
-        except Exception:
-            try:
-                _vpn_process.kill()
-            except Exception:
-                pass
-    _vpn_process = None
-
-    # Kill any remaining openvpn processes
-    try:
-        subprocess.run(["pkill", "-f", "openvpn"], capture_output=True, timeout=3)
-    except Exception:
-        pass
-
-    # Wait for tun interfaces to disappear (max 5s)
-    import time
-    for _ in range(10):
-        try:
-            result = subprocess.run(["ip", "link", "show"],
-                                    capture_output=True, text=True, timeout=2)
-            if "tun" not in result.stdout:
-                break
-        except Exception:
-            break
-        time.sleep(0.5)
-
-    _vpn_log_add("🔴 OpenVPN + SOCKS5 Proxy gestoppt.")
-    return {"ok": True}
-
-
-@admin_app.get("/api/vpn")
-def get_vpn_settings(_=Depends(check_admin)):
-    s = db.get_all_settings()
-    # List uploaded .ovpn files
-    ovpn_files = []
-    if os.path.exists(VPN_OVPN_DIR):
-        ovpn_files = [f for f in os.listdir(VPN_OVPN_DIR) if f.endswith(".ovpn") and f != "split.ovpn"]
-    return {
-        "vpn_enabled":  s.get("vpn_enabled", "0"),
-        "vpn_user":     s.get("vpn_user", ""),
-        "vpn_password": s.get("vpn_password", ""),
-        "vpn_ovpn_path": s.get("vpn_ovpn_path", ""),
-        "vpn_running":  vpn_is_running(),
-        "ovpn_files":   ovpn_files,
-    }
-
-
-@admin_app.post("/api/vpn")
-def update_vpn_settings(body: dict, _=Depends(check_admin)):
-    for key, val in body.items():
-        if key in VPN_SETTINGS_KEYS:
-            db.set_setting(key, str(val))
-    return {"ok": True}
-
-
-@admin_app.post("/api/vpn/start")
-def vpn_start_endpoint(_=Depends(check_admin)):
-    return vpn_start()
-
-
-@admin_app.post("/api/vpn/stop")
-def vpn_stop_endpoint(_=Depends(check_admin)):
-    return vpn_stop()
-
-
-_vpn_public_ip_cache: dict = {"ip": "", "ts": 0.0}
-VPN_IP_CACHE_TTL = 60  # only check public IP every 60 seconds
-
-
-@admin_app.get("/api/vpn/status")
-async def get_vpn_status(_=Depends(check_admin)):
-    running = vpn_is_running()
-    public_ip = ""
-    if running:
-        now = time.time()
-        # Use cached IP if fresh enough
-        if _vpn_public_ip_cache["ip"] and now - _vpn_public_ip_cache["ts"] < VPN_IP_CACHE_TTL:
-            public_ip = _vpn_public_ip_cache["ip"]
-        else:
-            for url in ["https://ifconfig.me/ip", "https://api.ipify.org", "https://checkip.amazonaws.com"]:
-                try:
-                    async with httpx.AsyncClient(timeout=5) as client:
-                        r = await client.get(url)
-                        if r.status_code == 200:
-                            public_ip = r.text.strip()
-                            _vpn_public_ip_cache["ip"] = public_ip
-                            _vpn_public_ip_cache["ts"] = now
-                            break
-                except Exception:
-                    continue
-    else:
-        # VPN stopped – clear cache
-        _vpn_public_ip_cache["ip"] = ""
-        _vpn_public_ip_cache["ts"] = 0.0
-    return {
-        "running": running,
-        "public_ip": public_ip,
-        "log": _vpn_log[-50:],
-    }
-
-
-@admin_app.post("/api/vpn/upload")
-async def vpn_upload_ovpn(request: Request, _=Depends(check_admin)):
-    try:
-        os.makedirs(VPN_OVPN_DIR, exist_ok=True)
-        form = await request.form()
-        file = form.get("file")
-        if not file:
-            raise HTTPException(status_code=400, detail="Keine Datei")
-        filename = os.path.basename(file.filename)
-        if not filename.endswith(".ovpn"):
-            raise HTTPException(status_code=400, detail="Nur .ovpn Dateien erlaubt")
-        dest = os.path.join(VPN_OVPN_DIR, filename)
-        content = await file.read()
-        with open(dest, "wb") as f:
-            f.write(content)
-        os.chmod(dest, 0o600)
-        db.set_setting("vpn_ovpn_path", dest)
-        logger.info(f"VPN: ovpn uploaded to {dest}")
-        return {"ok": True, "filename": filename, "path": dest}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"VPN upload error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@admin_app.delete("/api/vpn/ovpn/{filename}")
-def vpn_delete_ovpn(filename: str, _=Depends(check_admin)):
-    path = os.path.join(VPN_OVPN_DIR, os.path.basename(filename))
-    if os.path.exists(path):
-        os.remove(path)
-    current = db.get_setting("vpn_ovpn_path", "")
-    if current == path:
-        db.set_setting("vpn_ovpn_path", "")
-    return {"ok": True}
-
-
-@admin_app.get("/api/segment-events")
-def get_segment_events(_=Depends(check_admin)):
-    """Return recent slow/delayed segment events for buffering diagnosis."""
-    return list(reversed(_segment_events))
-
-
-@admin_app.get("/api/segment-events")
-def get_segment_events(_=Depends(check_admin)):
-    """Return recent slow/delayed segment events for buffering diagnosis."""
-    return list(reversed(_segment_events))
-
-
-@admin_app.get("/api/segment-events/stats")
-def get_segment_stats(_=Depends(check_admin)):
-    """Aggregate buffering stats per channel for provider evidence report."""
-    from collections import defaultdict
-    stats = defaultdict(lambda: {
-        "channel": "", "slow": 0, "delayed": 0, "total": 0,
-        "elapsed_sum": 0.0, "mbps_sum": 0.0, "min_mbps": 999.0
-    })
-    for e in _segment_events:
-        ch = e.get("channel", "Unbekannt") or "Unbekannt"
-        s = stats[ch]
-        s["channel"] = ch
-        if e["type"] == "slow":
-            s["slow"] += 1
-        elif e["type"] == "delayed":
-            s["delayed"] += 1
-        # "ok" type (debug mode) is not counted as problem
-        if e["type"] in ("slow", "delayed"):
-            s["total"] += 1
-            s["elapsed_sum"] += e["elapsed"]
-            s["mbps_sum"] += e["mbps"]
-            if e["mbps"] < s["min_mbps"]:
-                s["min_mbps"] = e["mbps"]
-    result = []
-    for ch, s in stats.items():
-        if s["slow"] > 0 or s["delayed"] > 0:
-            result.append({
-                "channel": ch,
-                "slow": s["slow"],
-                "delayed": s["delayed"],
-                "total": s["total"],
-                "avg_elapsed": round(s["elapsed_sum"] / s["total"], 2),
-                "avg_mbps": round(s["mbps_sum"] / s["total"], 1),
-                "min_mbps": round(s["min_mbps"], 1),
-                "score": s["slow"] * 2 + s["delayed"],  # ok type not counted
-            })
-    result.sort(key=lambda x: x["score"], reverse=True)
-    return result
-
-
-@admin_app.delete("/api/segment-events")
-def clear_segment_events(_=Depends(check_admin)):
-    _segment_events.clear()
-    return {"ok": True}
-
-
-@admin_app.get("/api/vpn/speedtest")
-async def vpn_speedtest(_=Depends(check_admin)):
-    """Run dual speedtest: internet speed + IPTV provider speed."""
-    import time
-
-    async def measure_url(url: str, max_bytes: int = 10_000_000, timeout_sec: int = 10) -> dict:
-        try:
-            start = time.monotonic()
-            downloaded = 0
-            async with make_iptv_client(
-                timeout=httpx.Timeout(5, read=timeout_sec),
-                follow_redirects=True
-            ) as client:
-                async with client.stream("GET", url) as resp:
-                    if resp.status_code not in (200, 206):
-                        return {"ok": False, "error": f"HTTP {resp.status_code}"}
-                    async for chunk in resp.aiter_bytes(chunk_size=65536):
-                        downloaded += len(chunk)
-                        if downloaded >= max_bytes or (time.monotonic() - start) > timeout_sec:
-                            break
-            elapsed = time.monotonic() - start
-            if elapsed > 0 and downloaded > 50_000:
-                mbps = (downloaded * 8) / (elapsed * 1_000_000)
-                return {"ok": True, "mbps": round(mbps, 1), "mb": round(downloaded/1_000_000, 2), "seconds": round(elapsed, 2)}
-            return {"ok": False, "error": "Zu wenig Daten"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
-    def streams_estimate(mbps: float) -> dict:
-        return {
-            "hd_720p":   int(mbps / 4),
-            "fhd_1080p": int(mbps / 8),
-            "uhd_4k":    int(mbps / 25),
-        }
-
-    # ── Test 1: Internet/VPN Speed ─────────────────────────────────────────
-    internet_result = {"ok": False, "error": "Alle Server nicht erreichbar"}
-    for url in [
-        "https://speed.cloudflare.com/__down?bytes=10000000",
-        "https://proof.ovh.net/files/10Mb.dat",
-        "https://bouygues.testdebit.info/10M.iso",
-    ]:
-        r = await measure_url(url)
-        if r["ok"]:
-            internet_result = r
-            internet_result["server"] = url.split("/")[2]
-            break
-
-    # ── Test 2: IPTV Provider Speed (parallel segments) ───────────────────
-    iptv_result = {"ok": False, "error": "Kein IPTV-Kanal verfügbar"}
-
-    # Collect up to 5 different channel segment URLs for parallel test
-    segment_urls = []
-    channels = db.get_channels(enabled_only=True)
-
-    for ch in channels[:30]:
-        if len(segment_urls) >= 5:
-            break
-        url = ch.get("stream_url", "")
-        if not url or not url.startswith("http"):
-            continue
-        try:
-            async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
-                resp = await client.get(url)
-                if resp.status_code != 200:
-                    continue
-                seg_url = None
-                base = "/".join(url.split("/")[:-1])
-                for line in resp.text.splitlines():
-                    line = line.strip()
-                    if line and not line.startswith("#") and (".ts" in line or ".aac" in line):
-                        seg_url = line if line.startswith("http") else f"{base}/{line}"
-                        break
-                if seg_url:
-                    segment_urls.append(seg_url)
-        except Exception:
-            continue
-
-    if segment_urls:
-        import time
-        # Download all segments in parallel
-        async def fetch_seg(url: str) -> int:
-            try:
-                downloaded = 0
-                async with make_iptv_client(timeout=httpx.Timeout(4, read=10), follow_redirects=True) as client:
-                    async with client.stream("GET", url) as resp:
-                        if resp.status_code not in (200, 206):
-                            return 0
-                        async for chunk in resp.aiter_bytes(chunk_size=65536):
-                            downloaded += len(chunk)
-                return downloaded
-            except Exception:
-                return 0
-
-        start = time.monotonic()
-        results_parallel = await asyncio.gather(*[fetch_seg(u) for u in segment_urls])
-        elapsed = time.monotonic() - start
-        total_bytes = sum(results_parallel)
-
-        if elapsed > 0 and total_bytes > 10_000:
-            mbps = (total_bytes * 8) / (elapsed * 1_000_000)
-            iptv_result = {
-                "ok": True,
-                "mbps": round(mbps, 1),
-                "mb": round(total_bytes / 1_000_000, 2),
-                "seconds": round(elapsed, 2),
-                "server": segment_urls[0].split("/")[2] if segment_urls else "",
-                "parallel": len(segment_urls),
-            }
-        else:
-            iptv_result = {"ok": False, "error": "Zu wenig Daten von Segmenten"}
-
-    # ── Bottleneck Analysis ────────────────────────────────────────────────
-    bottleneck = None
-    if internet_result.get("ok") and iptv_result.get("ok"):
-        inet_mbps = internet_result["mbps"]
-        iptv_mbps = iptv_result["mbps"]
-        ratio = iptv_mbps / inet_mbps if inet_mbps > 0 else 0
-        if ratio < 0.5:
-            bottleneck = f"IPTV-Anbieter ist der Flaschenhals ({iptv_result['server']}) – nur {round(ratio*100)}% der VPN-Geschwindigkeit"
-        elif ratio < 0.8:
-            bottleneck = f"IPTV-Anbieter etwas langsamer ({round(ratio*100)}% der VPN-Geschwindigkeit)"
-        else:
-            bottleneck = f"Kein Flaschenhals – IPTV-Anbieter liefert {round(ratio*100)}% der VPN-Geschwindigkeit"
-
-    return {
-        "ok": True,
-        "via_vpn": vpn_is_running(),
-        "internet": {**internet_result, "streams": streams_estimate(internet_result.get("mbps", 0)) if internet_result.get("ok") else {}},
-        "iptv":     {**iptv_result,     "streams": streams_estimate(iptv_result.get("mbps", 0))     if iptv_result.get("ok") else {}},
-        "bottleneck": bottleneck,
-    }
