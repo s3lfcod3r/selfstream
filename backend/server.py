@@ -8,6 +8,7 @@ def run_proxy():
     uvicorn.run(proxy_app, host="0.0.0.0", port=8000, log_level="info")
 
 def run_admin():
+    # Bind to 0.0.0.0 so admin panel stays reachable via local IP even when VPN is active
     uvicorn.run(admin_app, host="0.0.0.0", port=8080, log_level="info")
 
 

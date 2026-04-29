@@ -3,6 +3,16 @@ import re
 from typing import List, Dict
 
 
+# Lines starting with these prefixes are metadata/options — skip, don't reset state
+_SKIP_PREFIXES = (
+    "#EXTVLCOPT", "#EXTOPT", "#EXTALB", "#EXTART", "#EXTGENRE",
+    "#EXTBG", "#PLAYLIST", "#EXT-X-", "#KODIPROP",
+)
+
+# URL scheme prefixes we accept as stream URLs (http/https only — selfstream proxies HTTP)
+_URL_PREFIXES = ("http://", "https://")
+
+
 def parse_m3u(content: str) -> List[Dict]:
     channels = []
     lines = content.splitlines()
@@ -15,17 +25,20 @@ def parse_m3u(content: str) -> List[Dict]:
             continue
         if line.startswith("#EXTM3U"):
             continue
+        elif any(line.startswith(p) for p in _SKIP_PREFIXES):
+            # Metadata lines — keep current_extinf alive, just ignore this line
+            continue
         elif line.startswith("#EXTGRP:"):
             current_group = line[8:].strip()
         elif line.startswith("#EXTINF"):
             current_extinf = line
-            current_group = ""
-        elif line.startswith("http") or line.startswith("rtmp") or line.startswith("rtp"):
+        elif any(line.startswith(p) for p in _URL_PREFIXES):
             if current_extinf:
                 ch = _parse_extinf(current_extinf, line, current_group)
                 channels.append(ch)
             current_extinf = None
             current_group = ""
+        # All other lines (unknown protocols etc.): skip silently
 
     return channels
 
