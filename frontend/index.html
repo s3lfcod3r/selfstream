@@ -254,6 +254,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('epg',this)"><span class="nav-icon">📅</span>EPG</div>
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('logs',this)"><span class="nav-icon">📋</span>Verlauf</div>
+      <div class="nav-item" onclick="nav('traffic',this)"><span class="nav-icon">📊</span>Traffic</div>
+      <div class="nav-item" onclick="nav('vpn',this)"><span class="nav-icon">🔒</span>VPN</div>
       <div class="nav-item" onclick="nav('settings',this)"><span class="nav-icon">⚙️</span>Einstellungen</div>
     </div>
 
@@ -540,7 +542,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Zeit</th><th>Benutzer</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead>
+            <thead><tr><th>Zeit</th><th>Benutzer</th><th>IP</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead>
             <tbody id="logs-tbody"></tbody>
           </table>
         </div>
@@ -623,6 +625,16 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <label class="form-label">Read Timeout (s)</label>
               <input class="form-input" type="number" id="cfg-rtimeout" value="30">
             </div>
+            <div class="form-group">
+              <label class="form-label">🗄️ Segment-Prefetch (Vorpuffer)</label>
+              <select class="form-select" id="cfg-prefetch">
+                <option value="0">0 – Deaktiviert (kein Vorpuffern)</option>
+                <option value="1">1 – 1 Segment voraus</option>
+                <option value="2" selected>2 – 2 Segmente voraus (Standard)</option>
+                <option value="3">3 – 3 Segmente voraus</option>
+              </select>
+              <div class="form-hint">Wie viele Segmente selfstream im Voraus lädt. Mehr = flüssiger aber mehr RAM/CPU. Bei Lag: auf 0 oder 1 reduzieren.</div>
+            </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
@@ -641,11 +653,237 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
         </div>
       </div>
-    </div>
-  </div>
-</div>
 
-<!-- Add User Modal -->
+      <!-- VPN Page -->
+      <div id="page-vpn" class="content-area" style="display:none">
+        <div class="section-title" style="margin-bottom:16px;">🔒 VPN – OpenVPN Integration</div>
+        <div class="settings-grid">
+
+          <div class="scard">
+            <div class="scard-title">📡 VPN Status</div>
+            <div id="vpn-status-box" style="padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:14px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span id="vpn-status-dot" style="width:12px;height:12px;border-radius:50%;background:#888;display:inline-block;flex-shrink:0;"></span>
+                <span id="vpn-status-text" style="font-family:var(--mono);font-size:12px;">Unbekannt</span>
+              </div>
+              <div id="vpn-status-ip" style="font-size:11px;color:var(--teal);margin-top:6px;font-family:var(--mono);"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:14px;">
+              <button class="btn primary" id="vpn-btn-start" onclick="vpnStart()">▶ VPN Starten</button>
+              <button class="btn" id="vpn-btn-stop" onclick="vpnStop()">⏹ Stoppen</button>
+              <button class="btn" onclick="vpnRefreshStatus()">🔄</button>
+            </div>
+            <div class="scard-title" style="margin-bottom:8px;">📋 Live Log</div>
+            <div id="vpn-log" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--mono);font-size:10px;line-height:1.6;height:220px;overflow-y:auto;color:var(--text2);white-space:pre-wrap;">– Log erscheint hier –</div>
+          </div>
+
+          <div class="scard">
+            <div class="scard-title">⚙️ Konfiguration</div>
+
+            <div class="form-group">
+              <label class="form-label">OpenVPN Benutzername</label>
+              <input class="form-input" id="vpn-user" placeholder="Benutzername vom VPN-Anbieter">
+              <div class="form-hint">Bei ExpressVPN: Manuelle Konfiguration → OpenVPN</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">OpenVPN Passwort</label>
+              <input class="form-input" type="password" id="vpn-password" placeholder="Passwort vom VPN-Anbieter">
+            </div>
+            <button class="btn primary" style="margin-bottom:16px;" onclick="vpnSaveCredentials()">💾 Zugangsdaten speichern</button>
+
+            <div class="form-group" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
+              <label class="form-label">.ovpn Datei hochladen</label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="file" id="vpn-file" accept=".ovpn" style="display:none" onchange="vpnUpload(this)">
+                <button class="btn sm" onclick="document.getElementById('vpn-file').click()">📁 Datei wählen</button>
+                <span id="vpn-file-name" style="font-family:var(--mono);font-size:11px;color:var(--text2);">Keine Datei gewählt</span>
+              </div>
+              <div class="form-hint">Lade deine .ovpn Datei vom VPN-Anbieter hoch (z.B. expressvpn_switzerland.ovpn)</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Aktive .ovpn Datei</label>
+              <div id="vpn-ovpn-list" style="font-family:var(--mono);font-size:11px;color:var(--teal);padding:6px 0;">Lädt…</div>
+            </div>
+
+            <div class="form-hint" style="margin-top:8px;padding:10px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);">
+              ⚠️ selfstream Container braucht:<br>
+              <code style="color:var(--teal);">--cap-add=NET_ADMIN</code><br>
+              <code style="color:var(--teal);">--device=/dev/net/tun</code><br>
+              In Unraid: Container bearbeiten → Privilegierte Rechte = AN
+            </div>
+          </div>
+
+          <div class="scard" style="grid-column:1/-1">
+            <div class="scard-title">🚀 Speedtest – Flaschenhals-Analyse</div>
+            <div class="form-hint" style="margin-bottom:14px;">
+              Misst <strong>Internet/VPN-Geschwindigkeit</strong> und <strong>IPTV-Anbieter-Geschwindigkeit</strong> getrennt – zeigt wo der Flaschenhals ist.
+            </div>
+            <button class="btn primary" id="speedtest-btn" onclick="runSpeedtest()">▶ Speedtest starten</button>
+
+            <div id="speedtest-result" style="display:none;margin-top:20px;">
+
+              <!-- Bottleneck Banner -->
+              <div id="speedtest-bottleneck" style="padding:10px 14px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:16px;font-size:12px;font-family:var(--mono);"></div>
+
+              <!-- Two columns -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+
+                <!-- Internet/VPN -->
+                <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;">
+                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🌐 INTERNET / VPN</div>
+                  <div style="display:flex;align-items:flex-end;gap:4px;margin-bottom:4px;">
+                    <span id="st-inet-mbps" style="font-size:42px;font-family:var(--mono);color:var(--teal);line-height:1;">–</span>
+                    <span style="font-size:13px;color:var(--text2);margin-bottom:6px;">Mbit/s</span>
+                  </div>
+                  <div id="st-inet-detail" style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:12px;"></div>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
+                      <div id="st-inet-hd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
+                      <div style="font-size:9px;color:var(--text2);">HD</div>
+                    </div>
+                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
+                      <div id="st-inet-fhd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
+                      <div style="font-size:9px;color:var(--text2);">FHD</div>
+                    </div>
+                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
+                      <div id="st-inet-4k" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
+                      <div style="font-size:9px;color:var(--text2);">4K</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- IPTV Provider -->
+                <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;">
+                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📺 IPTV-ANBIETER</div>
+                  <div style="display:flex;align-items:flex-end;gap:4px;margin-bottom:4px;">
+                    <span id="st-iptv-mbps" style="font-size:42px;font-family:var(--mono);color:var(--teal);line-height:1;">–</span>
+                    <span style="font-size:13px;color:var(--text2);margin-bottom:6px;">Mbit/s</span>
+                  </div>
+                  <div id="st-iptv-detail" style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:12px;"></div>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
+                      <div id="st-iptv-hd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
+                      <div style="font-size:9px;color:var(--text2);">HD</div>
+                    </div>
+                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
+                      <div id="st-iptv-fhd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
+                      <div style="font-size:9px;color:var(--text2);">FHD</div>
+                    </div>
+                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
+                      <div id="st-iptv-4k" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
+                      <div style="font-size:9px;color:var(--text2);">4K</div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Traffic Page -->
+      <div id="page-traffic" class="content-area" style="display:none">
+        <div class="section-hdr">
+          <span class="section-title">📊 Traffic-Analyse</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="traffic-interval" class="group-filter" style="font-size:11px;padding:5px 8px;" onchange="startTrafficMonitor()">
+              <option value="3">Alle 3s</option>
+              <option value="5" selected>Alle 5s</option>
+              <option value="10">Alle 10s</option>
+              <option value="30">Alle 30s</option>
+            </select>
+            <button class="refresh-btn" onclick="startTrafficMonitor()">↻ Refresh</button>
+          </div>
+        </div>
+
+        <!-- Live Stats Row -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
+          <div class="scard" style="text-align:center;padding:16px;">
+            <div id="tr-streams" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">AKTIVE STREAMS</div>
+          </div>
+          <div class="scard" style="text-align:center;padding:16px;">
+            <div id="tr-mbps" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">MBIT/S GESAMT</div>
+          </div>
+          <div class="scard" style="text-align:center;padding:16px;">
+            <div id="tr-today" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">STREAMS HEUTE</div>
+          </div>
+          <div class="scard" style="text-align:center;padding:16px;">
+            <div id="tr-peak" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
+            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">PEAK (SESSION)</div>
+          </div>
+        </div>
+
+        <!-- Live Sessions Detail -->
+        <div class="scard" style="margin-bottom:16px;">
+          <div class="scard-title">🔴 Live Streams</div>
+          <div id="tr-sessions-list" style="font-family:var(--mono);font-size:12px;">
+            <div class="empty-state">Keine aktiven Streams</div>
+          </div>
+        </div>
+
+        <!-- Traffic History Chart -->
+        <div class="scard">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div class="scard-title" style="margin:0;">📈 Stream-Verlauf</div>
+            <select id="tr-range" class="group-filter" style="font-size:11px;padding:4px 8px;" onchange="drawTrafficChart()">
+              <option value="300">Letzte 5 Min</option>
+              <option value="900">Letzte 15 Min</option>
+              <option value="1800">Letzte 30 Min</option>
+              <option value="3600" selected>Letzte 1h</option>
+              <option value="all">Alles</option>
+            </select>
+          </div>
+          <canvas id="tr-chart" height="120" style="width:100%;display:block;"></canvas>
+          <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text2);font-family:var(--mono);">
+            <span id="tr-chart-min">–</span>
+            <span style="color:#ff6b6b;">● Peak</span>
+            <span>Jetzt →</span>
+          </div>
+        </div>
+        <!-- Channel Buffering Stats -->
+        <div class="scard" style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div class="scard-title" style="margin:0;">📺 Sender-Statistik (Buffering-Ranking)</div>
+            <button class="btn sm" onclick="exportChannelReport()">📋 Bericht kopieren</button>
+          </div>
+          <div class="form-hint" style="margin-bottom:10px;">
+            Zeigt welche Sender am häufigsten stocken – sortiert nach Schweregrad. Nutze "Bericht kopieren" um Beweise an deinen IPTV-Anbieter zu schicken.
+          </div>
+          <div id="tr-channel-stats">
+            <div class="empty-state">Noch keine Daten – tritt auf sobald Buffering-Ereignisse vorliegen</div>
+          </div>
+        </div>
+
+        <!-- Buffering Events -->
+        <div class="scard" style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div class="scard-title" style="margin:0;">⚠️ Buffering-Ereignisse</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;">
+                <input type="checkbox" id="tr-debug-mode" style="accent-color:var(--teal);" onchange="toggleDebugMode(this)">
+                <span style="color:var(--text2);">🔬 Debug (alle Segmente)</span>
+              </label>
+              <button class="refresh-btn" onclick="loadSegmentEvents()">↻ Refresh</button>
+              <button class="btn sm danger" onclick="clearSegmentEvents()">🗑 Löschen</button>
+            </div>
+          </div>
+          <div class="form-hint" style="margin-bottom:10px;">
+            🔴 <strong>Langsam (&gt;2s)</strong> = Buffering sehr wahrscheinlich &nbsp;|&nbsp;
+            🟡 <strong>Verzögert (&gt;1s)</strong> = Buffering möglich &nbsp;|&nbsp;
+            ✅ <strong>OK (&lt;1s)</strong> = nur im Debug-Modus sichtbar &nbsp;|&nbsp;
+            Normale Segmente werden nicht angezeigt
+          </div>
+          <div id="tr-seg-events" style="font-family:var(--mono);font-size:11px;">
+            <div class="empty-state">Noch keine Ereignisse – tritt auf wenn ein Segment &gt;1s braucht</div>
+          </div>
+        </div>
+      </div>
 <div class="modal-bg" id="modal-adduser">
   <div class="modal">
     <div class="modal-title">Benutzer anlegen</div>
@@ -726,6 +964,16 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <label class="form-label">M3U URL</label>
       <input class="form-input" id="import-url" placeholder="http://anbieter.tv/get.php?…">
       <div class="form-hint">URL wird gespeichert und kann später neu geladen werden.</div>
+    </div>
+    <div class="form-group" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+        <input type="checkbox" id="import-update-users" checked style="width:16px;height:16px;accent-color:var(--teal);">
+        <span style="font-size:13px;">Alle bestehenden User auf neue URL umstellen</span>
+      </label>
+      <div class="form-hint" style="margin-top:6px;">
+        ⚠️ Empfohlen wenn du den Anbieter wechselst oder eine neue M3U-URL hast.<br>
+        Deaktivieren wenn du nur die Kanalliste aktualisieren willst.
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeM('modal-import')">Abbrechen</button>
@@ -822,6 +1070,9 @@ function nav(page, el) {
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='logs') loadLogs();
   if(page==='settings') loadSettings();
+  if(page==='vpn') loadVpnSettings();
+  if(page==='traffic') startTrafficMonitor();
+  if(page!=='traffic') stopTrafficMonitor();
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -862,6 +1113,7 @@ async function loadStats() {
         return `<div class="session-row" style="padding:10px 14px;flex-wrap:nowrap;overflow:hidden;">
           <div class="live-dot active" style="flex-shrink:0;"></div>
           <strong style="flex-shrink:0;">${esc(sess.user)}</strong>
+          ${sess.ip?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-left:4px;flex-shrink:0;">(${esc(sess.ip)})</span>`:''}
           <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
           <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(sess.channel)}</span>
           ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${np.start||''}–${np.stop||''}</span>`:''}
@@ -911,6 +1163,7 @@ async function loadStats() {
             return `<tr style="border-bottom:1px solid var(--border);">
               <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--text2);">${dateStr} ${timeStr}</td>
               <td style="padding:6px 8px;font-size:12px;">${icon} <strong>${esc(l.user_name)}</strong></td>
+              <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(l.ip_address||l.ip||'')}</td>
               <td style="padding:6px 8px;font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</td>
               <td style="padding:6px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
               <td style="padding:6px 8px;font-family:var(--mono);font-size:11px;text-align:right;color:var(--text2);">${dur}</td>
@@ -920,6 +1173,7 @@ async function loadStats() {
             <thead><tr style="border-bottom:2px solid var(--border);">
               <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">ZEIT</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">BENUTZER</th>
+              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">IP</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">KANAL</th>
               <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">SENDUNG</th>
               <th style="padding:6px 8px;text-align:right;font-size:10px;color:var(--text2);font-family:var(--mono);">DAUER</th>
@@ -1134,7 +1388,7 @@ async function userLogs(id,name) {
   document.getElementById('ulogs-content').innerHTML=!logs.length
     ?'<div class="empty-state">Noch keine Aktivität</div>'
     :`<div class="log-panel"><table style="width:100%"><thead><tr>
-        <th>Zeit</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead><tbody>
+        <th>Zeit</th><th>IP</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead><tbody>
         ${logs.map(l=>{
           const isCatchup=l.is_catchup===1||l.is_catchup==='1';
           const icon=isCatchup?'<span style="color:var(--teal);margin-right:3px;">⏪</span>':'<span style="color:var(--green);margin-right:3px;">▶</span>';
@@ -1143,6 +1397,7 @@ async function userLogs(id,name) {
             :'<span style="color:var(--text2);">—</span>';
           return `<tr>
             <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
+            <td style="font-family:var(--mono);font-size:10px;color:var(--text2);white-space:nowrap;">${esc(l.ip_address||'')}</td>
             <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
             <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
             <td style="font-family:var(--mono);font-size:11px;">${l.duration_seconds>0?fmtDur(l.duration_seconds):'—'}</td>
@@ -1592,14 +1847,19 @@ async function grpToggle(val) {
 function openImport(){ document.getElementById('modal-import').classList.add('open'); }
 
 async function doImport() {
-  const url=document.getElementById('import-url').value.trim();
-  if(!url) return showToast('URL erforderlich',true);
-  document.getElementById('import-btn').disabled=true;
+  const url = document.getElementById('import-url').value.trim();
+  if (!url) return showToast('URL erforderlich', true);
+  const updateUsers = document.getElementById('import-update-users')?.checked ?? true;
+  document.getElementById('import-btn').disabled = true;
   try {
-    const r=await api('POST','/api/channels/import',{url});
-    closeM('modal-import'); showToast(`${r.imported} Kanäle importiert!`); loadCh();
-  } catch(e){ showToast(e.message,true); }
-  finally{ document.getElementById('import-btn').disabled=false; }
+    const r = await api('POST', '/api/channels/import', {url, update_users: updateUsers});
+    closeM('modal-import');
+    let msg = `${r.imported} Kanäle importiert!`;
+    if (updateUsers && r.updated_users > 0) msg += ` • ${r.updated_users} User auf neue URL umgestellt`;
+    showToast(msg);
+    loadCh();
+  } catch(e) { showToast(e.message, true); }
+  finally { document.getElementById('import-btn').disabled = false; }
 }
 
 async function refreshCh() {
@@ -1713,7 +1973,7 @@ async function delEpg(id) {
 async function loadLogs() {
   const logs=await api('GET','/api/logs');
   const tbody=document.getElementById('logs-tbody');
-  if(!logs.length){ tbody.innerHTML='<tr><td colspan="5"><div class="empty-state">Keine Einträge</div></td></tr>'; return; }
+  if(!logs.length){ tbody.innerHTML='<tr><td colspan="6"><div class="empty-state">Keine Einträge</div></td></tr>'; return; }
   tbody.innerHTML=logs.map(l=>{
     const isCatchup=l.is_catchup===1||l.is_catchup==='1';
     const icon=isCatchup?'<span style="color:var(--teal);margin-right:4px;">⏪</span>':'<span style="color:var(--green);margin-right:4px;">▶</span>';
@@ -1723,6 +1983,7 @@ async function loadLogs() {
     return `<tr>
       <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
       <td><strong>${esc(l.user_name)}</strong></td>
+      <td style="font-family:var(--mono);font-size:10px;color:var(--text2);white-space:nowrap;">${esc(l.ip_address||l.ip||'')}</td>
       <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
       <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
       <td style="font-family:var(--mono);font-size:11px;">${l.duration_seconds>0?fmtDur(l.duration_seconds):'—'}</td>
@@ -1749,6 +2010,7 @@ async function loadSettings() {
   document.getElementById('cfg-ref').value=s.hls_referer||'';
   document.getElementById('cfg-timeout').value=s.hls_timeout||'10';
   document.getElementById('cfg-rtimeout').value=s.hls_read_timeout||'30';
+  document.getElementById('cfg-prefetch').value=s.prefetch_segments||'2';
   const refreshSel=document.getElementById('cfg-m3u-refresh');
   if(refreshSel) refreshSel.value=s.m3u_refresh_hours||'0';
   const lastEl=document.getElementById('cfg-m3u-last-refresh');
@@ -1778,7 +2040,8 @@ async function saveHls() {
     hls_user_agent:document.getElementById('cfg-ua').value.trim(),
     hls_referer:document.getElementById('cfg-ref').value.trim(),
     hls_timeout:document.getElementById('cfg-timeout').value,
-    hls_read_timeout:document.getElementById('cfg-rtimeout').value
+    hls_read_timeout:document.getElementById('cfg-rtimeout').value,
+    prefetch_segments:document.getElementById('cfg-prefetch').value
   });
   showToast('HLS-Einstellungen gespeichert');
 }
@@ -2000,6 +2263,515 @@ async function epgDDrop(e, tgtId) {
   filterEpgCh();
   const order = allEpgCh.map(c => c.tvg_id);
   await api('POST', '/api/epg/channels/reorder', {order});
+}
+
+// ── VPN ───────────────────────────────────────────────────────────────────────
+
+let _vpnStatusInterval = null;
+
+async function loadVpnSettings() {
+  const s = await api('GET', '/api/vpn');
+  if (!s) return;
+  document.getElementById('vpn-user').value     = s.vpn_user || '';
+  document.getElementById('vpn-password').value = s.vpn_password || '';
+  renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
+  vpnRefreshStatus();
+  // Auto-poll log every 3s when on VPN page
+  if (_vpnStatusInterval) clearInterval(_vpnStatusInterval);
+  _vpnStatusInterval = setInterval(vpnRefreshStatus, 3000);
+}
+
+function renderOvpnList(files, activePath) {
+  const el = document.getElementById('vpn-ovpn-list');
+  if (!files.length) { el.textContent = 'Keine .ovpn Datei hochgeladen'; return; }
+  el.innerHTML = files.map(f => {
+    const fullPath = `/data/vpn/${f}`;
+    const isActive = activePath === fullPath;
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+      <span style="color:${isActive ? 'var(--teal)' : 'var(--text2)'};">${isActive ? '✅' : '○'} ${f}</span>
+      ${!isActive ? `<button class="btn sm" onclick="vpnSetActive('${f}')">Aktivieren</button>` : ''}
+      <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn('${f}')">🗑</button>
+    </div>`;
+  }).join('');
+}
+
+async function vpnSaveCredentials() {
+  await api('POST', '/api/vpn', {
+    vpn_user:     document.getElementById('vpn-user').value.trim(),
+    vpn_password: document.getElementById('vpn-password').value.trim(),
+  });
+  showToast('Zugangsdaten gespeichert!');
+}
+
+async function vpnUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('vpn-file-name').textContent = file.name;
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await fetch('/api/vpn/upload', {
+    method: 'POST',
+    headers: { 'X-Admin-Token': TOKEN },
+    body: fd,
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    showToast(`✅ ${data.filename} hochgeladen und aktiviert!`);
+    loadVpnSettings();
+  } else {
+    showToast('Fehler beim Upload');
+  }
+}
+
+async function vpnSetActive(filename) {
+  await api('POST', '/api/vpn', { vpn_ovpn_path: `/data/vpn/${filename}` });
+  showToast(`${filename} aktiviert`);
+  loadVpnSettings();
+}
+
+async function vpnDeleteOvpn(filename) {
+  if (!confirm(`${filename} löschen?`)) return;
+  await api('DELETE', `/api/vpn/ovpn/${filename}`);
+  showToast('Datei gelöscht');
+  loadVpnSettings();
+}
+
+async function vpnStart() {
+  document.getElementById('vpn-btn-start').disabled = true;
+  const r = await api('POST', '/api/vpn/start');
+  document.getElementById('vpn-btn-start').disabled = false;
+  if (r && r.ok) {
+    showToast('▶ VPN wird gestartet…');
+  } else {
+    showToast('❌ ' + (r?.error || 'Fehler'));
+  }
+  vpnRefreshStatus();
+}
+
+async function vpnStop() {
+  await api('POST', '/api/vpn/stop');
+  showToast('⏹ VPN gestoppt');
+  // Wait a moment for tun0 to disappear before checking status
+  setTimeout(vpnRefreshStatus, 2000);
+}
+
+async function runSpeedtest() {
+  const btn = document.getElementById('speedtest-btn');
+  const result = document.getElementById('speedtest-result');
+  btn.disabled = true;
+  btn.textContent = '⏳ Teste Internet…';
+  result.style.display = 'block';
+
+  // Reset
+  ['inet','iptv'].forEach(t => {
+    document.getElementById(`st-${t}-mbps`).textContent = '…';
+    document.getElementById(`st-${t}-detail`).textContent = '';
+    document.getElementById(`st-${t}-hd`).textContent = '–';
+    document.getElementById(`st-${t}-fhd`).textContent = '–';
+    document.getElementById(`st-${t}-4k`).textContent = '–';
+  });
+  document.getElementById('speedtest-bottleneck').textContent = '⏳ Teste…';
+
+  btn.textContent = '⏳ Teste IPTV-Anbieter…';
+
+  try {
+    const data = await api('GET', '/api/vpn/speedtest');
+
+    // Internet result
+    const inet = data.internet;
+    if (inet && inet.ok) {
+      document.getElementById('st-inet-mbps').textContent = inet.mbps;
+      document.getElementById('st-inet-detail').textContent =
+        `${inet.mb} MB in ${inet.seconds}s • ${inet.server || ''} • ${data.via_vpn ? '🔒 VPN' : '🌐 direkt'}`;
+      document.getElementById('st-inet-hd').textContent  = (inet.streams?.hd_720p  || 0) + 'x';
+      document.getElementById('st-inet-fhd').textContent = (inet.streams?.fhd_1080p|| 0) + 'x';
+      document.getElementById('st-inet-4k').textContent  = (inet.streams?.uhd_4k   || 0) + 'x';
+    } else {
+      document.getElementById('st-inet-mbps').textContent = '!';
+      document.getElementById('st-inet-detail').textContent = inet?.error || 'Fehler';
+    }
+
+    // IPTV result
+    const iptv = data.iptv;
+    if (iptv && iptv.ok) {
+      document.getElementById('st-iptv-mbps').textContent = iptv.mbps;
+      document.getElementById('st-iptv-detail').textContent =
+        `${iptv.mb} MB in ${iptv.seconds}s • ${iptv.server || ''} • ${iptv.parallel ? iptv.parallel + ' Streams parallel' : ''}`;
+      document.getElementById('st-iptv-hd').textContent  = (iptv.streams?.hd_720p  || 0) + 'x';
+      document.getElementById('st-iptv-fhd').textContent = (iptv.streams?.fhd_1080p|| 0) + 'x';
+      document.getElementById('st-iptv-4k').textContent  = (iptv.streams?.uhd_4k   || 0) + 'x';
+    } else {
+      document.getElementById('st-iptv-mbps').textContent = '!';
+      document.getElementById('st-iptv-detail').textContent = iptv?.error || 'Kein IPTV-Kanal zum Testen';
+    }
+
+    // Bottleneck
+    const bn = document.getElementById('speedtest-bottleneck');
+    if (data.bottleneck) {
+      const isBottleneck = data.bottleneck.includes('Flaschenhals') && !data.bottleneck.includes('Kein');
+      bn.style.borderColor = isBottleneck ? '#ef4444' : '#00e5c8';
+      bn.style.color = isBottleneck ? '#ef4444' : 'var(--teal)';
+      bn.textContent = data.bottleneck;
+    } else {
+      bn.textContent = '';
+    }
+
+  } catch(e) {
+    document.getElementById('speedtest-bottleneck').textContent = 'Fehler: ' + e;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Speedtest starten';
+}
+
+async function vpnRefreshStatus() {
+  const s = await api('GET', '/api/vpn/status');
+  if (!s) return;
+  const dot  = document.getElementById('vpn-status-dot');
+  const text = document.getElementById('vpn-status-text');
+  const ipEl = document.getElementById('vpn-status-ip');
+  if (s.running) {
+    dot.style.background  = '#00e5c8';
+    text.textContent      = '✅ Verbunden';
+    ipEl.textContent      = s.public_ip ? `Öffentliche IP: ${s.public_ip}` : '';
+  } else {
+    dot.style.background  = '#ef4444';
+    text.textContent      = '🔴 Nicht verbunden';
+    ipEl.textContent      = '';
+  }
+  // Update log
+  const logEl = document.getElementById('vpn-log');
+  if (s.log && s.log.length) {
+    logEl.textContent = s.log.join('\n');
+    logEl.scrollTop   = logEl.scrollHeight;
+  }
+}
+
+// ── Traffic Monitor ───────────────────────────────────────────────────────────
+
+let _trafficInterval = null;
+let _trafficHistory = []; // [{time, streams, mbps}]
+let _trafficPeak = 0;
+const ASSUMED_MBPS_PER_STREAM = 6;
+const TRAFFIC_MAX_POINTS = 720; // up to 720 data points (1h @ 5s = 720)
+
+async function toggleDebugMode(checkbox) {
+  await api('POST', '/api/settings', { segment_debug: checkbox.checked ? '1' : '0' });
+  showToast(checkbox.checked ? '🔬 Debug-Modus AN – alle Segmente werden geloggt' : 'Debug-Modus AUS');
+  loadSegmentEvents();
+}
+
+async function loadSegmentEvents() {
+  const [events, stats] = await Promise.all([
+    api('GET', '/api/segment-events'),
+    api('GET', '/api/segment-events/stats'),
+  ]);
+
+  // Channel stats table
+  const statsEl = document.getElementById('tr-channel-stats');
+  if (statsEl) {
+    if (!stats?.length) {
+      statsEl.innerHTML = '<div class="empty-state">Noch keine Daten</div>';
+    } else {
+      const maxScore = stats[0].score || 1;
+      statsEl.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="border-bottom:1px solid var(--border);">
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SENDER</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">PROBLEM-SCORE</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">🔴 LANGSAM</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">🟡 VERZÖGERT</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">Ø DAUER</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">Ø SPEED</th>
+          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">MIN SPEED</th>
+        </tr></thead>
+        <tbody>${stats.map((s, i) => {
+          const barW = Math.round((s.score / maxScore) * 100);
+          const color = s.slow > 0 ? '#ef4444' : '#f59e0b';
+          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+          return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-weight:bold;color:var(--teal);">${medal} ${esc(s.channel)}</td>
+            <td style="padding:6px 8px;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="flex:1;background:var(--bg);border-radius:3px;height:8px;overflow:hidden;">
+                  <div style="width:${barW}%;height:100%;background:${color};border-radius:3px;"></div>
+                </div>
+                <span style="font-family:var(--mono);font-size:11px;color:${color};min-width:20px;">${s.score}</span>
+              </div>
+            </td>
+            <td style="padding:6px 8px;font-family:var(--mono);color:#ef4444;">${s.slow}x</td>
+            <td style="padding:6px 8px;font-family:var(--mono);color:#f59e0b;">${s.delayed}x</td>
+            <td style="padding:6px 8px;font-family:var(--mono);color:var(--text2);">${s.avg_elapsed}s</td>
+            <td style="padding:6px 8px;font-family:var(--mono);color:${s.avg_mbps < 10 ? '#ef4444' : 'var(--teal)'};">${s.avg_mbps} Mbit/s</td>
+            <td style="padding:6px 8px;font-family:var(--mono);color:${s.min_mbps < 5 ? '#ef4444' : 'var(--text2)'};">${s.min_mbps} Mbit/s</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    }
+  }
+
+  // Events table
+  const el = document.getElementById('tr-seg-events');
+  if (!el) return;
+  if (!events?.length) {
+    el.innerHTML = '<div class="empty-state">Noch keine Ereignisse – tritt auf wenn ein Segment &gt;1s braucht</div>';
+    return;
+  }
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+    <thead><tr style="border-bottom:1px solid var(--border);">
+      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ZEIT</th>
+      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">USER</th>
+      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SENDER</th>
+      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">DAUER</th>
+      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">GRÖSSE</th>
+      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SPEED</th>
+      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SEGMENT</th>
+    </tr></thead>
+    <tbody>${events.map(e => {
+      const isSlow = e.type === 'slow';
+      const isOk = e.type === 'ok';
+      const isEmpty = e.seg && e.seg.startsWith('⚠️ LEER');
+      const color = isEmpty ? '#ff6b6b' : isSlow ? '#ef4444' : isOk ? '#00e5c8' : '#f59e0b';
+      const icon = isEmpty ? '⚠️' : isSlow ? '🔴' : isOk ? '✅' : '🟡';
+      const dt = new Date(e.time * 1000);
+      const timeStr = dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      return `<tr style="border-bottom:1px solid var(--border);${isEmpty ? 'background:rgba(255,107,107,0.05);' : ''}">
+        <td style="padding:4px 8px;color:var(--text2);">${timeStr}</td>
+        <td style="padding:4px 8px;"><strong>${esc(e.user)}</strong></td>
+        <td style="padding:4px 8px;color:var(--teal);font-size:11px;white-space:nowrap;">${esc(e.channel||'')}</td>
+        <td style="padding:4px 8px;color:${color};font-weight:bold;">${icon} ${isEmpty ? 'LEER!' : e.elapsed+'s'}</td>
+        <td style="padding:4px 8px;color:var(--text2);">${e.size_kb} KB</td>
+        <td style="padding:4px 8px;color:${e.mbps < 4 ? '#ef4444' : 'var(--teal)'};">${isEmpty ? '—' : e.mbps+' Mbit/s'}</td>
+        <td style="padding:4px 8px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.seg)}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+async function exportChannelReport() {
+  const [stats, events] = await Promise.all([
+    api('GET', '/api/segment-events/stats'),
+    api('GET', '/api/segment-events'),
+  ]);
+  if (!stats?.length) return showToast('Keine Daten zum Exportieren');
+
+  const now = new Date().toLocaleString('de-DE');
+  let report = `SELFSTREAM – BUFFERING-BERICHT\n`;
+  report += `Erstellt: ${now}\n`;
+  report += `Gesamt-Ereignisse: ${events.length}\n`;
+  report += `${'='.repeat(60)}\n\n`;
+
+  report += `SENDER-RANKING (nach Schweregrad):\n`;
+  report += `${'─'.repeat(60)}\n`;
+  stats.forEach((s, i) => {
+    report += `${i+1}. ${s.channel}\n`;
+    report += `   Langsam (>2s): ${s.slow}x  |  Verzögert (>1s): ${s.delayed}x  |  Gesamt: ${s.total}x\n`;
+    report += `   Ø Download-Zeit: ${s.avg_elapsed}s  |  Ø Speed: ${s.avg_mbps} Mbit/s  |  Min Speed: ${s.min_mbps} Mbit/s\n\n`;
+  });
+
+  report += `${'='.repeat(60)}\n`;
+  report += `DETAIL-EREIGNISSE (letzte ${Math.min(events.length, 50)}):\n`;
+  report += `${'─'.repeat(60)}\n`;
+  events.slice(0, 50).forEach(e => {
+    const dt = new Date(e.time * 1000).toLocaleTimeString('de-DE');
+    const type = e.type === 'slow' ? '🔴 LANGSAM ' : '🟡 VERZÖGERT';
+    report += `${dt}  ${type}  ${e.channel||'?'}  ${e.elapsed}s  ${e.size_kb}KB  ${e.mbps}Mbit/s\n`;
+  });
+
+  navigator.clipboard.writeText(report).then(() => showToast('✅ Bericht in Zwischenablage kopiert!'));
+}
+
+async function clearSegmentEvents() {
+  await api('DELETE', '/api/segment-events');
+  loadSegmentEvents();
+}
+
+function stopTrafficMonitor() {
+  if (_trafficInterval) { clearInterval(_trafficInterval); _trafficInterval = null; }
+}
+
+async function startTrafficMonitor() {
+  stopTrafficMonitor();
+  // Load current debug mode state
+  const s = await api('GET', '/api/settings');
+  if (s) {
+    const cb = document.getElementById('tr-debug-mode');
+    if (cb) cb.checked = s.segment_debug === '1';
+  }
+  await updateTraffic();
+  await loadSegmentEvents();
+  const secs = parseInt(document.getElementById('traffic-interval')?.value || '5');
+  _trafficInterval = setInterval(async () => {
+    await updateTraffic();
+    await loadSegmentEvents();
+  }, secs * 1000);
+}
+
+async function updateTraffic() {
+  const s = await api('GET', '/api/stats');
+  if (!s) return;
+
+  const activeStreams = (s.active_sessions || []).length;
+  const estimatedMbps = activeStreams * ASSUMED_MBPS_PER_STREAM;
+  if (activeStreams > _trafficPeak) _trafficPeak = activeStreams;
+
+  document.getElementById('tr-streams').textContent = activeStreams;
+  document.getElementById('tr-mbps').textContent = estimatedMbps;
+  document.getElementById('tr-today').textContent = s.watch_logs_today || 0;
+  document.getElementById('tr-peak').textContent = _trafficPeak;
+
+  // Live sessions list
+  const list = document.getElementById('tr-sessions-list');
+  if (!s.active_sessions?.length) {
+    list.innerHTML = '<div class="empty-state">Keine aktiven Streams</div>';
+  } else {
+    list.innerHTML = s.active_sessions.map(sess => {
+      const np = sess.now_playing || {};
+      const dur = sess.started_at ? Math.floor(Date.now()/1000 - sess.started_at) : 0;
+      const durStr = dur > 3600 ? `${Math.floor(dur/3600)}h ${Math.floor((dur%3600)/60)}m`
+                   : dur > 60   ? `${Math.floor(dur/60)}m ${dur%60}s` : `${dur}s`;
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <div class="live-dot active" style="flex-shrink:0;"></div>
+        <strong style="min-width:120px;">${esc(sess.user)}</strong>
+        <span style="color:var(--text2);font-size:10px;min-width:90px;">${esc(sess.ip||'')}</span>
+        <span style="color:var(--teal);">${esc(sess.channel)}</span>
+        ${np.title ? `<span style="color:var(--text2);font-size:11px;">· ${esc(np.title)}</span>` : ''}
+        <span style="margin-left:auto;color:var(--text2);font-size:10px;white-space:nowrap;">~${ASSUMED_MBPS_PER_STREAM} Mbit/s · ${durStr}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // History
+  _trafficHistory.push({ time: new Date(), streams: activeStreams, mbps: estimatedMbps });
+  if (_trafficHistory.length > TRAFFIC_MAX_POINTS) _trafficHistory.shift();
+  drawTrafficChart();
+}
+
+function getVisiblePoints() {
+  const range = document.getElementById('tr-range')?.value || '300';
+  if (range === 'all') return _trafficHistory;
+  const cutoff = Date.now() - parseInt(range) * 1000;
+  return _trafficHistory.filter(p => p.time.getTime() >= cutoff);
+}
+
+function drawTrafficChart() {
+  const canvas = document.getElementById('tr-chart');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth;
+  const H = 120;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const pts = getVisiblePoints();
+  const PAD_L = 36; // left padding for Y-axis labels
+  const PAD_R = 8;
+  const PAD_T = 8;
+  const PAD_B = 20;
+  const chartW = W - PAD_L - PAD_R;
+  const chartH = H - PAD_T - PAD_B;
+
+  const maxStreams = Math.max(4, ..._trafficHistory.map(p => p.streams));
+  const yMax = Math.ceil(maxStreams / 2) * 2 + 2; // round up to even + buffer
+
+  // Y-axis gridlines + labels
+  const ySteps = Math.min(yMax, 8);
+  for (let i = 0; i <= ySteps; i++) {
+    const val = Math.round((yMax / ySteps) * i);
+    const y = PAD_T + chartH - (val / yMax) * chartH;
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = `${9 * dpr / dpr}px monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillText(val, PAD_L - 4, y + 3);
+  }
+
+  // Y-axis label
+  ctx.save();
+  ctx.translate(10, PAD_T + chartH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('STREAMS', 0, 0);
+  ctx.restore();
+
+  if (pts.length < 2) {
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Noch zu wenig Daten…', W/2, H/2);
+    return;
+  }
+
+  const xStep = chartW / (pts.length - 1);
+
+  const getXY = (i) => ({
+    x: PAD_L + i * xStep,
+    y: PAD_T + chartH - (pts[i].streams / yMax) * chartH
+  });
+
+  // Filled area
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const {x, y} = getXY(i);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(PAD_L + (pts.length-1) * xStep, PAD_T + chartH);
+  ctx.lineTo(PAD_L, PAD_T + chartH);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, PAD_T, 0, PAD_T + chartH);
+  grad.addColorStop(0, 'rgba(0,229,200,0.35)');
+  grad.addColorStop(1, 'rgba(0,229,200,0.02)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#00e5c8';
+  ctx.lineWidth = 2;
+  pts.forEach((p, i) => {
+    const {x, y} = getXY(i);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Peak dots
+  const peakVal = Math.max(...pts.map(p => p.streams));
+  pts.forEach((p, i) => {
+    if (p.streams === peakVal && peakVal > 0) {
+      const {x, y} = getXY(i);
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff6b6b';
+      ctx.fill();
+    }
+  });
+
+  // X-axis time labels
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  const labelCount = Math.min(6, pts.length);
+  for (let i = 0; i < labelCount; i++) {
+    const idx = Math.round(i * (pts.length - 1) / (labelCount - 1));
+    const x = PAD_L + idx * xStep;
+    const t = pts[idx].time;
+    const label = t.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+    ctx.fillText(label, x, H - 4);
+  }
+
+  // Update time range label
+  if (pts.length > 1) {
+    const diffSec = Math.round((pts[pts.length-1].time - pts[0].time) / 1000);
+    const el = document.getElementById('tr-chart-min');
+    if (el) el.textContent = diffSec > 3600 ? `${Math.floor(diffSec/3600)}h ${Math.floor((diffSec%3600)/60)}m ago`
+                           : diffSec > 60   ? `${Math.floor(diffSec/60)}m ago` : `${diffSec}s ago`;
+  }
 }
 
 </script>
