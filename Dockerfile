@@ -7,6 +7,20 @@ LABEL org.opencontainers.image.licenses="GPL-3.0"
 
 WORKDIR /app
 
+# Install OpenVPN + microsocks (SOCKS5 proxy for split-tunnel)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openvpn \
+    iproute2 \
+    git \
+    build-essential \
+    && git clone https://github.com/rofl0r/microsocks.git /tmp/microsocks \
+    && make -C /tmp/microsocks \
+    && cp /tmp/microsocks/microsocks /usr/local/bin/ \
+    && rm -rf /tmp/microsocks \
+    && apt-get remove -y git build-essential \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
