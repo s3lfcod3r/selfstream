@@ -23,17 +23,18 @@
 
 ## What is selfstream?
 
-selfstream is a self-hosted IPTV proxy with user management, stream protection, EPG integration and watch tracking — running as a single Docker container. No Redis, no external database needed.
+selfstream is a self-hosted IPTV proxy with user management, stream protection, EPG integration, watch tracking, built-in VPN support and traffic analysis — running as a single Docker container. No Redis, no external database needed.
 
 ## Features
 
+### Core
 - **User Management** – Every user gets their own M3U URL with token
 - **Max. Streams per User** – Configurable, blocks additional devices with HTTP 429
 - **Catchup / Timeshift** – Watch past content, works with IPTV Pro & TiviMate
 - **EPG Integration** – Program info shown in dashboard (what's on now, what was watched)
 - **Watch Tracking** – Channel, show title, duration, timestamp — all stored
+- **IP Tracking** – IP address logged per stream session and in watch history
 - **Admin Dashboard** – Live Sessions, Live Catchup, History, Users, Channels, EPG, Settings
-- **Custom Groups** – Create your own channel groups (e.g. Kids, Sports, Docs) and assign users
 - **Custom Groups** – Create your own channel groups (e.g. Kids, Sports, Docs) and assign users
 - **Group & Provider Sorting** – Drag & drop to sort both custom and provider groups; numbering forces order in IPTV Pro
 - **Brute-Force Protection** – Admin login locked after 10 failed attempts
@@ -41,9 +42,40 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 - **Channel Manager** – Enable/disable, sort, filter channels by group
 - **EPG Manager** – Multiple EPG sources, time filter (1/3/7 days), auto-refresh
 - **M3U Auto-Refresh** – Automatically reload channels on schedule
+- **M3U Import** – Import new M3U URL and optionally update all existing users at once
 - **Custom Logo** – Upload your own logo via admin panel
 - **Setup Wizard** – On first start, no manual config editing needed
 - **Single Container** – Python + FastAPI + SQLite, no Redis, no Nginx needed
+
+### 🔒 VPN (Built-in OpenVPN)
+- **Integrated OpenVPN** – Start/stop VPN directly from the admin panel, no extra container needed
+- **Multiple .ovpn Profiles** – Upload and switch between multiple provider profiles (e.g. ExpressVPN Switzerland, Germany)
+- **Live Status** – Shows connection status and current public IP
+- **Live Log** – Real-time OpenVPN log stream in the browser
+- **Auto-Start** – VPN reconnects automatically on container restart
+- **Local Route Preservation** – Admin panel stays fast even when VPN is active (local network routed via eth0)
+- **Requires:** `--cap-add=NET_ADMIN` + `--device=/dev/net/tun` (or Privileged mode in Unraid)
+
+### 📊 Traffic Analysis
+- **Live Stream Monitor** – See all active streams with user, IP, channel, show title and duration
+- **Estimated Bandwidth** – Real-time Mbit/s estimate based on active streams
+- **Stream History Chart** – Canvas chart with Y-axis labels, peak markers and time labels; selectable time range (5 min / 15 min / 30 min / 1h / all)
+- **Peak Tracking** – Highest concurrent stream count tracked per session
+- **Buffering Events** – Automatic detection and logging of slow/delayed segments
+  - 🔴 Slow (>2s) = Buffering very likely
+  - 🟡 Delayed (>1s) = Buffering possible
+  - Shows: timestamp, user, duration, segment size, download speed, segment name
+
+### 🚀 Speedtest
+- **Dual Speedtest** – Measures internet/VPN speed AND IPTV provider speed separately
+- **Bottleneck Detection** – Automatically identifies whether the VPN tunnel or IPTV provider is the limiting factor
+- **Parallel IPTV Test** – Downloads 5 segments from 5 different channels simultaneously for a realistic load test
+- **Stream Capacity Estimate** – Calculates max. concurrent HD / FHD / 4K streams
+
+### ⚡ Performance
+- **Segment Pre-buffering** – selfstream fully downloads each TS segment before delivering it to the player; player receives segments at local LAN speed (~900 Mbit/s) instead of provider speed
+- **Segment Prefetch Cache** – While you watch one segment, selfstream already downloads the next 2 in the background; cache hits result in near-instant delivery
+- **Tiny Segment Retry** – Broken segments (<10 KB) are automatically retried once
 
 ---
 
@@ -63,6 +95,8 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 docker run -d \
   --name selfstream \
   --restart unless-stopped \
+  --cap-add=NET_ADMIN \
+  --device=/dev/net/tun \
   -p 8000:8000 \
   -p 8080:8080 \
   -v /mnt/user/appdata/selfstream/data:/data \
@@ -70,6 +104,8 @@ docker run -d \
 ```
 
 Then open `http://YOUR-IP:8080/admin` and follow the Setup Wizard.
+
+> **Note:** `--cap-add=NET_ADMIN` and `--device=/dev/net/tun` are only required if you want to use the built-in VPN feature. You can omit them if you don't need VPN.
 
 ### Option 3 – docker-compose
 
@@ -150,6 +186,53 @@ Enter this URL in TiviMate, IPTV Pro, VLC or any other IPTV app.
 
 ---
 
+## VPN Setup
+
+1. Admin Panel → **VPN**
+2. Enter your OpenVPN credentials (username & password from your provider)
+3. Click **Choose File** → upload your `.ovpn` file (download from your VPN provider's website under Manual Configuration → OpenVPN)
+4. Click **▶ Start VPN**
+5. The live log shows the connection progress; once connected, the public IP is displayed
+
+**Switching profiles:** Upload multiple `.ovpn` files (e.g. different countries) and click **Activate** to switch between them. Stop and restart the VPN after switching.
+
+**Tested providers:** ExpressVPN — other OpenVPN-compatible providers should work too.
+
+---
+
+## Speedtest
+
+Admin Panel → **VPN** → scroll down to **Speedtest – Bottleneck Analysis**
+
+- Click **▶ Start Speedtest**
+- Two tests run simultaneously:
+  1. **Internet / VPN** – downloads from Cloudflare/OVH to measure raw tunnel speed
+  2. **IPTV Provider** – downloads 5 real segments from 5 channels in parallel
+- The bottleneck banner shows which side is limiting your stream capacity
+
+**Interpreting results:**
+- If IPTV provider speed << Internet speed → provider is the bottleneck (common with VPN)
+- If both are similar → no bottleneck, VPN overhead is minimal
+- Concurrent stream estimates assume ~4 Mbit/s (HD), ~8 Mbit/s (FHD), ~25 Mbit/s (4K)
+
+---
+
+## Traffic Analysis
+
+Admin Panel → **Traffic**
+
+- **Live Streams** – Shows all active sessions with user, IP, channel, show title, duration, estimated bandwidth
+- **Stream History Chart** – Select time range (5 min to all); Y-axis shows stream count; red dots mark peak times
+- **Buffering Events** – Automatic log of slow segment downloads; helps diagnose freezing/stuttering
+
+**Reading the buffering log:**
+- 🔴 >2s download time → player very likely buffered
+- 🟡 >1s download time → player may have briefly paused
+- High speed (>20 Mbit/s) but still slow = large segments (normal for some providers)
+- Low speed (<4 Mbit/s) = provider/VPN bottleneck
+
+---
+
 ## Custom Groups
 
 Create your own channel groups independent of provider groups:
@@ -203,15 +286,21 @@ Create your own channel groups independent of provider groups:
 | EPG not showing | Admin → EPG → click "Load EPG"; then Auto-Match |
 | Catchup not working | IPTV provider must support catchup (`tvg-rec` in M3U) |
 | Channel switch slow | Lower Connect Timeout to 3–5s in Settings → HLS |
+| VPN won't connect | Try a different server or switch from UDP to TCP in your `.ovpn` file (`proto tcp`) |
+| VPN active but streams broken | Check that Privileged mode or `--cap-add=NET_ADMIN` is set |
+| Buffering with VPN | Test with Speedtest; try a geographically closer VPN server |
+| Stream stutters without VPN | Check Buffering Events in Traffic tab; large segments (>5 MB) are normal for some providers |
+| M3U import updates channels but users still use old URL | Enable "Update all users to new URL" checkbox in the import dialog |
 
 ---
 
 ## Technology
 
 - **Backend:** Python 3.12, FastAPI, uvicorn, httpx, Pillow
+- **VPN:** OpenVPN (installed in container)
 - **Database:** SQLite (no external server needed)
 - **Frontend:** Vanilla HTML/CSS/JS (no framework)
-- **Container:** Python 3.12 slim, ~150 MB image
+- **Container:** Python 3.12 slim, ~200 MB image
 
 ---
 
@@ -237,17 +326,18 @@ Create your own channel groups independent of provider groups:
 
 ## Was ist selfstream?
 
-selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schutz, EPG-Integration und Watch-Tracking — als einzelner Docker-Container. Kein Redis, keine externe Datenbank nötig.
+selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schutz, EPG-Integration, Watch-Tracking, integriertem VPN und Traffic-Analyse — als einzelner Docker-Container. Kein Redis, keine externe Datenbank nötig.
 
 ## Features
 
+### Kern
 - **User-Management** – Jeder User bekommt eine eigene M3U-URL mit Token
 - **Max. Streams pro User** – Konfigurierbar, blockiert zusätzliche Geräte mit HTTP 429
 - **Catchup / Timeshift** – Vergangene Sendungen schauen, funktioniert mit IPTV Pro & TiviMate
 - **EPG-Integration** – Programm-Info wird im Dashboard angezeigt (was läuft gerade, was wurde geschaut)
 - **Watch-Tracking** – Kanal, Sendung, Dauer, Zeitpunkt – alles gespeichert
+- **IP-Tracking** – IP-Adresse wird pro Stream-Session und im Watch-Verlauf protokolliert
 - **Admin-Dashboard** – Live Sessions, Live Catchup, Verlauf, Benutzer, Kanäle, EPG, Einstellungen
-- **Eigene Gruppen** – Eigene Kanalgruppen erstellen (z.B. Kinder, Sport, Doku) und Usern zuweisen
 - **Eigene Gruppen** – Eigene Kanalgruppen erstellen (z.B. Kinder, Sport, Doku) und Usern zuweisen
 - **Gruppen- & Anbieter-Sortierung** – Drag & Drop zum Sortieren aller Gruppen; Nummerierung erzwingt Reihenfolge in IPTV Pro
 - **Brute-Force-Schutz** – Admin-Login wird nach 10 Fehlversuchen gesperrt
@@ -255,9 +345,40 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **Kanal-Manager** – Kanäle aktivieren/deaktivieren, sortieren, nach Gruppen filtern
 - **EPG-Manager** – Mehrere EPG-Quellen, Zeitfilter (1/3/7 Tage), Auto-Refresh
 - **M3U Auto-Refresh** – Kanäle automatisch nach Zeitplan neu laden
+- **M3U Import** – Neue M3U-URL importieren und optional alle bestehenden User auf einmal umstellen
 - **Custom Logo** – Eigenes Logo im Admin-Panel hochladbar
 - **Setup-Wizard** – Beim ersten Start, kein manuelles Config-Editing nötig
 - **Single Container** – Python + FastAPI + SQLite, kein Redis, kein Nginx nötig
+
+### 🔒 VPN (Integriertes OpenVPN)
+- **Integriertes OpenVPN** – VPN direkt im Admin-Panel starten/stoppen, kein Extra-Container nötig
+- **Mehrere .ovpn Profile** – Mehrere Anbieter-Profile hochladen und zwischen ihnen wechseln (z.B. ExpressVPN Schweiz, Deutschland)
+- **Live-Status** – Zeigt Verbindungsstatus und aktuelle öffentliche IP
+- **Live-Log** – Echtzeit-OpenVPN-Log-Stream im Browser
+- **Auto-Start** – VPN verbindet sich automatisch beim Container-Neustart
+- **Lokale Route** – Admin-Panel bleibt schnell auch wenn VPN aktiv ist (lokales Netz via eth0 geroutet)
+- **Voraussetzung:** `--cap-add=NET_ADMIN` + `--device=/dev/net/tun` (oder Privileged-Modus in Unraid)
+
+### 📊 Traffic-Analyse
+- **Live-Stream-Monitor** – Alle aktiven Streams mit User, IP, Kanal, Sendung und Dauer
+- **Geschätzte Bandbreite** – Echtzeit-Mbit/s-Schätzung basierend auf aktiven Streams
+- **Stream-Verlauf-Chart** – Canvas-Chart mit Y-Achsen-Beschriftung, Peak-Markierungen und Zeitstempeln; wählbarer Zeitbereich (5 Min / 15 Min / 30 Min / 1h / Alles)
+- **Peak-Tracking** – Höchste gleichzeitige Stream-Anzahl wird pro Session verfolgt
+- **Buffering-Ereignisse** – Automatische Erkennung und Protokollierung langsamer/verzögerter Segmente
+  - 🔴 Langsam (>2s) = Buffering sehr wahrscheinlich
+  - 🟡 Verzögert (>1s) = Buffering möglich
+  - Zeigt: Zeitpunkt, User, Dauer, Segmentgröße, Download-Speed, Segmentname
+
+### 🚀 Speedtest
+- **Dual-Speedtest** – Misst Internet-/VPN-Geschwindigkeit UND IPTV-Anbieter-Geschwindigkeit getrennt
+- **Flaschenhals-Erkennung** – Erkennt automatisch ob VPN-Tunnel oder IPTV-Anbieter der limitierende Faktor ist
+- **Paralleler IPTV-Test** – Lädt 5 Segmente von 5 verschiedenen Kanälen gleichzeitig für einen realistischen Lasttest
+- **Stream-Kapazitäts-Schätzung** – Berechnet max. gleichzeitige HD / FHD / 4K Streams
+
+### ⚡ Performance
+- **Segment-Vorpuffern** – selfstream lädt jedes TS-Segment vollständig herunter bevor es zum Player geliefert wird; Player empfängt Segmente mit lokaler LAN-Geschwindigkeit (~900 Mbit/s) statt Anbieter-Geschwindigkeit
+- **Segment-Prefetch-Cache** – Während ein Segment abgespielt wird, lädt selfstream bereits die nächsten 2 im Hintergrund; Cache-Treffer = sofortige Lieferung
+- **Tiny-Segment-Retry** – Kaputte Segmente (<10 KB) werden automatisch einmal neu angefragt
 
 ---
 
@@ -277,6 +398,8 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 docker run -d \
   --name selfstream \
   --restart unless-stopped \
+  --cap-add=NET_ADMIN \
+  --device=/dev/net/tun \
   -p 8000:8000 \
   -p 8080:8080 \
   -v /mnt/user/appdata/selfstream/data:/data \
@@ -284,6 +407,8 @@ docker run -d \
 ```
 
 Dann `http://DEINE-IP:8080/admin` öffnen und Setup-Wizard folgen.
+
+> **Hinweis:** `--cap-add=NET_ADMIN` und `--device=/dev/net/tun` sind nur nötig wenn du das integrierte VPN nutzen möchtest. Ohne VPN können diese Flags weggelassen werden.
 
 ### Option 3 – docker-compose
 
@@ -364,6 +489,53 @@ Diese URL in TiviMate, IPTV Pro, VLC oder einer anderen IPTV-App eintragen.
 
 ---
 
+## VPN einrichten
+
+1. Admin Panel → **VPN**
+2. OpenVPN-Zugangsdaten eintragen (Benutzername & Passwort von deinem VPN-Anbieter)
+3. **Datei wählen** → `.ovpn`-Datei hochladen (vom VPN-Anbieter unter Manuelle Konfiguration → OpenVPN herunterladen)
+4. **▶ VPN Starten** klicken
+5. Das Live-Log zeigt den Verbindungsfortschritt; nach erfolgreicher Verbindung wird die öffentliche IP angezeigt
+
+**Profile wechseln:** Mehrere `.ovpn`-Dateien hochladen (z.B. verschiedene Länder) und mit **Aktivieren** zwischen ihnen wechseln. VPN danach stoppen und neu starten.
+
+**Getestete Anbieter:** ExpressVPN — andere OpenVPN-kompatible Anbieter sollten ebenfalls funktionieren.
+
+---
+
+## Speedtest
+
+Admin Panel → **VPN** → nach unten scrollen zu **Speedtest – Flaschenhals-Analyse**
+
+- **▶ Speedtest starten** klicken
+- Zwei Tests laufen gleichzeitig:
+  1. **Internet / VPN** – Lädt von Cloudflare/OVH um die reine Tunnel-Geschwindigkeit zu messen
+  2. **IPTV-Anbieter** – Lädt 5 echte Segmente von 5 Kanälen parallel
+- Das Flaschenhals-Banner zeigt welche Seite deine Stream-Kapazität begrenzt
+
+**Ergebnisse interpretieren:**
+- IPTV-Anbieter-Speed << Internet-Speed → Anbieter ist der Flaschenhals (häufig mit VPN)
+- Beide ähnlich → kein Flaschenhals, VPN-Overhead minimal
+- Stream-Schätzungen: ~4 Mbit/s (HD), ~8 Mbit/s (FHD), ~25 Mbit/s (4K)
+
+---
+
+## Traffic-Analyse
+
+Admin Panel → **Traffic**
+
+- **Live Streams** – Alle aktiven Sessions mit User, IP, Kanal, Sendung, Dauer, geschätzter Bandbreite
+- **Stream-Verlauf-Chart** – Zeitbereich wählbar (5 Min bis Alles); Y-Achse zeigt Stream-Anzahl; rote Punkte markieren Spitzenzeiten
+- **Buffering-Ereignisse** – Automatisches Log langsamer Segment-Downloads; hilft beim Diagnostizieren von Stottern/Einfrieren
+
+**Buffering-Log lesen:**
+- 🔴 >2s Download-Zeit → Player hat sehr wahrscheinlich gepuffert
+- 🟡 >1s Download-Zeit → Player hat möglicherweise kurz pausiert
+- Hoher Speed (>20 Mbit/s) trotzdem langsam = große Segmente (normal bei manchen Anbietern)
+- Niedriger Speed (<4 Mbit/s) = Anbieter-/VPN-Flaschenhals
+
+---
+
 ## Eigene Gruppen
 
 Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
@@ -417,15 +589,21 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 | EPG wird nicht angezeigt | Admin → EPG → EPG einlesen klicken; danach Auto-Match |
 | Catchup funktioniert nicht | IPTV-Anbieter muss Catchup unterstützen (`tvg-rec` in M3U) |
 | Senderwechsel dauert lange | Connect Timeout auf 3–5s senken in Einstellungen → HLS |
+| VPN verbindet nicht | Anderen Server probieren oder in der `.ovpn`-Datei auf TCP wechseln (`proto tcp`) |
+| VPN aktiv aber Streams kaputt | Prüfen ob Privilegierter Modus oder `--cap-add=NET_ADMIN` gesetzt ist |
+| Buffering mit VPN | Speedtest machen; geografisch näheren VPN-Server probieren |
+| Stream stottert ohne VPN | Buffering-Ereignisse im Traffic-Tab prüfen; große Segmente (>5 MB) sind bei manchen Anbietern normal |
+| M3U-Import aktualisiert Kanäle aber User nutzen noch alte URL | Beim Import-Dialog die Option „Alle bestehenden User auf neue URL umstellen" aktivieren |
 
 ---
 
 ## Technologie
 
 - **Backend:** Python 3.12, FastAPI, uvicorn, httpx, Pillow
+- **VPN:** OpenVPN (im Container installiert)
 - **Datenbank:** SQLite (kein externer Server nötig)
 - **Frontend:** Vanilla HTML/CSS/JS (kein Framework)
-- **Container:** Python 3.12 slim, ~150 MB Image
+- **Container:** Python 3.12 slim, ~200 MB Image
 
 ---
 
