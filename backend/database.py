@@ -474,7 +474,7 @@ class Database:
 
     def upsert_provider(self, name: str, source_url: str, line_capacity: int = 0, source_type: str = "m3u", refresh_hours: int = 0) -> Dict:
         source_type = (source_type or "m3u").strip().lower()
-        if source_type not in {"m3u", "ts"}:
+        if source_type != "m3u":
             source_type = "m3u"
         with self.conn() as con:
             row = con.execute("SELECT id FROM m3u_providers WHERE source_url = ?", (source_url,)).fetchone()
@@ -495,7 +495,7 @@ class Database:
 
     def update_provider(self, provider_id: int, name: str, source_url: str, line_capacity: int = 0, source_type: str = "m3u", refresh_hours: int = 0) -> Dict:
         source_type = (source_type or "m3u").strip().lower()
-        if source_type not in {"m3u", "ts"}:
+        if source_type != "m3u":
             source_type = "m3u"
         with self.conn() as con:
             con.execute(
@@ -524,7 +524,7 @@ class Database:
                 event.get("seg", "")
             ))
 
-    def get_segment_events(self, limit: int = 500, days: int = 30, include_ok: bool = True) -> List[Dict]:
+    def get_segment_events(self, limit: int = 10000, days: int = 30, include_ok: bool = True) -> List[Dict]:
         cutoff = time.time() - (days * 86400)
         type_filter = "" if include_ok else "AND se.type != 'ok'"
         with self.conn() as con:

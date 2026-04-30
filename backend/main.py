@@ -249,7 +249,19 @@ _socks_process: Optional[subprocess.Popen] = None
 
 
 def make_iptv_client(**kwargs) -> httpx.AsyncClient:
-    """Create an httpx client - uses direct connection (VPN tunnel handles routing)."""
+    """Create an httpx client with browser-like headers so IPTV servers don't block us."""
+    default_headers = {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 11; Chromecast) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 CrKey/1.56.500000",
+        "Accept": "*/*",
+        "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+        "Connection": "keep-alive",
+    }
+    # Merge with any headers passed in
+    if "headers" in kwargs:
+        merged = {**default_headers, **kwargs["headers"]}
+        kwargs["headers"] = merged
+    else:
+        kwargs["headers"] = default_headers
     return httpx.AsyncClient(**kwargs)
 
 
@@ -634,10 +646,15 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
 
     try:
+        live_timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
+        live_headers = make_headers(hls)
+
+        # For .ts URLs (Xtream live streams): check if it's really an M3U8 or a direct TS stream
+        # HLS .m3u8 stream — fetch playlist and rewrite segment URLs
         async with make_iptv_client(
-            timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
+            timeout=live_timeout,
             follow_redirects=hls["hls_follow_redirects"],
-            headers=make_headers(hls)
+            headers=live_headers
         ) as client:
             resp = await client.get(decoded_url)
             resp.raise_for_status()
@@ -651,7 +668,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         rewritten = rewrite_hls_playlist(playlist_content, decoded_url, proxy_url, token, sid=sid)
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
 
-        # Prefetch next 2 segments in background for smoother playback
+        # Prefetch next segments in background
         try:
             base_url = "/".join(decoded_url.split("/")[:-1])
             seg_urls = []
@@ -838,7 +855,6 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         raise HTTPException(status_code=403, detail="Invalid token")
 
     if not user["active"]:
-        # User is banned – return error image M3U
         proxy_url = db.get_proxy_url()
         banned_url = f"{proxy_url}/iptv/error-banned.jpg"
         banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
@@ -850,9 +866,8 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     proxy_url = db.get_proxy_url()
     is_ts = not (decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0])
 
-    # Catchup segments bypass session tracking completely – they are VOD, not live
+    # Catchup segments bypass session tracking
     if catchup == "1":
-        # Refresh catchup session last_seen for duration tracking
         _now_cu = time.time()
         for _ck, _cv in _catchup_sessions.items():
             if _cv["token"] == token:
@@ -862,14 +877,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
                 if not is_ts:
-                    # Sub-playlist (m3u8): rewrite segment URLs so they also carry catchup=1
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     rewritten = rewrite_hls_playlist(resp.text, decoded_url, proxy_url, token, catchup=True)
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
                 else:
-                    # Actual TS segment: stream through directly
                     async def stream_catchup_ts():
                         try:
                             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
@@ -893,13 +906,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             ch_idx = next((i for i, p in enumerate(parts) if p.startswith("ch")), None)
             channel_name = parts[ch_idx] if ch_idx else parts[-1].split("?")[0]
 
-        # Get client IP
         client_ip = ""
         if request:
             forwarded = request.headers.get("x-forwarded-for")
             client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "")
 
-        # Use SID if provided (stable per-device session key from playlist)
         ua = request.headers.get("user-agent", "") if request else ""
         ua_short = ua[:40].strip()
         if sid:
@@ -907,13 +918,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         else:
             session_key = f"{token}::{client_ip}::{ua_short}"
         user_id = user["id"]
-
         now = time.time()
 
         if session_key in _sessions:
             existing = _sessions[session_key]
             if existing["channel"] != channel_name:
-                # Channel switched – close old, save epg_title
                 _sessions.pop(session_key)
                 db.session_end(token)
                 epg_sw = _get_now_playing(existing["channel"])
@@ -921,17 +930,14 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 db.end_watch_log(existing["log_id"], int(now - existing["start"]), epg_title=epg_title_sw)
                 logger.info(f"Channel switch: {user['name']} ({client_ip}) → {channel_name}")
             else:
-                # Same channel – just refresh
                 _sessions[session_key]["last_seen"] = now
                 db.session_refresh(token)
 
         if session_key not in _sessions:
-            # Check max_streams (cleanup stale first)
             max_s = user.get("max_streams", 1) or 0
             if max_s > 0:
                 active_count = _user_stream_count(user_id)
                 if active_count >= max_s:
-                    active_ips = list(set(s["session_key"].split("::")[1] for s in _sessions.values() if s["user_id"] == user_id))
                     logger.warning(f"Max streams blocked: {user['name']} {active_count}/{max_s} from {client_ip}")
                     raise HTTPException(status_code=429, detail=f"Max. {max_s} Stream(s) erlaubt")
             db.session_start(token, channel_name, ip_address=client_ip)
@@ -965,95 +971,66 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         data, elapsed, _from_cache = await _get_segment(decoded_url, hls)
                         total = len(data)
 
-                        # Track empty/tiny segments - these cause playback gaps
                         if total < 1_000:
                             seg_name = decoded_url.split("/")[-1].split("?")[0]
                             user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
-                            channel_name = _sessions.get(session_key, {}).get("channel", "")
-                            logger.warning(f"⚠️ EMPTY SEGMENT [{user_name}] {seg_name}: {total} bytes → playback gap!")
+                            channel_name_log = _sessions.get(session_key, {}).get("channel", "")
+                            logger.warning(f"⚠️ EMPTY SEGMENT [{user_name}] {seg_name}: {total} bytes")
                             _ev0 = {
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
+                                "time": time.time(), "user": user_name, "channel": channel_name_log,
                                 "type": "slow", "elapsed": round(elapsed, 2),
                                 "size_kb": round(total / 1024, 1), "mbps": 0.0,
-                                "seg": f"⚠️ LEER: {seg_name}",
-                                "provider_id": user.get("provider_id")
+                                "seg": f"⚠️ LEER: {seg_name}", "provider_id": user.get("provider_id")
                             }
                             _segment_events.append(_ev0)
-                            if len(_segment_events) > 500:
-                                _segment_events.pop(0)
+                            if len(_segment_events) > 500: _segment_events.pop(0)
                             try: db.add_segment_event(_ev0)
                             except Exception: pass
                             if attempt == 0:
-                                # Remove from cache and retry
                                 _segment_cache.pop(decoded_url, None)
                                 await asyncio.sleep(0.5)
                                 continue
                             break
 
-                        # Log timing for buffering diagnosis
                         size_kb = total / 1024
-                        # Use minimum 1ms to avoid division near-zero giving absurd speeds
                         safe_elapsed = max(elapsed, 0.001)
-                        speed_mbps = min((total * 8) / (safe_elapsed * 1_000_000), 10000.0)  # cap at 10 Gbit/s
+                        speed_mbps = min((total * 8) / (safe_elapsed * 1_000_000), 10000.0)
                         seg_name = decoded_url.split("/")[-1].split("?")[0]
                         user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
-                        channel_name = _sessions.get(session_key, {}).get("channel", "")
+                        channel_name_log = _sessions.get(session_key, {}).get("channel", "")
                         debug_mode = db.get_setting("segment_debug", "0") == "1"
 
-                        # Cache hits: skip logging entirely
-                        # The original download was already logged by the first user.
-                        # Logging cache hits creates noise and shows wrong speeds (near-infinite).
                         if _from_cache:
-                            pass  # delivered from cache - no provider load, no logging needed
+                            pass
                         elif elapsed > 2.0:
-                            logger.warning(
-                                f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: "
-                                f"{elapsed:.1f}s, {size_kb:.0f}KB, {speed_mbps:.1f}Mbit/s → BUFFERING LIKELY"
-                            )
-                            _ev1 = {
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
-                                "type": "slow", "elapsed": round(elapsed, 2),
-                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                "seg": seg_name, "provider_id": user.get("provider_id")
-                            }
+                            logger.warning(f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s")
+                            _ev1 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                                    "type": "slow", "elapsed": round(elapsed, 2),
+                                    "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                                    "seg": seg_name, "provider_id": user.get("provider_id")}
                             _segment_events.append(_ev1)
                             try: db.add_segment_event(_ev1)
                             except Exception: pass
                         elif elapsed > 1.0:
-                            logger.info(
-                                f"🟡 DELAYED SEGMENT [{user_name}] {seg_name}: "
-                                f"{elapsed:.1f}s, {size_kb:.0f}KB, {speed_mbps:.1f}Mbit/s"
-                            )
-                            _ev2 = {
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
-                                "type": "delayed", "elapsed": round(elapsed, 2),
-                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                "seg": seg_name, "provider_id": user.get("provider_id")
-                            }
+                            _ev2 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                                    "type": "delayed", "elapsed": round(elapsed, 2),
+                                    "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                                    "seg": seg_name, "provider_id": user.get("provider_id")}
                             _segment_events.append(_ev2)
                             try: db.add_segment_event(_ev2)
                             except Exception: pass
                         elif debug_mode:
-                            # Debug mode: log ALL fresh segments
-                            _ev3 = {
-                                "time": time.time(), "user": user_name,
-                                "channel": channel_name,
-                                "type": "ok", "elapsed": round(elapsed, 2),
-                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                "seg": seg_name, "provider_id": user.get("provider_id")
-                            }
+                            _ev3 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                                    "type": "ok", "elapsed": round(elapsed, 2),
+                                    "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                                    "seg": seg_name, "provider_id": user.get("provider_id")}
                             _segment_events.append(_ev3)
                             try: db.add_segment_event(_ev3)
                             except Exception: pass
 
-                        if len(_segment_events) > 500:
-                            _segment_events.pop(0)
+                        if len(_segment_events) > 500: _segment_events.pop(0)
 
-                        # Deliver at local LAN speed
-                        chunk_size = 524288  # 512 KB
+                        chunk_size = 524288
                         for i in range(0, len(data), chunk_size):
                             yield data[i:i + chunk_size]
                         break
@@ -1594,6 +1571,162 @@ async def import_channels(body: dict, _=Depends(check_admin)):
             updated_users += 1
     return {"ok": True, "imported": len(channels), "updated_users": updated_users, "provider_id": provider.get("id")}
 
+@admin_app.post("/api/xtream/info")
+async def xtream_account_info(body: dict, _=Depends(check_admin)):
+    """Fetch Xtream Codes account info (expiry, connections, channel count)."""
+    host = (body.get("host") or "").strip().rstrip("/")
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "").strip()
+    if not host or not username or not password:
+        raise HTTPException(status_code=400, detail="host, username, password required")
+    if not host.startswith("http"):
+        host = "http://" + host
+    api_url = f"{host}/player_api.php?username={username}&password={password}"
+    try:
+        async with make_iptv_client(timeout=20, follow_redirects=True) as client:
+            resp = await client.get(api_url)
+            if resp.status_code in (401, 403):
+                # Some providers return HTML error page — try to parse
+                try:
+                    data = resp.json()
+                    if data.get("user_info", {}).get("status") == "Disabled":
+                        return {"error": "Account deaktiviert"}
+                except Exception:
+                    pass
+                return {"error": f"HTTP {resp.status_code} – Zugangsdaten prüfen oder Account gesperrt"}
+            resp.raise_for_status()
+            try:
+                data = resp.json()
+            except Exception:
+                return {"error": "Antwort ist kein JSON – Host oder Zugangsdaten falsch"}
+
+            # Try to get channel count
+            ch_count = None
+            try:
+                r2 = await client.get(
+                    f"{host}/player_api.php?username={username}&password={password}&action=get_live_streams",
+                    timeout=15
+                )
+                streams = r2.json()
+                ch_count = len(streams) if isinstance(streams, list) else None
+            except Exception:
+                ch_count = None
+
+            data["available_channels"] = ch_count
+            # Ensure user_info exists
+            if "user_info" not in data:
+                data["user_info"] = {}
+            if "server_info" not in data:
+                data["server_info"] = {"url": host}
+            return data
+    except Exception as e:
+        return {"error": f"Verbindungsfehler: {e}"}
+
+@admin_app.post("/api/xtream/import")
+async def xtream_import(body: dict, _=Depends(check_admin)):
+    """Import channels from Xtream Codes provider."""
+    host = (body.get("host") or "").strip().rstrip("/")
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "").strip()
+    fmt = (body.get("format") or "ts").strip().lower()
+    provider_name = (body.get("provider_name") or "Xtream Provider").strip()
+    provider_lines = int(body.get("provider_lines") or 0)
+    update_users = body.get("update_users", False)
+    if not host or not username or not password:
+        raise HTTPException(status_code=400, detail="host, username, password required")
+    if not host.startswith("http"):
+        host = "http://" + host
+    if fmt not in ("ts", "m3u8"):
+        fmt = "ts"
+    channels = []
+    last_error = None
+    m3u_url = f"{host}/get.php?username={username}&password={password}&type=m3u_plus&output={fmt}"
+
+    async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+        # Method 1: Try get.php with various output formats
+        for try_fmt in ([fmt, "m3u8", "ts", ""] if fmt == "ts" else ["m3u8", "ts", fmt, ""]):
+            url = f"{host}/get.php?username={username}&password={password}&type=m3u_plus" + (f"&output={try_fmt}" if try_fmt else "")
+            try:
+                resp = await client.get(url)
+                if resp.status_code in (401, 403):
+                    raise HTTPException(status_code=resp.status_code, detail=f"HTTP {resp.status_code} – Zugangsdaten falsch")
+                if resp.status_code < 400:
+                    chs = parse_m3u(resp.text)
+                    if chs:
+                        channels = chs
+                        m3u_url = url
+                        break
+                    else:
+                        last_error = f"Keine Kanäle (get.php, output={try_fmt or 'default'})"
+                else:
+                    last_error = f"HTTP {resp.status_code} (get.php, output={try_fmt or 'default'})"
+            except HTTPException:
+                raise
+            except Exception as e:
+                last_error = str(e)
+
+        # Method 2: If get.php fails, use Xtream player_api.php to fetch streams directly
+        if not channels:
+            try:
+                import json as _json
+                # Get live stream categories first
+                cats_resp = await client.get(
+                    f"{host}/player_api.php?username={username}&password={password}&action=get_live_categories",
+                    timeout=30
+                )
+                cats = cats_resp.json() if cats_resp.status_code == 200 else []
+                
+                # Get all live streams
+                streams_resp = await client.get(
+                    f"{host}/player_api.php?username={username}&password={password}&action=get_live_streams",
+                    timeout=60
+                )
+                if streams_resp.status_code == 200:
+                    streams = streams_resp.json()
+                    cat_map = {str(c.get("category_id","")): c.get("category_name","Unbekannt") for c in (cats if isinstance(cats, list) else [])}
+                    
+                    for s in (streams if isinstance(streams, list) else []):
+                        sid = s.get("stream_id") or s.get("id")
+                        name = s.get("name","").strip()
+                        cat_id = str(s.get("category_id",""))
+                        group = cat_map.get(cat_id, s.get("category_name","Unbekannt"))
+                        logo = s.get("stream_icon","") or s.get("thumbnail","")
+                        epg_id = s.get("epg_channel_id","") or s.get("epg_id","")
+                        # Build stream URL — try ts extension first
+                        stream_url = f"{host}/live/{username}/{password}/{sid}.ts"
+                        if name and sid:
+                            channels.append({
+                                "name": name,
+                                "group": group,
+                                "tvg_id": epg_id,
+                                "tvg_logo": logo,
+                                "url": stream_url,
+                                "raw_extinf": f'#EXTINF:-1 tvg-id="{epg_id}" tvg-name="{name}" tvg-logo="{logo}" group-title="{group}",{name}'
+                            })
+                    if channels:
+                        last_error = None
+                        logger.info(f"Xtream API: imported {len(channels)} streams via player_api.php")
+                    else:
+                        last_error = (last_error or "") + " | player_api.php: keine Streams"
+                else:
+                    last_error = (last_error or "") + f" | player_api.php: HTTP {streams_resp.status_code}"
+            except Exception as e:
+                last_error = (last_error or "") + f" | player_api.php Fehler: {e}"
+
+    if not channels:
+        raise HTTPException(status_code=502, detail=f"Import fehlgeschlagen: {last_error}")
+    if not channels:
+        raise HTTPException(status_code=400, detail="Keine Kanäle gefunden – Format prüfen (TS oder HLS?)")
+    provider = db.upsert_provider(provider_name, m3u_url, provider_lines, fmt if fmt == "ts" else "m3u")
+    db.upsert_channels(channels, provider_id=provider.get("id"))
+    # Store host/user/pass for future refresh (in source_url we store the full M3U URL)
+    updated_users = 0
+    if update_users:
+        for u in db.get_all_users():
+            db.update_user(u["id"], {"m3u_source": m3u_url, "provider_id": provider.get("id")})
+            updated_users += 1
+    return {"ok": True, "imported": len(channels), "updated_users": updated_users, "provider_id": provider.get("id")}
+
 @admin_app.post("/api/channels/import-file")
 async def import_channels_from_file(request: Request, _=Depends(check_admin)):
     """Accept a multipart upload of an .m3u file and import channels."""
@@ -1644,30 +1777,14 @@ def list_providers(_=Depends(check_admin)):
 @admin_app.get("/api/providers/capacity")
 def provider_capacity(_=Depends(check_admin)):
     result = db.get_provider_capacity()
-    # Override active_streams with in-memory _sessions count (more accurate)
+    # Count active streams from in-memory sessions (most accurate)
     _cleanup_sessions()
-    # Count active streams per provider from live _sessions
-    active_by_provider = {}
-    # Also count streams where user has no provider (provider_id=None)
-    for s in _sessions.values():
-        uid = s.get("user_id")
-        if uid is None:
-            continue
-        # Look up provider_id for this user
-        try:
-            with db.conn() as con:
-                row = con.execute("SELECT provider_id FROM users WHERE id = ?", (uid,)).fetchone()
-                pid = row["provider_id"] if row else None
-        except Exception:
-            pid = None
-        key = pid  # None = no provider
-        active_by_provider[key] = active_by_provider.get(key, 0) + 1
-    # Patch results
+    total_active = len(_sessions)
+    # Since we no longer assign users to providers, show total active on all providers
     for p in result:
-        p["active_streams"] = active_by_provider.get(p["id"], 0)
+        p["active_streams"] = total_active
         cap = int(p.get("line_capacity") or 0)
-        active = p["active_streams"]
-        p["overbooked_by"] = max(0, active - cap) if cap > 0 else 0
+        p["overbooked_by"] = max(0, total_active - cap) if cap > 0 else 0
     return result
 
 @admin_app.post("/api/providers")
