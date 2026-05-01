@@ -822,13 +822,29 @@ class Database:
         with self.conn() as con:
             con.execute("INSERT INTO playlist_access (user_id) VALUES (?)", (user_id,))
 
-    def get_user_logs(self, user_id: int) -> List[Dict]:
+    def get_user_logs(self, user_id: int, limit: int = 200, offset: int = 0, date_from: str = "", date_to: str = "") -> List[Dict]:
+        where = ["user_id = ?"]
+        params: List[Any] = [user_id]
+        if date_from:
+            where.append("date(started_at) >= date(?)")
+            params.append(date_from)
+        if date_to:
+            where.append("date(started_at) <= date(?)")
+            params.append(date_to)
+        where_sql = " AND ".join(where)
         with self.conn() as con:
-            rows = con.execute("""
-                SELECT * FROM watch_logs WHERE user_id = ?
-                ORDER BY started_at DESC LIMIT 200
-            """, (user_id,)).fetchall()
-            return [dict(r) for r in rows]
+            total = con.execute(
+                f"SELECT COUNT(*) as cnt FROM watch_logs WHERE {where_sql}", params
+            ).fetchone()["cnt"]
+            rows = con.execute(
+                f"SELECT * FROM watch_logs WHERE {where_sql} ORDER BY started_at DESC LIMIT ? OFFSET ?",
+                params + [limit, offset]
+            ).fetchall()
+            return {"items": [dict(r) for r in rows], "total": total}
+
+    def clear_user_logs(self, user_id: int):
+        with self.conn() as con:
+            con.execute("DELETE FROM watch_logs WHERE user_id = ?", (user_id,))
 
     def get_all_logs(self, limit: int = 200) -> List[Dict]:
         with self.conn() as con:

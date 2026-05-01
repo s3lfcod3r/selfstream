@@ -1449,8 +1449,13 @@ def update_user_groups(user_id: int, body: dict, _=Depends(check_admin)):
     return {"ok": True}
 
 @admin_app.get("/api/users/{user_id}/logs")
-def get_user_logs(user_id: int, _=Depends(check_admin)):
-    return db.get_user_logs(user_id)
+def get_user_logs(user_id: int, limit: int = 200, offset: int = 0, date_from: str = "", date_to: str = "", _=Depends(check_admin)):
+    return db.get_user_logs(user_id, limit=limit, offset=offset, date_from=date_from, date_to=date_to)
+
+@admin_app.delete("/api/users/{user_id}/logs")
+def delete_user_logs(user_id: int, _=Depends(check_admin)):
+    db.clear_user_logs(user_id)
+    return {"ok": True}
 
 @admin_app.get("/api/channels")
 def list_channels(group: str = None, _=Depends(check_admin)):
