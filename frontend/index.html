@@ -697,23 +697,21 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <div class="form-hint">Interne URL deines Admin-Panels (Port 8080)</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Proxy URL <span style="color:var(--red);font-size:10px;">★ Wichtig für Subdomain-Zugriff</span></label>
-              <input class="form-input" id="cfg-proxy" placeholder="https://iptv.deine-domain.de">
-              <div class="form-hint" style="color:var(--yellow);">
-                ⚠️ Hier die <strong>öffentliche URL</strong> eintragen über die Streams erreichbar sind.<br>
-                Lokal: <code style="color:var(--teal);">http://192.168.1.69:8000</code><br>
-                Subdomain: <code style="color:var(--teal);">https://iptv.deine-domain.de</code><br>
-                Diese URL wird in alle M3U-Links eingebaut — falsche URL = Streams nicht erreichbar.
-              </div>
+              <label class="form-label">Proxy URL <span style="color:var(--text2);font-weight:400;">(intern, Port 8000)</span></label>
+              <input class="form-input" id="cfg-proxy" placeholder="http://192.168.1.69:8000">
+              <div class="form-hint">Lokale IP deines Servers – wird intern verwendet</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Short URL Domain (optional)</label>
-              <input class="form-input" id="cfg-short-domain" placeholder="https://iptv.deine-domain.de">
-              <div class="form-hint">Kurze Playlist-URLs, z.B. https://iptv.tv/AbCd1234.m3u — leer lassen = Proxy URL wird verwendet</div>
+              <label class="form-label">Öffentliche Domain / Short URL <span style="color:var(--red);font-size:10px;">★ Für Internet-Zugriff</span></label>
+              <input class="form-input" id="cfg-short-domain" placeholder="https://iptv.deine-domain.de" oninput="_updateProxyPreview(this.value.trim())">
+              <div class="form-hint" style="color:var(--yellow);">
+                ⚠️ <strong>Deine Subdomain eintragen</strong> – diese URL wird in alle M3U-Links eingebaut.<br>
+                Ohne Eintrag: nur im Heimnetz erreichbar. Mit Eintrag: auch über Internet.<br>
+                Reverse Proxy muss Port 8000 weiterleiten.
+              </div>
             </div>
 
-            <div id="proxy-url-preview" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg3);border:1px solid var(--border);font-family:var(--mono);font-size:10px;color:var(--text2);">
-              <div style="color:var(--teal);margin-bottom:4px;">Vorschau: So sehen die Playlist-URLs aus</div>
+            <div id="proxy-url-preview" style="display:none;margin-bottom:12px;padding:10px;background:var(--bg3);border:1px solid var(--border);font-family:var(--mono);font-size:10px;">
               <div id="proxy-preview-text"></div>
             </div>
 
@@ -2913,8 +2911,8 @@ async function loadSettings() {
   } else if(lastEl){
     lastEl.textContent=s.m3u_refresh_hours&&s.m3u_refresh_hours!=='0'?'Noch kein automatischer Refresh':'Auto-Refresh deaktiviert';
   }
-  // Update proxy URL preview
-  _updateProxyPreview(s.proxy_url||'');
+  // Update proxy URL preview based on short_domain (public URL)
+  _updateProxyPreview(s.short_domain||'');
 }
 
 function _updateProxyPreview(url) {
@@ -2926,13 +2924,13 @@ function _updateProxyPreview(url) {
   preview.style.display = 'block';
   preview.style.borderColor = isLocal ? 'rgba(210,153,34,.5)' : 'rgba(63,185,80,.4)';
   text.innerHTML = isLocal
-    ? `<span style="color:var(--yellow);">⚠️ Lokale URL – Streams nur im Heimnetz erreichbar!</span><br><span style="color:var(--text2);">Für Subdomain: https://iptv.deine-domain.de eintragen</span>`
-    : `<span style="color:var(--green);">✓ Öffentliche URL – Streams auch über Internet erreichbar</span>`;
+    ? `<span style="color:var(--yellow);">⚠️ Lokale URL – Streams nur im Heimnetz erreichbar!</span>`
+    : `<span style="color:var(--green);">✓ Subdomain erkannt – Streams auch über Internet erreichbar</span><br><span style="color:var(--text2);">M3U-Links: ${url}/iptv/TOKEN/stream?url=...</span>`;
 }
 
-// Wire up live preview
+// Wire up live preview on short-domain field (that's the public URL)
 document.addEventListener('DOMContentLoaded', () => {
-  const inp = document.getElementById('cfg-proxy');
+  const inp = document.getElementById('cfg-short-domain');
   if (inp) inp.addEventListener('input', () => _updateProxyPreview(inp.value.trim()));
 });
 
