@@ -1049,6 +1049,8 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                 "Cache-Control": "no-cache, no-store",
                                                 "X-Accel-Buffering": "no",
                                                 "Access-Control-Allow-Origin": "*",
+                                                "Connection": "keep-alive",
+                                                "X-Accel-Timeout": "0",
                                             })
         except Exception as e:
             logger.error(f"Catchup segment error: {e}")
