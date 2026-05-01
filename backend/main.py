@@ -535,7 +535,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     if not user["active"]:
         # User is banned – return error image M3U
         proxy_url = db.get_proxy_url()
-        banned_url = f"{proxy_url}/iptv/error-banned.jpg"
+        _short = db.get_setting("short_domain", "")
+        _pub = _short.rstrip("/") if _short else proxy_url
+        banned_url = f"{_pub}/iptv/error-banned.jpg"
         banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
@@ -543,6 +545,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     decoded_url = urllib.parse.unquote(url)
     hls = get_hls_settings()
     proxy_url = db.get_proxy_url()
+    short_domain = db.get_setting("short_domain", "")
+    public_url = short_domain.rstrip("/") if short_domain else proxy_url
 
     # Get friendly channel name from DB
     ch_record = db.get_channel_by_url(decoded_url)
@@ -569,7 +573,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 archive_content = resp.text
 
             # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
-            rewritten = rewrite_hls_playlist(archive_content, archive_url, proxy_url, token, catchup=True)
+            rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, catchup=True)
             dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
             # Log catchup access (no session, just a single log entry)
@@ -669,7 +673,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         _ip2 = _fwd2 or (request.client.host if request.client else "")
         _ua2 = request.headers.get("user-agent","")[:60]
         sid = hashlib.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
-        rewritten = rewrite_hls_playlist(playlist_content, decoded_url, proxy_url, token, sid=sid)
+        rewritten = rewrite_hls_playlist(playlist_content, decoded_url, public_url, token, sid=sid)
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
 
         # Prefetch next segments in background
@@ -860,7 +864,9 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
 
     if not user["active"]:
         proxy_url = db.get_proxy_url()
-        banned_url = f"{proxy_url}/iptv/error-banned.jpg"
+        _short2 = db.get_setting("short_domain", "")
+        _pub2 = _short2.rstrip("/") if _short2 else proxy_url
+        banned_url = f"{_pub2}/iptv/error-banned.jpg"
         banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
@@ -868,6 +874,8 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     decoded_url = urllib.parse.unquote(url)
     hls = get_hls_settings()
     proxy_url = db.get_proxy_url()
+    short_domain_seg = db.get_setting("short_domain", "")
+    public_url_seg = short_domain_seg.rstrip("/") if short_domain_seg else proxy_url
     is_ts = not (decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0])
 
     # Catchup segments bypass session tracking
@@ -883,7 +891,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 if not is_ts:
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
-                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, proxy_url, token, catchup=True)
+                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token, catchup=True)
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
                 else:
@@ -970,7 +978,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 if not is_ts:
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
-                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, proxy_url, token)
+                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token)
                     yield rewritten.encode()
                     return
                 else:
