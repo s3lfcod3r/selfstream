@@ -824,7 +824,7 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-CATCHUP_TTL = 60  # seconds without segment = catchup done
+CATCHUP_TTL = 300  # seconds without segment = catchup done (5 min, catchup segments can be large)
 
 _last_cleanup = 0.0
 
