@@ -1320,6 +1320,11 @@ async function api(m, p, b) {
 
 async function loadApp() {
   await loadStats();
+  // Load proxy URL for local test button
+  try {
+    const s = await api('GET', '/api/settings');
+    window._localProxyUrl = s.proxy_url || '';
+  } catch(e) {}
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   applySidebarState();
@@ -1475,6 +1480,17 @@ async function loadStats() {
   } catch(e){console.error('stats error',e);}
 }
 
+function buildLocalUrl(externalUrl) {
+  // Replace external domain with local proxy URL for testing
+  try {
+    const u = new URL(externalUrl);
+    // Get proxy_url from settings (local IP:port)
+    const localBase = (window._localProxyUrl || '').replace(/\/$/, '');
+    if (!localBase) return externalUrl;
+    return localBase + u.pathname + u.search;
+  } catch(e) { return externalUrl; }
+}
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 async function loadUsers(pageArg) {
   const users=await api('GET','/api/users');
@@ -1519,7 +1535,10 @@ async function loadUsers(pageArg) {
       <td><strong>${esc(u.name)}</strong>${u.notes?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2)">${esc(u.notes)}</div>`:''}</td>
       <td style="text-align:center;">${u.active?'<span style="color:#3fb950;font-size:14px;" title="Aktiv">●</span>':'<span style="color:#f85149;font-size:14px;" title="Gesperrt">●</span>'}</td>
       <td style="text-align:center;">
-        <button class="copy-btn" onclick="doCopy('${esc(u.playlist_url)}',this)" title="Playlist URL kopieren">📋</button>
+        <div style="display:flex;gap:3px;justify-content:center;">
+          <button class="copy-btn" onclick="doCopy('${esc(u.playlist_url)}',this)" title="Externe URL kopieren (${esc(u.playlist_url)})">📋</button>
+          <button class="copy-btn" onclick="doCopy(buildLocalUrl('${esc(u.playlist_url)}'),this)" title="Lokale Test-URL kopieren (mit interner IP)" style="border-color:rgba(210,153,34,.4);color:var(--yellow);font-size:10px;">🏠</button>
+        </div>
       </td>
       <td style="min-width:160px;max-width:240px;">
         <div class="url-cell">
@@ -2892,6 +2911,7 @@ async function loadSettings() {
   const s=await api('GET','/api/settings');
   document.getElementById('cfg-base').value=s.base_url||'';
   document.getElementById('cfg-proxy').value=s.proxy_url||'';
+  window._localProxyUrl = s.proxy_url || '';
   document.getElementById('cfg-short-domain').value=s.short_domain||'';
   const cfgM3u=document.getElementById('cfg-m3u'); if(cfgM3u) cfgM3u.value=s.source_m3u_url||'';
   document.getElementById('cfg-ua').value=s.hls_user_agent||'';
