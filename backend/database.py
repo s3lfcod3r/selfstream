@@ -648,37 +648,70 @@ class Database:
             return [r["group_title"] for r in rows]
 
     def upsert_channels(self, channels: List[Dict], provider_id: int = None):
-        """Replace channels from a provider, preserving group mappings and sort order."""
+        """Replace channels from a provider, preserving group mappings, sort order, enabled state and user group assignments."""
         with self.conn() as con:
             mappings = {r["original_name"]: r["custom_name"]
                         for r in con.execute("SELECT * FROM group_mappings").fetchall()}
-            # Preserve existing sort_order and enabled state by stream_url
+
+            # Preserve existing state by stream_url base (without token query params)
             existing = {}
-            for row in con.execute("SELECT stream_url, enabled, sort_order, provider_id FROM channels").fetchall():
+            for row in con.execute("""
+                SELECT c.id, c.stream_url, c.enabled, c.sort_order, c.provider_id, c.group_title
+                FROM channels c
+            """).fetchall():
                 existing[row["stream_url"].split("?")[0]] = {
+                    "id": row["id"],
                     "enabled": row["enabled"],
                     "sort_order": row["sort_order"],
-                    "provider_id": row["provider_id"]
+                    "provider_id": row["provider_id"],
+                    "group_title": row["group_title"],  # preserve custom group renames
                 }
+
+            # Preserve user_group_channels by old channel id → stream_url_base
+            ug_by_url = {}  # url_base → list of group_ids
+            for row in con.execute("""
+                SELECT c.stream_url, ugc.group_id
+                FROM user_group_channels ugc
+                JOIN channels c ON c.id = ugc.channel_id
+            """).fetchall():
+                url_base = row["stream_url"].split("?")[0]
+                ug_by_url.setdefault(url_base, []).append(row["group_id"])
+
             if provider_id is not None:
-                # Only delete channels belonging to this provider (or unassigned if first import)
                 con.execute("DELETE FROM channels WHERE provider_id = ? OR provider_id IS NULL", (provider_id,))
             else:
                 con.execute("DELETE FROM channels")
+
             for i, ch in enumerate(channels):
                 orig_group = ch.get("group", "")
+                # Apply group mapping if exists
                 group = mappings.get(orig_group, orig_group)
                 url = ch["url"]
                 url_base = url.split("?")[0]
                 prev = existing.get(url_base, {})
                 enabled = prev.get("enabled", 1)
                 sort_order = prev.get("sort_order", i)
-                con.execute("""
+                # Preserve custom group_title rename if it differs from original
+                if prev.get("group_title") and prev["group_title"] != orig_group:
+                    group = prev["group_title"]
+
+                cur = con.execute("""
                     INSERT INTO channels (name, group_title, tvg_id, tvg_logo, tvg_rec, stream_url, enabled, sort_order, raw_extinf, provider_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (ch["name"], group, ch.get("tvg_id", ""),
                       ch.get("tvg_logo", ""), ch.get("tvg_rec", ""),
                       url, enabled, sort_order, ch.get("raw_extinf", ""), provider_id))
+
+                new_id = cur.lastrowid
+                # Restore user group assignments for this channel
+                for gid in ug_by_url.get(url_base, []):
+                    try:
+                        con.execute(
+                            "INSERT OR IGNORE INTO user_group_channels (group_id, channel_id) VALUES (?, ?)",
+                            (gid, new_id)
+                        )
+                    except Exception:
+                        pass
 
     def update_channel(self, channel_id: int, data: Dict):
         allowed = {"enabled", "sort_order", "name", "group_title"}
