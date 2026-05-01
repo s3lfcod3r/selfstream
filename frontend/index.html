@@ -1481,13 +1481,13 @@ async function loadStats() {
 }
 
 function buildLocalUrl(externalUrl) {
-  // Replace external domain with local proxy URL for testing
+  // Build local test URL using ?local=1 parameter
+  // selfstream will then use internal proxy_url for all stream links
   try {
     const u = new URL(externalUrl);
-    // Get proxy_url from settings (local IP:port)
     const localBase = (window._localProxyUrl || '').replace(/\/$/, '');
     if (!localBase) return externalUrl;
-    return localBase + u.pathname + u.search;
+    return localBase + u.pathname + '?local=1';
   } catch(e) { return externalUrl; }
 }
 
