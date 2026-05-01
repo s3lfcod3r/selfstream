@@ -618,15 +618,23 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                                     continue
                 except Exception:
                     pass
+                _catchup_ip = ""
+                if request:
+                    _fwd = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                    _catchup_ip = _fwd or (request.client.host if request.client else "")
                 log_id = db.start_watch_log(
                     user_id=user["id"], channel=channel_name, stream_url=decoded_url,
+                    ip_address=_catchup_ip,
                     is_catchup=1, catchup_time=dt_str, epg_title=_catchup_epg_title
                 )
                 # Don't end immediately – track duration via segment requests
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 _catchup_sessions[_catchup_key] = {
-                    "log_id": log_id, "start": time.time(), "last_seen": time.time(), "token": token
+                    "log_id": log_id, "start": time.time(), "last_seen": time.time(),
+                    "token": token, "ip": _catchup_ip
                 }
+                # Show catchup in live sessions view
+                db.session_start(token, channel_name, _catchup_ip)
                 logger.info(f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})")
             except Exception as _ce:
                 logger.warning(f"Catchup log failed: {_ce}")
@@ -1090,7 +1098,7 @@ async def stop_stream(token: str, request: Request = None):
 
 
 @proxy_app.get("/iptv/{token}/catchup/{channel_id}")
-async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str = None):
+async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str = None, request: Request = None):
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
