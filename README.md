@@ -45,7 +45,7 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 - **Channel Manager** – Enable/disable, sort, filter channels by group
 - **EPG Manager** – Multiple EPG sources, time filter (1/3/7 days), auto-refresh, channel whitelist
 - **M3U Auto-Refresh** – Automatically reload channels on schedule per provider
-- **M3U Import** – Import via URL or file upload; optionally update all existing users at once
+- **M3U Import** – Import via URL; optionally update all existing users at once
 - **Setup Wizard** – On first start, no manual config editing needed
 - **Single Container** – Python + FastAPI + SQLite, no Redis, no Nginx needed
 
@@ -386,7 +386,7 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **Kanal-Manager** – Kanäle aktivieren/deaktivieren, sortieren, nach Gruppen filtern
 - **EPG-Manager** – Mehrere EPG-Quellen, Zeitfilter (1/3/7 Tage), Auto-Refresh, Kanal-Whitelist
 - **M3U Auto-Refresh** – Kanäle automatisch nach Zeitplan neu laden (pro Anbieter konfigurierbar)
-- **M3U Import** – Import per URL oder Datei-Upload; optional alle bestehenden User auf einmal umstellen
+- **M3U Import** – Import per URL; optional alle bestehenden User auf einmal umstellen
 - **Setup-Wizard** – Beim ersten Start, kein manuelles Config-Editing nötig
 - **Single Container** – Python + FastAPI + SQLite, kein Redis, kein Nginx nötig
 
