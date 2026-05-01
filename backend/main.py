@@ -360,6 +360,10 @@ async def serve_playlist(token: str):
 
     channels = db.get_channels(enabled_only=True)
     proxy_url = db.get_proxy_url()
+    # If short_domain is set, use it as the public base for all M3U links
+    # so streams work from outside the local network
+    short_domain = db.get_setting("short_domain", "")
+    public_url = short_domain.rstrip("/") if short_domain else proxy_url
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
 
     if not channels:
@@ -434,7 +438,7 @@ async def serve_playlist(token: str):
 
     channels.sort(key=_group_sort_key)
 
-    content = build_m3u(channels, proxy_url, token, epg_sources)
+    content = build_m3u(channels, public_url, token, epg_sources)
     db.log_playlist_access(user["id"])
     return HTMLResponse(content=content, media_type="application/x-mpegURL")
 
