@@ -1488,8 +1488,19 @@ def create_user_group(body: dict, _=Depends(check_admin)):
         raise HTTPException(status_code=400, detail="name required")
     try:
         return db.create_user_group(name)
-    except Exception:
-        raise HTTPException(status_code=409, detail="Group already exists")
+    except Exception as e:
+        err = str(e)
+        if "UNIQUE" in err or "already exists" in err.lower():
+            raise HTTPException(status_code=409, detail="Gruppe bereits vorhanden")
+        logger.error(f"create_user_group error: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler: {err}")
+
+@admin_app.put("/api/user-groups/{group_id}/rename")
+def rename_user_group_alt(group_id: int, body: dict, _=Depends(check_admin)):
+    name = body.get("name", "").strip()
+    if not name: raise HTTPException(status_code=400, detail="name required")
+    db.rename_user_group(group_id, name)
+    return {"ok": True}
 
 @admin_app.put("/api/user-groups/{group_id}")
 def update_user_group(group_id: int, body: dict, _=Depends(check_admin)):
@@ -1568,162 +1579,6 @@ async def import_channels(body: dict, _=Depends(check_admin)):
         users = db.get_all_users()
         for u in users:
             db.update_user(u["id"], {"m3u_source": url, "provider_id": provider.get("id")})
-            updated_users += 1
-    return {"ok": True, "imported": len(channels), "updated_users": updated_users, "provider_id": provider.get("id")}
-
-@admin_app.post("/api/xtream/info")
-async def xtream_account_info(body: dict, _=Depends(check_admin)):
-    """Fetch Xtream Codes account info (expiry, connections, channel count)."""
-    host = (body.get("host") or "").strip().rstrip("/")
-    username = (body.get("username") or "").strip()
-    password = (body.get("password") or "").strip()
-    if not host or not username or not password:
-        raise HTTPException(status_code=400, detail="host, username, password required")
-    if not host.startswith("http"):
-        host = "http://" + host
-    api_url = f"{host}/player_api.php?username={username}&password={password}"
-    try:
-        async with make_iptv_client(timeout=20, follow_redirects=True) as client:
-            resp = await client.get(api_url)
-            if resp.status_code in (401, 403):
-                # Some providers return HTML error page — try to parse
-                try:
-                    data = resp.json()
-                    if data.get("user_info", {}).get("status") == "Disabled":
-                        return {"error": "Account deaktiviert"}
-                except Exception:
-                    pass
-                return {"error": f"HTTP {resp.status_code} – Zugangsdaten prüfen oder Account gesperrt"}
-            resp.raise_for_status()
-            try:
-                data = resp.json()
-            except Exception:
-                return {"error": "Antwort ist kein JSON – Host oder Zugangsdaten falsch"}
-
-            # Try to get channel count
-            ch_count = None
-            try:
-                r2 = await client.get(
-                    f"{host}/player_api.php?username={username}&password={password}&action=get_live_streams",
-                    timeout=15
-                )
-                streams = r2.json()
-                ch_count = len(streams) if isinstance(streams, list) else None
-            except Exception:
-                ch_count = None
-
-            data["available_channels"] = ch_count
-            # Ensure user_info exists
-            if "user_info" not in data:
-                data["user_info"] = {}
-            if "server_info" not in data:
-                data["server_info"] = {"url": host}
-            return data
-    except Exception as e:
-        return {"error": f"Verbindungsfehler: {e}"}
-
-@admin_app.post("/api/xtream/import")
-async def xtream_import(body: dict, _=Depends(check_admin)):
-    """Import channels from Xtream Codes provider."""
-    host = (body.get("host") or "").strip().rstrip("/")
-    username = (body.get("username") or "").strip()
-    password = (body.get("password") or "").strip()
-    fmt = (body.get("format") or "ts").strip().lower()
-    provider_name = (body.get("provider_name") or "Xtream Provider").strip()
-    provider_lines = int(body.get("provider_lines") or 0)
-    update_users = body.get("update_users", False)
-    if not host or not username or not password:
-        raise HTTPException(status_code=400, detail="host, username, password required")
-    if not host.startswith("http"):
-        host = "http://" + host
-    if fmt not in ("ts", "m3u8"):
-        fmt = "ts"
-    channels = []
-    last_error = None
-    m3u_url = f"{host}/get.php?username={username}&password={password}&type=m3u_plus&output={fmt}"
-
-    async with make_iptv_client(timeout=120, follow_redirects=True) as client:
-        # Method 1: Try get.php with various output formats
-        for try_fmt in ([fmt, "m3u8", "ts", ""] if fmt == "ts" else ["m3u8", "ts", fmt, ""]):
-            url = f"{host}/get.php?username={username}&password={password}&type=m3u_plus" + (f"&output={try_fmt}" if try_fmt else "")
-            try:
-                resp = await client.get(url)
-                if resp.status_code in (401, 403):
-                    raise HTTPException(status_code=resp.status_code, detail=f"HTTP {resp.status_code} – Zugangsdaten falsch")
-                if resp.status_code < 400:
-                    chs = parse_m3u(resp.text)
-                    if chs:
-                        channels = chs
-                        m3u_url = url
-                        break
-                    else:
-                        last_error = f"Keine Kanäle (get.php, output={try_fmt or 'default'})"
-                else:
-                    last_error = f"HTTP {resp.status_code} (get.php, output={try_fmt or 'default'})"
-            except HTTPException:
-                raise
-            except Exception as e:
-                last_error = str(e)
-
-        # Method 2: If get.php fails, use Xtream player_api.php to fetch streams directly
-        if not channels:
-            try:
-                import json as _json
-                # Get live stream categories first
-                cats_resp = await client.get(
-                    f"{host}/player_api.php?username={username}&password={password}&action=get_live_categories",
-                    timeout=30
-                )
-                cats = cats_resp.json() if cats_resp.status_code == 200 else []
-                
-                # Get all live streams
-                streams_resp = await client.get(
-                    f"{host}/player_api.php?username={username}&password={password}&action=get_live_streams",
-                    timeout=60
-                )
-                if streams_resp.status_code == 200:
-                    streams = streams_resp.json()
-                    cat_map = {str(c.get("category_id","")): c.get("category_name","Unbekannt") for c in (cats if isinstance(cats, list) else [])}
-                    
-                    for s in (streams if isinstance(streams, list) else []):
-                        sid = s.get("stream_id") or s.get("id")
-                        name = s.get("name","").strip()
-                        cat_id = str(s.get("category_id",""))
-                        group = cat_map.get(cat_id, s.get("category_name","Unbekannt"))
-                        logo = s.get("stream_icon","") or s.get("thumbnail","")
-                        epg_id = s.get("epg_channel_id","") or s.get("epg_id","")
-                        # Build stream URL — try ts extension first
-                        stream_url = f"{host}/live/{username}/{password}/{sid}.ts"
-                        if name and sid:
-                            channels.append({
-                                "name": name,
-                                "group": group,
-                                "tvg_id": epg_id,
-                                "tvg_logo": logo,
-                                "url": stream_url,
-                                "raw_extinf": f'#EXTINF:-1 tvg-id="{epg_id}" tvg-name="{name}" tvg-logo="{logo}" group-title="{group}",{name}'
-                            })
-                    if channels:
-                        last_error = None
-                        logger.info(f"Xtream API: imported {len(channels)} streams via player_api.php")
-                    else:
-                        last_error = (last_error or "") + " | player_api.php: keine Streams"
-                else:
-                    last_error = (last_error or "") + f" | player_api.php: HTTP {streams_resp.status_code}"
-            except Exception as e:
-                last_error = (last_error or "") + f" | player_api.php Fehler: {e}"
-
-    if not channels:
-        raise HTTPException(status_code=502, detail=f"Import fehlgeschlagen: {last_error}")
-    if not channels:
-        raise HTTPException(status_code=400, detail="Keine Kanäle gefunden – Format prüfen (TS oder HLS?)")
-    provider = db.upsert_provider(provider_name, m3u_url, provider_lines, fmt if fmt == "ts" else "m3u")
-    db.upsert_channels(channels, provider_id=provider.get("id"))
-    # Store host/user/pass for future refresh (in source_url we store the full M3U URL)
-    updated_users = 0
-    if update_users:
-        for u in db.get_all_users():
-            db.update_user(u["id"], {"m3u_source": m3u_url, "provider_id": provider.get("id")})
             updated_users += 1
     return {"ok": True, "imported": len(channels), "updated_users": updated_users, "provider_id": provider.get("id")}
 
@@ -2277,7 +2132,11 @@ async def root():
 @admin_app.get("/admin")
 async def admin_page():
     with open(f"{FRONTEND}/index.html") as f:
-        return HTMLResponse(f.read())
+        return HTMLResponse(f.read(), headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
 
 @admin_app.get("/setup")
 async def setup_page():

@@ -572,11 +572,6 @@ class Database:
         with self.conn() as con:
             con.execute("DELETE FROM segment_events")
 
-    def purge_old_segment_events(self, days: int = 30):
-        cutoff = time.time() - (days * 86400)
-        with self.conn() as con:
-            con.execute("DELETE FROM segment_events WHERE ts < ?", (cutoff,))
-
     def get_m3u_providers(self) -> List[Dict]:
         with self.conn() as con:
             rows = con.execute("SELECT * FROM m3u_providers ORDER BY name").fetchall()
@@ -698,31 +693,6 @@ class Database:
         with self.conn() as con:
             rows = con.execute("SELECT * FROM group_mappings ORDER BY original_name").fetchall()
             return [dict(r) for r in rows]
-
-    def set_group_mapping(self, original_name: str, custom_name: str):
-        """Map original group name to custom name. Applies immediately to all channels."""
-        with self.conn() as con:
-            if custom_name.strip() and custom_name.strip() != original_name:
-                con.execute("""
-                    INSERT INTO group_mappings (original_name, custom_name)
-                    VALUES (?, ?)
-                    ON CONFLICT(original_name) DO UPDATE SET custom_name = excluded.custom_name
-                """, (original_name, custom_name.strip()))
-                # Apply immediately to existing channels
-                con.execute("UPDATE channels SET group_title = ? WHERE group_title = ?",
-                            (custom_name.strip(), original_name))
-                # Also update if previously mapped
-                old_rows = con.execute(
-                    "SELECT original_name FROM group_mappings WHERE custom_name = ?", (original_name,)
-                ).fetchall()
-                for r in old_rows:
-                    con.execute("UPDATE channels SET group_title = ? WHERE group_title = ?",
-                                (custom_name.strip(), r["original_name"]))
-            else:
-                # Remove mapping (revert to original)
-                con.execute("DELETE FROM group_mappings WHERE original_name = ?", (original_name,))
-                con.execute("UPDATE channels SET group_title = ? WHERE group_title = ?",
-                            (original_name, original_name))
 
     def delete_group_mapping(self, original_name: str):
         """Remove mapping and revert channels to original group name."""
