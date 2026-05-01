@@ -23,6 +23,9 @@
 
 ## What is selfstream?
 
+> [!WARNING]
+> **selfstream only supports HLS-based IPTV providers (M3U with `.m3u8` streams).** Xtream Codes API, STRM files or other formats are not supported. Ask your provider for an M3U URL with HLS streams before setting up.
+
 selfstream is a self-hosted IPTV proxy with user management, stream protection, EPG integration, watch tracking, built-in VPN support and traffic analysis — running as a single Docker container. No Redis, no external database needed.
 
 ## Features
@@ -361,6 +364,9 @@ Create your own channel groups independent of provider groups:
 # 🇩🇪 Deutsch
 
 ## Was ist selfstream?
+
+> [!WARNING]
+> **selfstream unterstützt ausschließlich HLS-basierte IPTV-Anbieter (M3U mit `.m3u8` Streams).** Xtream Codes API, STRM-Dateien oder andere Formate werden nicht unterstützt. Frage deinen Anbieter vor der Einrichtung nach einer M3U-URL mit HLS-Streams.
 
 selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schutz, EPG-Integration, Watch-Tracking, integriertem VPN und Traffic-Analyse — als einzelner Docker-Container. Kein Redis, keine externe Datenbank nötig.
 
