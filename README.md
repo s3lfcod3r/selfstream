@@ -23,6 +23,9 @@
 
 ## What is selfstream?
 
+> [!WARNING]
+> **HLS providers only.** selfstream requires an M3U playlist with `.m3u8` streams. Xtream Codes API, STRM files and other formats are not supported.
+
 selfstream is a self-hosted IPTV proxy with user management, stream protection, EPG integration, watch tracking, built-in VPN support and traffic analysis — running as a single Docker container. No Redis, no external database needed.
 
 ## Features
@@ -36,16 +39,22 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 - **IP Tracking** – IP address logged per stream session and in watch history
 - **Admin Dashboard** – Live Sessions, Live Catchup, History, Users, Channels, EPG, Settings
 - **Custom Groups** – Create your own channel groups (e.g. Kids, Sports, Docs) and assign users
-- **Group & Provider Sorting** – Drag & drop to sort both custom and provider groups; numbering forces order in IPTV Pro
+- **Group & Provider Sorting** – Drag & drop to sort both custom and provider groups; numbering forces order in IPTV Pro (e.g. "01. Kids", "02. Sports")
 - **Brute-Force Protection** – Admin login locked after 10 failed attempts
-- **Short URLs** – Short playlist URLs via custom domain
+- **Short URLs** – Short playlist URLs via custom domain (e.g. `https://iptv.yourdomain.com/AbCd1234.m3u`)
 - **Channel Manager** – Enable/disable, sort, filter channels by group
-- **EPG Manager** – Multiple EPG sources, time filter (1/3/7 days), auto-refresh
-- **M3U Auto-Refresh** – Automatically reload channels on schedule
-- **M3U Import** – Import new M3U URL and optionally update all existing users at once
-- **Custom Logo** – Upload your own logo via admin panel
+- **EPG Manager** – Multiple EPG sources, time filter (1/3/7 days), auto-refresh, channel whitelist
+- **M3U Auto-Refresh** – Automatically reload channels on schedule per provider
+- **M3U Import** – Import via URL or file upload; optionally update all existing users at once
 - **Setup Wizard** – On first start, no manual config editing needed
 - **Single Container** – Python + FastAPI + SQLite, no Redis, no Nginx needed
+
+### 🌐 Subdomain / Reverse Proxy Support
+- **Public URL** – Set your subdomain as the public domain; all M3U and stream links are automatically built with that URL
+- **`X-Accel-Buffering: no`** – selfstream sends this header so reverse proxies (Zoraxy, Nginx, Caddy) stream segments through without buffering
+- **Full URL chain** – playlist → stream playlist → segments, all consistently using your public domain
+- **Local test button** – Each user has a 🏠 button in the admin panel that generates a local test URL (`?local=1`) with internal IP for quick diagnostics without touching the public setup
+- **`PROXY_URL` env variable** – Set the public proxy URL via environment variable for docker-compose setups
 
 ### 🔒 VPN (Built-in OpenVPN)
 - **Integrated OpenVPN** – Start/stop VPN directly from the admin panel, no extra container needed
@@ -75,7 +84,16 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 ### ⚡ Performance
 - **Segment Pre-buffering** – selfstream fully downloads each TS segment before delivering it to the player; player receives segments at local LAN speed (~900 Mbit/s) instead of provider speed
 - **Segment Prefetch Cache** – While you watch one segment, selfstream already downloads the next 2 in the background; cache hits result in near-instant delivery
-- **Tiny Segment Retry** – Broken segments (<10 KB) are automatically retried once
+- **Tiny Segment Retry** – Broken segments (<1 KB) are automatically retried once
+- **Shared Segment Cache** – Multiple users watching the same channel share the segment cache; the provider is only hit once per segment
+
+### 👥 User Management (improved)
+- **Per-user log view** – Click **Log** on any user to open their watch history in a modal
+- **Date filter** – Filter user logs by date range (from / to)
+- **Pagination** – 25 / 50 / 100 entries per page with page navigation
+- **Delete user logs** – 🗑 button in the log modal to clear only that user's history
+- **Token display** – Click 👁 to reveal the full token (breaks across lines, fully readable)
+- **Local test URL** – 🏠 button copies a local playlist URL for admin testing without affecting users
 
 ---
 
@@ -134,32 +152,34 @@ docker-compose up -d
 |----------|---------|-------------|
 | `ADMIN_TOKEN` | *(empty)* | Admin password. Leave empty → Setup Wizard on first start. If set, password cannot be changed via UI. |
 | `BASE_URL` | *(empty)* | Public URL of the admin panel, e.g. `http://192.168.1.69:8080`. Leave empty → set in Setup Wizard. |
+| `PROXY_URL` | *(empty)* | Public URL of the IPTV proxy (e.g. `https://iptv.yourdomain.com`). If set, overrides the proxy URL from the database. All M3U and stream links will use this URL. |
 | `DB_PATH` | `/data/selfstream.db` | Path to SQLite database. Usually no need to change. |
 
 ---
 
 ## Admin Panel Settings
 
-### Base
+### URLs
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Base URL | *(Setup Wizard)* | URL of the admin panel. Used for internal links. |
-| Proxy URL | *(Setup Wizard)* | URL of the IPTV proxy. Embedded in M3U URLs. |
-| Short Domain | *(empty)* | Custom domain for short playlist URLs |
-| M3U Source URL | *(empty)* | URL of your IPTV provider's master M3U playlist |
-| M3U Auto-Refresh | Disabled | Automatically reload channels every X hours |
+| Admin Panel URL | *(Setup Wizard)* | Internal URL of the admin panel. Used for internal links. |
+| Proxy URL | *(Setup Wizard)* | Internal IP:port of the IPTV proxy (e.g. `http://192.168.1.69:8000`). Used by the server itself. |
+| Public Domain / Short URL | *(empty)* | Your public subdomain (e.g. `https://iptv.yourdomain.com`). **This URL is embedded in all M3U stream links.** Leave empty = local IP is used (home network only). |
+
+> **Important:** If you use a reverse proxy (Zoraxy, Nginx, Caddy), set your subdomain as the **Public Domain**. Without it, streams only work on your local network.
 
 ### HLS / Stream
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `hls_timeout` | `5` | Connection timeout in seconds |
-| `hls_read_timeout` | `15` | Read timeout in seconds for active streams |
+| `hls_timeout` | `10` | Connection timeout in seconds |
+| `hls_read_timeout` | `30` | Read timeout in seconds for active streams |
 | `hls_chunk_size` | `65536` | Chunk size in bytes for TS segment streaming (64 KB) |
 | `hls_user_agent` | `VLC/3.0 LibVLC/3.0` | User-Agent for outgoing requests to IPTV provider |
 | `hls_referer` | *(empty)* | Referer header (if required by provider) |
 | `hls_follow_redirects` | `1` | Follow HTTP redirects (`1` = yes, `0` = no) |
+| `prefetch_segments` | `2` | How many segments to prefetch ahead (0 = disabled) |
 
 ### EPG
 
@@ -176,13 +196,27 @@ docker-compose up -d
 2. Enter name (e.g. "Kids Tablet", "Living Room TV")
 3. Set max streams (default: 1)
 4. Optionally assign custom groups (e.g. Kids, Sports)
-5. Share the generated playlist URL:
+5. Share the generated playlist URLs:
 
-```
-http://YOUR-IP:8000/iptv/TOKEN/playlist.m3u
-```
+| URL | Use case |
+|-----|----------|
+| 📋 (teal button) | External URL via subdomain — for users outside your network |
+| 🏠 (yellow button) | Local test URL — for admin testing on your local network |
 
-Enter this URL in TiviMate, IPTV Pro, VLC or any other IPTV app.
+Enter the external URL in TiviMate, IPTV Pro, VLC or any other IPTV app.
+
+---
+
+## Subdomain Setup (Reverse Proxy)
+
+To make streams accessible from outside your home network:
+
+1. Point your subdomain (e.g. `iptv.yourdomain.com`) to your server's public IP
+2. Configure your reverse proxy (Zoraxy, Nginx, Caddy) to forward port 80/443 → `192.168.1.x:8000`
+3. In selfstream Admin → **Settings** → enter your subdomain in **Public Domain / Short URL**
+4. Click **Save** — all M3U and stream links are instantly updated
+
+**Important for Zoraxy / Nginx:** Make sure proxy buffering is disabled for streaming to work correctly. selfstream sends `X-Accel-Buffering: no` automatically.
 
 ---
 
@@ -255,8 +289,10 @@ Create your own channel groups independent of provider groups:
 | URL | Description |
 |-----|-------------|
 | `/iptv/{token}/playlist.m3u` | M3U playlist for user |
+| `/iptv/{token}/playlist.m3u?local=1` | Local test playlist (uses internal IP in all links) |
 | `/iptv/{token}/playlist.m3u8` | M3U8 playlist (alternative) |
 | `/iptv/{token}/epg.xml` | EPG for user |
+| `/{short_token}.m3u` | Compact short playlist URL |
 | `/s/{short_token}/playlist.m3u` | Short playlist URL |
 | `/iptv/epg.xml` | Global EPG URL (same for all users) |
 | `/iptv/epg-1d.xml` | EPG filtered – 1 day |
@@ -290,6 +326,8 @@ Create your own channel groups independent of provider groups:
 | VPN active but streams broken | Check that Privileged mode or `--cap-add=NET_ADMIN` is set |
 | Buffering with VPN | Test with Speedtest; try a geographically closer VPN server |
 | Stream stutters without VPN | Check Buffering Events in Traffic tab; large segments (>5 MB) are normal for some providers |
+| External streams not working | Set your subdomain in Settings → Public Domain. Without it, stream links contain your local IP |
+| Streams work locally but not externally | Check that your reverse proxy forwards to port 8000 (not 8080) |
 | M3U import updates channels but users still use old URL | Enable "Update all users to new URL" checkbox in the import dialog |
 
 ---
@@ -326,6 +364,9 @@ Create your own channel groups independent of provider groups:
 
 ## Was ist selfstream?
 
+> [!WARNING]
+> **Nur für HLS-Anbieter.** selfstream benötigt eine M3U-Playlist mit `.m3u8` Streams. Xtream Codes API, STRM-Dateien und andere Formate werden nicht unterstützt.
+
 selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schutz, EPG-Integration, Watch-Tracking, integriertem VPN und Traffic-Analyse — als einzelner Docker-Container. Kein Redis, keine externe Datenbank nötig.
 
 ## Features
@@ -339,16 +380,22 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **IP-Tracking** – IP-Adresse wird pro Stream-Session und im Watch-Verlauf protokolliert
 - **Admin-Dashboard** – Live Sessions, Live Catchup, Verlauf, Benutzer, Kanäle, EPG, Einstellungen
 - **Eigene Gruppen** – Eigene Kanalgruppen erstellen (z.B. Kinder, Sport, Doku) und Usern zuweisen
-- **Gruppen- & Anbieter-Sortierung** – Drag & Drop zum Sortieren aller Gruppen; Nummerierung erzwingt Reihenfolge in IPTV Pro
+- **Gruppen- & Anbieter-Sortierung** – Drag & Drop zum Sortieren aller Gruppen; Nummerierung erzwingt Reihenfolge in IPTV Pro (z.B. "01. Kinder", "02. Sport")
 - **Brute-Force-Schutz** – Admin-Login wird nach 10 Fehlversuchen gesperrt
-- **Short URLs** – Kurze Playlist-URLs über eigene Domain
+- **Short URLs** – Kurze Playlist-URLs über eigene Domain (z.B. `https://iptv.deinedomain.de/AbCd1234.m3u`)
 - **Kanal-Manager** – Kanäle aktivieren/deaktivieren, sortieren, nach Gruppen filtern
-- **EPG-Manager** – Mehrere EPG-Quellen, Zeitfilter (1/3/7 Tage), Auto-Refresh
-- **M3U Auto-Refresh** – Kanäle automatisch nach Zeitplan neu laden
-- **M3U Import** – Neue M3U-URL importieren und optional alle bestehenden User auf einmal umstellen
-- **Custom Logo** – Eigenes Logo im Admin-Panel hochladbar
+- **EPG-Manager** – Mehrere EPG-Quellen, Zeitfilter (1/3/7 Tage), Auto-Refresh, Kanal-Whitelist
+- **M3U Auto-Refresh** – Kanäle automatisch nach Zeitplan neu laden (pro Anbieter konfigurierbar)
+- **M3U Import** – Import per URL oder Datei-Upload; optional alle bestehenden User auf einmal umstellen
 - **Setup-Wizard** – Beim ersten Start, kein manuelles Config-Editing nötig
 - **Single Container** – Python + FastAPI + SQLite, kein Redis, kein Nginx nötig
+
+### 🌐 Subdomain / Reverse Proxy Support
+- **Öffentliche URL** – Subdomain als Public Domain eintragen; alle M3U- und Stream-Links werden automatisch mit dieser URL gebaut
+- **`X-Accel-Buffering: no`** – selfstream sendet diesen Header damit Reverse Proxies (Zoraxy, Nginx, Caddy) Segmente direkt durchleiten ohne zu puffern
+- **Vollständige URL-Kette** – Playlist → Stream-Playlist → Segmente, alles konsequent mit deiner Public Domain
+- **Lokaler Test-Button** – Jeder User hat einen 🏠 Button der eine lokale Test-URL (`?local=1`) mit interner IP generiert — für schnelle Diagnose ohne die öffentliche URL zu beeinflussen
+- **`PROXY_URL` Umgebungsvariable** – Öffentliche Proxy-URL per Umgebungsvariable setzen für docker-compose Setups
 
 ### 🔒 VPN (Integriertes OpenVPN)
 - **Integriertes OpenVPN** – VPN direkt im Admin-Panel starten/stoppen, kein Extra-Container nötig
@@ -378,7 +425,16 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 ### ⚡ Performance
 - **Segment-Vorpuffern** – selfstream lädt jedes TS-Segment vollständig herunter bevor es zum Player geliefert wird; Player empfängt Segmente mit lokaler LAN-Geschwindigkeit (~900 Mbit/s) statt Anbieter-Geschwindigkeit
 - **Segment-Prefetch-Cache** – Während ein Segment abgespielt wird, lädt selfstream bereits die nächsten 2 im Hintergrund; Cache-Treffer = sofortige Lieferung
-- **Tiny-Segment-Retry** – Kaputte Segmente (<10 KB) werden automatisch einmal neu angefragt
+- **Tiny-Segment-Retry** – Kaputte Segmente (<1 KB) werden automatisch einmal neu angefragt
+- **Geteilter Segment-Cache** – Mehrere User die denselben Kanal schauen teilen den Cache; der Anbieter wird nur einmal pro Segment angefragt
+
+### 👥 Benutzer-Verwaltung (erweitert)
+- **User-Log-Ansicht** – Klick auf **Log** bei jedem User öffnet dessen Watch-Verlauf in einem Modal
+- **Datumsfilter** – User-Logs nach Zeitraum filtern (Von / Bis)
+- **Seitenzahlen** – 25 / 50 / 100 Einträge pro Seite mit Seitennavigation ◀ ▶
+- **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
+- **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
+- **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
 
 ---
 
@@ -437,32 +493,34 @@ docker-compose up -d
 |----------|---------|-------------|
 | `ADMIN_TOKEN` | *(leer)* | Admin-Passwort. Leer lassen → Setup-Wizard beim ersten Start. Wenn gesetzt, kann das Passwort nicht über die UI geändert werden. |
 | `BASE_URL` | *(leer)* | Öffentliche URL des Admin-Panels, z.B. `http://192.168.1.69:8080`. Leer lassen → wird im Setup-Wizard gesetzt. |
+| `PROXY_URL` | *(leer)* | Öffentliche URL des IPTV-Proxys (z.B. `https://iptv.deinedomain.de`). Wenn gesetzt, überschreibt die Proxy-URL aus der Datenbank. Alle M3U- und Stream-Links verwenden diese URL. |
 | `DB_PATH` | `/data/selfstream.db` | Pfad zur SQLite-Datenbank. Normalerweise nicht ändern. |
 
 ---
 
 ## Admin-Panel Einstellungen
 
-### Basis
+### URLs
 
 | Einstellung | Standard | Beschreibung |
 |-------------|---------|-------------|
-| Base URL | *(Setup-Wizard)* | URL des Admin-Panels. Wird für interne Links verwendet. |
-| Proxy URL | *(Setup-Wizard)* | URL des IPTV-Proxys. Wird in M3U-URLs eingebettet. |
-| Short Domain | *(leer)* | Eigene Domain für kurze Playlist-URLs |
-| M3U Quell-URL | *(leer)* | URL der Master-M3U-Playlist deines IPTV-Anbieters |
-| M3U Auto-Refresh | Deaktiviert | Kanäle automatisch alle X Stunden neu laden |
+| Admin Panel URL | *(Setup-Wizard)* | Interne URL des Admin-Panels. Wird für interne Links verwendet. |
+| Proxy URL | *(Setup-Wizard)* | Interne IP:Port des IPTV-Proxys (z.B. `http://192.168.1.69:8000`). Wird vom Server selbst verwendet. |
+| Öffentliche Domain / Short URL | *(leer)* | Deine öffentliche Subdomain (z.B. `https://iptv.deinedomain.de`). **Diese URL wird in alle M3U Stream-Links eingebaut.** Leer lassen = lokale IP wird verwendet (nur Heimnetz). |
+
+> **Wichtig:** Wenn du einen Reverse Proxy verwendest (Zoraxy, Nginx, Caddy), trage deine Subdomain als **Öffentliche Domain** ein. Ohne diese Einstellung funktionieren Streams nur im lokalen Netzwerk.
 
 ### HLS / Stream
 
 | Einstellung | Standard | Beschreibung |
 |-------------|---------|-------------|
-| `hls_timeout` | `5` | Verbindungs-Timeout in Sekunden |
-| `hls_read_timeout` | `15` | Lese-Timeout in Sekunden für laufende Streams |
+| `hls_timeout` | `10` | Verbindungs-Timeout in Sekunden |
+| `hls_read_timeout` | `30` | Lese-Timeout in Sekunden für laufende Streams |
 | `hls_chunk_size` | `65536` | Chunk-Größe in Bytes beim Streamen von TS-Segmenten (64 KB) |
 | `hls_user_agent` | `VLC/3.0 LibVLC/3.0` | User-Agent für ausgehende Requests zum IPTV-Anbieter |
 | `hls_referer` | *(leer)* | Referer-Header (falls vom Anbieter benötigt) |
 | `hls_follow_redirects` | `1` | HTTP-Redirects folgen (`1` = ja, `0` = nein) |
+| `prefetch_segments` | `2` | Wie viele Segmente vorab geladen werden (0 = deaktiviert) |
 
 ### EPG
 
@@ -479,13 +537,27 @@ docker-compose up -d
 2. Name eingeben (z.B. "Kinder-Tablet", "Wohnzimmer TV")
 3. Max. Streams einstellen (Standard: 1)
 4. Optional eigene Gruppen zuweisen (z.B. Kinder, Sport)
-5. Generierte Playlist-URL weitergeben:
+5. Playlist-URLs weitergeben:
 
-```
-http://DEINE-IP:8000/iptv/TOKEN/playlist.m3u
-```
+| URL | Verwendung |
+|-----|-----------|
+| 📋 (türkiser Button) | Externe URL via Subdomain — für User außerhalb des Heimnetzes |
+| 🏠 (gelber Button) | Lokale Test-URL — für Admin-Tests im lokalen Netzwerk |
 
-Diese URL in TiviMate, IPTV Pro, VLC oder einer anderen IPTV-App eintragen.
+Die externe URL in TiviMate, IPTV Pro, VLC oder einer anderen IPTV-App eintragen.
+
+---
+
+## Subdomain einrichten (Reverse Proxy)
+
+Damit Streams auch von außerhalb des Heimnetzes erreichbar sind:
+
+1. Subdomain (z.B. `iptv.deinedomain.de`) auf die öffentliche IP des Servers zeigen lassen
+2. Reverse Proxy (Zoraxy, Nginx, Caddy) so konfigurieren dass Port 80/443 → `192.168.1.x:8000` weitergeleitet wird
+3. Im selfstream Admin → **Einstellungen** → Subdomain unter **Öffentliche Domain / Short URL** eintragen
+4. **Speichern** klicken — alle M3U- und Stream-Links werden sofort aktualisiert
+
+**Wichtig für Zoraxy / Nginx:** Proxy-Buffering muss deaktiviert sein damit Streaming korrekt funktioniert. selfstream sendet automatisch `X-Accel-Buffering: no`.
 
 ---
 
@@ -558,9 +630,11 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 | URL | Beschreibung |
 |-----|-------------|
 | `/iptv/{token}/playlist.m3u` | M3U-Playlist für den User |
+| `/iptv/{token}/playlist.m3u?local=1` | Lokale Test-Playlist (alle Links mit interner IP) |
 | `/iptv/{token}/playlist.m3u8` | M3U8-Playlist (alternativ) |
 | `/iptv/{token}/epg.xml` | EPG für den User |
-| `/s/{short_token}/playlist.m3u` | Kurze Playlist-URL |
+| `/{short_token}.m3u` | Kompakte Short-Playlist-URL |
+| `/s/{short_token}/playlist.m3u` | Short-Playlist-URL |
 | `/iptv/epg.xml` | Globale EPG-URL (für alle gleich) |
 | `/iptv/epg-1d.xml` | EPG gefiltert – 1 Tag |
 | `/iptv/epg-3d.xml` | EPG gefiltert – 3 Tage |
@@ -593,6 +667,8 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 | VPN aktiv aber Streams kaputt | Prüfen ob Privilegierter Modus oder `--cap-add=NET_ADMIN` gesetzt ist |
 | Buffering mit VPN | Speedtest machen; geografisch näheren VPN-Server probieren |
 | Stream stottert ohne VPN | Buffering-Ereignisse im Traffic-Tab prüfen; große Segmente (>5 MB) sind bei manchen Anbietern normal |
+| Externe Streams funktionieren nicht | Subdomain unter Einstellungen → Öffentliche Domain eintragen. Ohne diese Einstellung enthalten Stream-Links die lokale IP |
+| Lokal geht es, extern nicht | Prüfen ob Reverse Proxy auf Port 8000 weiterleitet (nicht 8080) |
 | M3U-Import aktualisiert Kanäle aber User nutzen noch alte URL | Beim Import-Dialog die Option „Alle bestehenden User auf neue URL umstellen" aktivieren |
 
 ---
