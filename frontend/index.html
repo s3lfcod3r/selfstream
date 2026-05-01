@@ -294,6 +294,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('traffic',this)" title="Traffic"><span class="nav-icon">📊</span><span class="nav-label">Traffic</span></div>
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
+      <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.0</div>
+      </div>
     </div>
 
     <div style="flex:1;overflow:hidden;">
@@ -1260,9 +1263,21 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
 <!-- User Logs Modal -->
 <div class="modal-bg" id="modal-ulogs">
-  <div class="modal" style="width:900px;max-width:95vw;">
+  <div class="modal" style="width:960px;max-width:95vw;">
     <div class="modal-title" id="ulogs-title">Verlauf</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+      <input class="form-input" id="ulogs-date-from" type="date" style="width:140px;padding:5px 8px;font-size:11px;" oninput="_ulogsPage=1;loadUserLogsFiltered()">
+      <input class="form-input" id="ulogs-date-to" type="date" style="width:140px;padding:5px 8px;font-size:11px;" oninput="_ulogsPage=1;loadUserLogsFiltered()">
+      <select class="form-select" id="ulogs-pagesize" style="width:110px;padding:5px 8px;font-size:11px;" onchange="_ulogsPage=1;loadUserLogsFiltered()">
+        <option value="25">25 / Seite</option>
+        <option value="50" selected>50 / Seite</option>
+        <option value="100">100 / Seite</option>
+      </select>
+      <button class="btn sm" onclick="loadUserLogsFiltered()">↻</button>
+      <button class="btn sm danger" onclick="clearUserLogs()" style="margin-left:auto;">🗑 Logs löschen</button>
+    </div>
     <div id="ulogs-content"></div>
+    <div id="ulogs-pager" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 0;font-family:var(--mono);font-size:11px;"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeM('modal-ulogs')">Schließen</button>
     </div>
@@ -1546,12 +1561,12 @@ async function loadUsers(pageArg) {
           ${u.short_playlist_url?`<button class="copy-btn" onclick="doCopy('${esc(u.short_playlist_url)}',this)" style="border-color:rgba(63,185,80,.3);flex-shrink:0;">📋</button>`:''}
         </div>
       </td>
-      <td style="width:60px;text-align:center;">
+      <td style="width:80px;text-align:center;">
         <div style="display:flex;align-items:center;gap:3px;justify-content:center;">
           <button class="copy-btn" onclick="doCopy('${esc(tokenRaw)}',this)" title="${esc(tokenRaw)}">📋</button>
           <button class="copy-btn" onclick="toggleUserToken(${u.id})" title="Token anzeigen">${userTokenVisible[u.id]?'🙈':'👁'}</button>
         </div>
-        ${userTokenVisible[u.id]?`<div style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80px;">${esc(tokenRaw)}</div>`:''}
+        ${userTokenVisible[u.id]?`<div style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-top:4px;word-break:break-all;white-space:normal;max-width:120px;line-height:1.4;">${esc(tokenRaw)}</div>`:''}
       </td>
 
       <td style="width:90px;">
@@ -2140,21 +2155,66 @@ async function delUser(id,name) {
   loadUsers(); loadStats(); showToast(`${name} gelöscht`);
 }
 
-async function userLogs(id,name) {
-  document.getElementById('ulogs-title').textContent=`Verlauf · ${name}`;
+let _ulogsUserId = null;
+let _ulogsUserName = '';
+let _ulogsPage = 1;
+
+async function userLogs(id, name) {
+  _ulogsUserId = id;
+  _ulogsUserName = name;
+  _ulogsPage = 1;
+  document.getElementById('ulogs-title').textContent = `Verlauf · ${name}`;
+  document.getElementById('ulogs-date-from').value = '';
+  document.getElementById('ulogs-date-to').value = '';
   document.getElementById('modal-ulogs').classList.add('open');
-  document.getElementById('ulogs-content').innerHTML='<div class="empty-state">Lädt…</div>';
-  const logs=await api('GET',`/api/users/${id}/logs`);
-  document.getElementById('ulogs-content').innerHTML=!logs.length
-    ?'<div class="empty-state">Noch keine Aktivität</div>'
-    :`<div class="log-panel"><table style="width:100%"><thead><tr>
-        <th>Zeit</th><th>IP</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead><tbody>
-        ${logs.map(l=>{
-          const isCatchup=l.is_catchup===1||l.is_catchup==='1';
-          const icon=isCatchup?'<span style="color:var(--teal);margin-right:3px;">⏪</span>':'<span style="color:var(--green);margin-right:3px;">▶</span>';
-          const sendung=l.epg_title
-            ?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>`
-            :'<span style="color:var(--text2);">—</span>';
+  await loadUserLogsFiltered();
+}
+
+async function loadUserLogsFiltered() {
+  if (!_ulogsUserId) return;
+  const dateFrom = document.getElementById('ulogs-date-from').value;
+  const dateTo   = document.getElementById('ulogs-date-to').value;
+  const pageSize = parseInt(document.getElementById('ulogs-pagesize').value) || 50;
+  document.getElementById('ulogs-content').innerHTML = '<div class="empty-state">Lädt…</div>';
+
+  // Build query
+  const params = new URLSearchParams({
+    limit: pageSize,
+    offset: (_ulogsPage - 1) * pageSize,
+    user_id: _ulogsUserId
+  });
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo)   params.set('date_to',   dateTo);
+
+  let logs = [], total = 0;
+  try {
+    // Try paginated endpoint first
+    const r = await api('GET', `/api/users/${_ulogsUserId}/logs?${params}`);
+    if (Array.isArray(r)) {
+      logs = r; total = r.length;
+    } else {
+      logs = r.items || []; total = r.total || logs.length;
+    }
+  } catch(e) {
+    logs = []; total = 0;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  document.getElementById('ulogs-content').innerHTML = !logs.length
+    ? '<div class="empty-state">Keine Einträge gefunden</div>'
+    : `<div class="log-panel" style="max-height:420px;overflow-y:auto;">
+        <table style="width:100%"><thead><tr>
+          <th>Zeit</th><th>IP</th><th>Kanal</th><th>Sendung</th><th>Dauer</th>
+        </tr></thead><tbody>
+        ${logs.map(l => {
+          const isCatchup = l.is_catchup===1||l.is_catchup==='1';
+          const icon = isCatchup
+            ? '<span style="color:var(--teal);margin-right:3px;">⏪</span>'
+            : '<span style="color:var(--green);margin-right:3px;">▶</span>';
+          const sendung = l.epg_title
+            ? `<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>`
+            : '<span style="color:var(--text2);">—</span>';
           return `<tr>
             <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
             <td style="font-family:var(--mono);font-size:10px;color:var(--text2);white-space:nowrap;">${esc(l.ip_address||'')}</td>
@@ -2164,7 +2224,31 @@ async function userLogs(id,name) {
           </tr>`;
         }).join('')}
       </tbody></table></div>`;
+
+  // Pager
+  const pager = document.getElementById('ulogs-pager');
+  if (totalPages > 1) {
+    pager.innerHTML = `
+      <button class="btn sm" onclick="_ulogsPage--;loadUserLogsFiltered()" ${_ulogsPage<=1?'disabled':''}>◀</button>
+      <span style="color:var(--text2);">Seite ${_ulogsPage} / ${totalPages}</span>
+      <span style="color:var(--text3);">(${total} gesamt)</span>
+      <button class="btn sm" onclick="_ulogsPage++;loadUserLogsFiltered()" ${_ulogsPage>=totalPages?'disabled':''}>▶</button>`;
+  } else {
+    pager.innerHTML = total ? `<span style="color:var(--text3);">${total} Einträge</span>` : '';
+  }
 }
+
+async function clearUserLogs() {
+  if (!_ulogsUserId) return;
+  if (!confirm(`Alle Logs von "${_ulogsUserName}" löschen?`)) return;
+  try {
+    await api('DELETE', `/api/users/${_ulogsUserId}/logs`);
+    showToast(`Logs von ${_ulogsUserName} gelöscht`);
+    _ulogsPage = 1;
+    await loadUserLogsFiltered();
+  } catch(e) { showToast(e.message, true); }
+}
+
 
 // ── User Groups ───────────────────────────────────────────────────────────────
 let _allChForGroups = [];
