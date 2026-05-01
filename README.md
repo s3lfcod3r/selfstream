@@ -218,6 +218,15 @@ To make streams accessible from outside your home network:
 
 **Important for Zoraxy / Nginx:** Make sure proxy buffering is disabled for streaming to work correctly. selfstream sends `X-Accel-Buffering: no` automatically.
 
+> [!WARNING]
+> **Zoraxy users: Catchup may stop after 10 minutes** if the default timeout is still active. Zoraxy's `-timeout` parameter defaults to `600` seconds — long Catchup sessions will be cut off exactly at that point.
+>
+> **Fix:** Add `-timeout=0` to Zoraxy's startup parameters (unlimited). In Unraid: Docker → Zoraxy → Edit → Extra Parameters → add `-timeout=0`. Verify with:
+> ```bash
+> docker inspect Zoraxy | grep timeout
+> ```
+> You should see `"-timeout=0"` in the output.
+
 ---
 
 ## VPN Setup
@@ -321,6 +330,7 @@ Create your own channel groups independent of provider groups:
 | Admin Panel unreachable | Open port 8080 in firewall; on Unraid: check Docker settings |
 | EPG not showing | Admin → EPG → click "Load EPG"; then Auto-Match |
 | Catchup not working | IPTV provider must support catchup (`tvg-rec` in M3U) |
+| Catchup stops after ~10 minutes | Zoraxy `-timeout` is set to 600s — add `-timeout=0` to Zoraxy's Extra Parameters in Unraid |
 | Channel switch slow | Lower Connect Timeout to 3–5s in Settings → HLS |
 | VPN won't connect | Try a different server or switch from UDP to TCP in your `.ovpn` file (`proto tcp`) |
 | VPN active but streams broken | Check that Privileged mode or `--cap-add=NET_ADMIN` is set |
@@ -559,6 +569,15 @@ Damit Streams auch von außerhalb des Heimnetzes erreichbar sind:
 
 **Wichtig für Zoraxy / Nginx:** Proxy-Buffering muss deaktiviert sein damit Streaming korrekt funktioniert. selfstream sendet automatisch `X-Accel-Buffering: no`.
 
+> [!WARNING]
+> **Zoraxy-Nutzer: Catchup bricht nach 10 Minuten ab** wenn der Standard-Timeout noch aktiv ist. Zoraxy's `-timeout` Parameter steht standardmäßig auf `600` Sekunden — lange Catchup-Sessions werden genau an diesem Punkt unterbrochen.
+>
+> **Lösung:** `-timeout=0` zu den Zoraxy-Startparametern hinzufügen (unbegrenzt). In Unraid: Docker → Zoraxy → Edit → Extra Parameters → `-timeout=0` eintragen. Prüfen mit:
+> ```bash
+> docker inspect Zoraxy | grep timeout
+> ```
+> In der Ausgabe muss `"-timeout=0"` stehen.
+
 ---
 
 ## VPN einrichten
@@ -662,6 +681,7 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 | Admin Panel nicht erreichbar | Port 8080 in Firewall freigeben; bei Unraid: Docker-Einstellungen prüfen |
 | EPG wird nicht angezeigt | Admin → EPG → EPG einlesen klicken; danach Auto-Match |
 | Catchup funktioniert nicht | IPTV-Anbieter muss Catchup unterstützen (`tvg-rec` in M3U) |
+| Catchup bricht nach ~10 Minuten ab | Zoraxy `-timeout` steht auf 600s — `-timeout=0` in Zoraxy's Extra Parameters in Unraid eintragen |
 | Senderwechsel dauert lange | Connect Timeout auf 3–5s senken in Einstellungen → HLS |
 | VPN verbindet nicht | Anderen Server probieren oder in der `.ovpn`-Datei auf TCP wechseln (`proto tcp`) |
 | VPN aktiv aber Streams kaputt | Prüfen ob Privilegierter Modus oder `--cap-add=NET_ADMIN` gesetzt ist |
