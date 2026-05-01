@@ -52,7 +52,7 @@ a{color:inherit;text-decoration:none;}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:transparent;
   border:1px solid var(--border2);color:var(--text);cursor:pointer;font-family:var(--mono);
   font-size:11px;letter-spacing:.05em;transition:all .2s;text-transform:uppercase;
-  white-space:nowrap;line-height:1;border-radius:0;}
+  white-space:nowrap;line-height:1;}
 .btn:hover{border-color:var(--teal);color:var(--teal);}
 .btn.primary{border-color:var(--teal);color:var(--teal);background:rgba(0,229,200,.06);}
 .btn.primary:hover{background:rgba(0,229,200,.14);}
@@ -67,12 +67,6 @@ a{color:inherit;text-decoration:none;}
 .topbar{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);
   display:flex;align-items:center;padding:0 20px;gap:14px;
   position:sticky;top:0;z-index:100;}
-.menu-toggle{
-  width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;
-  border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;
-  font-family:var(--mono);font-size:12px;line-height:1;
-}
-.menu-toggle:hover{border-color:var(--teal);color:var(--teal);}
 .topbar-logo{height:56px;width:auto;object-fit:contain;
   filter:drop-shadow(0 0 12px rgba(0,229,200,.3));}
 .topbar-sep{flex:1;}
@@ -82,18 +76,9 @@ a{color:inherit;text-decoration:none;}
 .live-label{font-family:var(--mono);font-size:11px;color:var(--text2);}
 
 .sidebar{width:196px;background:var(--bg2);border-right:1px solid var(--border);
-  min-height:calc(100vh - 56px);padding:16px 0;flex-shrink:0;
-  position:sticky;top:56px;align-self:flex-start;height:calc(100vh - 56px);overflow-y:auto;
-  transition:width .2s ease;}
+  min-height:calc(100vh - 56px);padding:16px 0;flex-shrink:0;}
 .main-layout{display:flex;}
 .content-area{flex:1;padding:24px;min-width:0;}
-.sidebar-head{display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px 20px;}
-#app.sidebar-collapsed .sidebar{width:64px;}
-#app.sidebar-collapsed .nav-section{display:none;}
-#app.sidebar-collapsed .sidebar-head{justify-content:center;padding:0 0 10px;}
-#app.sidebar-collapsed .nav-item{justify-content:center;padding:10px 0;}
-#app.sidebar-collapsed .nav-label{display:none;}
-#app.sidebar-collapsed .nav-icon{width:auto;}
 
 .nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;
   color:var(--text2);font-size:13px;font-weight:500;transition:all .2s;
@@ -106,7 +91,7 @@ a{color:inherit;text-decoration:none;}
 
 /* ── Stats ── */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px;}
-.stat-card{background:var(--bg2);border:1px solid var(--border);padding:16px;position:relative;overflow:hidden;border-radius:0;}
+.stat-card{background:var(--bg2);border:1px solid var(--border);padding:16px;position:relative;overflow:hidden;}
 .stat-card::after{content:'';position:absolute;bottom:0;left:0;width:100%;height:2px;
   background:linear-gradient(90deg,var(--teal),transparent);opacity:.5;}
 .stat-label{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--text2);
@@ -132,7 +117,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
 /* ── Badges ── */
 .badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;
-  font-family:var(--mono);font-size:9px;border:1px solid;letter-spacing:.05em;border-radius:0;}
+  font-family:var(--mono);font-size:9px;border:1px solid;letter-spacing:.05em;}
 .badge.green{color:var(--green);border-color:rgba(63,185,80,.3);background:rgba(63,185,80,.06);}
 .badge.red{color:var(--red);border-color:rgba(248,81,73,.3);background:rgba(248,81,73,.06);}
 
@@ -162,7 +147,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
   align-items:center;justify-content:center;}
 .modal-bg.open{display:flex;}
 .modal{background:var(--bg2);border:1px solid var(--border2);padding:28px;
-  width:500px;max-width:95vw;position:relative;max-height:90vh;overflow-y:auto;border-radius:0;}
+  width:500px;max-width:95vw;position:relative;max-height:90vh;overflow-y:auto;}
 .modal::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
   background:linear-gradient(90deg,var(--blue),var(--teal));}
 .modal-title{font-family:var(--mono);font-size:12px;letter-spacing:.1em;
@@ -172,7 +157,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
   color:var(--text2);text-transform:uppercase;margin-bottom:5px;}
 .form-input,.form-select{width:100%;padding:9px 12px;background:var(--bg3);
   border:1px solid var(--border);color:var(--text);font-family:var(--mono);
-  font-size:12px;outline:none;transition:border-color .2s;border-radius:0;}
+  font-size:12px;outline:none;transition:border-color .2s;}
 .form-input:focus,.form-select:focus{border-color:var(--teal);}
 .form-select option{background:var(--bg3);}
 .form-hint{font-size:11px;color:var(--text2);margin-top:4px;}
@@ -181,23 +166,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
 /* ── Channel grid ── */
 .ch-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
 .search-input{padding:7px 12px;background:var(--bg3);border:1px solid var(--border);
-  color:var(--text);font-family:var(--mono);font-size:12px;outline:none;width:200px;border-radius:0;}
+  color:var(--text);font-family:var(--mono);font-size:12px;outline:none;width:200px;}
 .search-input:focus{border-color:var(--teal);}
 .group-filter{padding:7px 10px;background:var(--bg3);border:1px solid var(--border);
   color:var(--text);font-family:var(--mono);font-size:12px;outline:none;}
-.logs-control{
-  height:30px;
-  box-sizing:border-box;
-  border-radius:0 !important;
-  -webkit-appearance:none;
-  appearance:none;
-  vertical-align:middle;
-}
-.logs-control[type="date"]{
-  padding:4px 8px;
-  cursor:pointer;
-}
-.btn.sm{height:30px;box-sizing:border-box;vertical-align:middle;}
 .channel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;}
 .ch-card{background:var(--bg2);border:1px solid var(--border);padding:8px 10px;
   display:flex;align-items:center;gap:8px;cursor:grab;user-select:none;
@@ -205,8 +177,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .ch-card:active{cursor:grabbing;}
 .ch-card.dragging{opacity:.35;border-color:var(--teal);}
 .ch-card.drag-over{border-color:var(--teal);border-style:dashed;background:rgba(0,229,200,.04);}
-[id^="ugrow-"].dragging{opacity:.35;border-color:var(--teal) !important;}
-[id^="ugrow-"].drag-over{border-color:var(--teal) !important;border-style:dashed !important;background:rgba(0,229,200,.04);}
 .ch-card.disabled{opacity:.38;}
 .ch-logo{width:26px;height:26px;object-fit:contain;flex-shrink:0;border-radius:2px;}
 .ch-ph{width:26px;height:26px;background:var(--bg3);border-radius:2px;
@@ -220,7 +190,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 /* ── Settings ── */
 .settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media(max-width:700px){.settings-grid{grid-template-columns:1fr;}}
-.scard{background:var(--bg2);border:1px solid var(--border);padding:20px;border-radius:0;}
+.scard{background:var(--bg2);border:1px solid var(--border);padding:20px;}
 .scard-title{font-family:var(--mono);font-size:10px;letter-spacing:.15em;color:var(--teal);
   text-transform:uppercase;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);}
 
@@ -243,9 +213,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
   padding:4px 8px;border:1px solid var(--border);background:transparent;transition:all .2s;}
 .refresh-btn:hover{color:var(--teal);border-color:var(--teal);}
 .log-panel{max-height:380px;overflow-y:auto;}
-/* ── Global: sharp edges, no rounded corners ── */
-*{border-radius:0 !important;}
-.live-dot,#vpn-status-dot,[id$="-dot"]{border-radius:50% !important;}
 </style>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
 </head>
@@ -259,17 +226,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <div class="login-logo-wrap">
       <img id="login-logo-img" src="/logo.png" alt="selfstream">
     </div>
-    <form onsubmit="doLogin();return false;" style="width:100%;">
-      <input type="password" id="token-input" placeholder="Admin-Passwort…" autocomplete="current-password" style="width:100%;margin-bottom:12px;">
-      <button type="submit" class="btn primary full">▶ Anmelden</button>
-    </form>
+    <input type="password" id="token-input" placeholder="Admin-Passwort…" autocomplete="current-password">
+    <button class="btn primary full" onclick="doLogin()">▶ Anmelden</button>
   </div>
 </div>
 
 <!-- App -->
 <div id="app">
   <div class="topbar">
-    <img id="app-logo-img" src="/logo-app.png" alt="selfstream" class="topbar-logo">
+    <img id="app-logo-img" src="/logo.png" alt="selfstream" class="topbar-logo">
     <span class="topbar-sep"></span>
     <div class="live-dot" id="live-dot"></div>
     <span class="live-label" id="live-label">0 aktive Streams</span>
@@ -278,22 +243,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
   <div class="main-layout">
     <div class="sidebar">
-      <div class="sidebar-head">
-        <div class="nav-section" style="padding:0;">Übersicht</div>
-        <button class="menu-toggle" id="menu-toggle-btn" onclick="toggleSidebar()" title="Menü ein-/ausklappen">☰</button>
-      </div>
-      <div class="nav-item active" onclick="nav('dashboard',this)" title="Dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></div>
-      <div class="nav-item" onclick="nav('users',this)" title="Benutzer"><span class="nav-icon">👥</span><span class="nav-label">Benutzer</span></div>
+      <div class="nav-section">Übersicht</div>
+      <div class="nav-item active" onclick="nav('dashboard',this)"><span class="nav-icon">📊</span>Dashboard</div>
+      <div class="nav-item" onclick="nav('users',this)"><span class="nav-icon">👥</span>Benutzer</div>
       <div class="nav-section">Quellen</div>
-      <div class="nav-item" onclick="nav('providers',this)" title="Anbieter"><span class="nav-icon">🌐</span><span class="nav-label">Anbieter</span></div>
-      <div class="nav-item" onclick="nav('channels',this)" title="Kanaele"><span class="nav-icon">📺</span><span class="nav-label">Kanäle</span></div>
-      <div class="nav-item" onclick="nav('groups',this)" title="Gruppen"><span class="nav-icon">🏷</span><span class="nav-label">Gruppen</span></div>
-      <div class="nav-item" onclick="nav('epg',this)" title="EPG"><span class="nav-icon">📅</span><span class="nav-label">EPG</span></div>
+      <div class="nav-item" onclick="nav('channels',this)"><span class="nav-icon">📺</span>Kanäle</div>
+      <div class="nav-item" onclick="nav('epg',this)"><span class="nav-icon">📅</span>EPG</div>
       <div class="nav-section">System</div>
-      <div class="nav-item" onclick="nav('logs',this)" title="Verlauf"><span class="nav-icon">📋</span><span class="nav-label">Verlauf</span></div>
-      <div class="nav-item" onclick="nav('traffic',this)" title="Traffic"><span class="nav-icon">📊</span><span class="nav-label">Traffic</span></div>
-      <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
-      <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
+      <div class="nav-item" onclick="nav('logs',this)"><span class="nav-icon">📋</span>Verlauf</div>
+      <div class="nav-item" onclick="nav('settings',this)"><span class="nav-icon">⚙️</span>Einstellungen</div>
     </div>
 
     <div style="flex:1;overflow:hidden;">
@@ -332,9 +290,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
 
         <div class="section-hdr" style="margin-top:8px;">
-          <span class="section-title">Zuletzt geschaut</span>
+          <span class="section-title">Zuletzt geschaut <span id="recent-count" style="font-size:10px;color:var(--text2);font-family:var(--mono);"></span></span>
         </div>
-        <div class="table-wrap" id="recent-feed">
+        <div id="recent-feed">
           <div class="empty-state">Wird geladen…</div>
         </div>
       </div>
@@ -343,29 +301,16 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div id="page-users" class="content-area" style="display:none">
         <div class="section-hdr">
           <span class="section-title">Benutzer</span>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <select id="users-page-size" class="group-filter" style="font-size:11px;padding:5px 8px;" onchange="loadUsers(1)">
-              <option value="10">10 / Seite</option>
-              <option value="20" selected>20 / Seite</option>
-              <option value="50">50 / Seite</option>
-            </select>
-            <button class="btn primary" onclick="openAddUser()">+ Benutzer hinzufügen</button>
-          </div>
+          <button class="btn primary" onclick="openAddUser()">+ Benutzer hinzufügen</button>
         </div>
-        <div id="users-meta" class="form-hint" style="margin-bottom:10px;">Lädt...</div>
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Name</th><th style="width:28px;text-align:center;">●</th><th style="width:32px;">M3U</th><th>Short URL</th><th style="width:60px;text-align:center;">Token</th>
-              <th style="width:80px;">Max Str.</th><th style="width:46px;">Str.</th><th style="width:46px;">Ges.</th><th style="width:76px;">Zuletzt</th><th></th>
+              <th>Name</th><th>Status</th><th>Playlist URL</th><th>Short URL</th>
+              <th>Max Streams</th><th>Streams</th><th>Gesamt</th><th>Zuletzt</th><th></th>
             </tr></thead>
             <tbody id="users-tbody"></tbody>
           </table>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
-          <button class="btn sm" id="users-prev-btn" onclick="loadUsers(Math.max(1, usersPage-1))">← Zurück</button>
-          <div id="users-page-info" class="form-hint">Seite 1</div>
-          <button class="btn sm" id="users-next-btn" onclick="loadUsers(usersPage+1)">Weiter →</button>
         </div>
       </div>
 
@@ -373,12 +318,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div id="page-channels" class="content-area" style="display:none">
         <div class="section-hdr">
           <span class="section-title">Kanal-Manager <span id="ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <select class="group-filter" id="ch-provider-filter" onchange="filterCh()" style="font-size:11px;padding:5px 8px;" title="Nach Anbieter filtern">
-              <option value="">Alle Anbieter</option>
-            </select>
+          <div style="display:flex;gap:6px;">
+            <button class="btn" onclick="openImport()">↓ M3U importieren</button>
             <button class="btn" onclick="refreshCh()">↻ Neu laden</button>
-            <button class="btn" onclick="openGroupManager()">🏷 Gruppen</button>
           </div>
         </div>
         <div class="ch-toolbar">
@@ -390,202 +332,28 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <button class="btn sm danger" onclick="grpToggle(0)">Gruppe ✗</button>
         </div>
         <p style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:10px;">
-          💡 Kanal gedrückt halten und verschieben – Reihenfolge wird sofort gespeichert. Anbieter verwalten → <a href="#" onclick="nav('providers',null);return false;" style="color:var(--teal);">Anbieter</a>
+          💡 Kanal gedrückt halten und verschieben – Reihenfolge wird sofort gespeichert
         </p>
         <div class="channel-grid" id="ch-grid">
-          <div class="empty-state" style="grid-column:1/-1">Noch keine Kanäle. Erst einen Anbieter anlegen und M3U importieren.</div>
+          <div class="empty-state" style="grid-column:1/-1">Noch keine Kanäle. M3U importieren ↑</div>
         </div>
       </div>
-
-      <!-- User Groups -->
-      <div id="page-groups" class="content-area" style="display:none">
-        <div class="section-hdr">
-          <span class="section-title">Gruppen</span>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input class="search-input" id="new-ugroup-name" placeholder="Gruppenname, z.B. Kinder" style="width:200px;">
-            <button class="btn primary" onclick="createUserGroup()">+ Neue Gruppe</button>
-          </div>
-        </div>
-
-        <!-- Eigene Gruppen -->
-        <div style="margin-bottom:20px;">
-          <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);margin-bottom:10px;">🏷 Eigene Benutzer-Gruppen</div>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:12px;font-family:var(--mono);">
-            Erstelle eigene Gruppen und weise Kanäle zu. User sehen dann nur die Kanäle ihrer Gruppe.
-          </p>
-          <div id="ugroups-list">
-            <div class="empty-state">Keine Gruppen vorhanden. Oben neue Gruppe anlegen.</div>
-          </div>
-        </div>
-
-        <!-- Provider Group Order (also here) -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-            <span style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);">⠿ Gruppen-Reihenfolge</span>
-            <span style="font-size:9px;color:var(--text3);">— Drag & Drop · gilt für Playlist-Reihenfolge</span>
-            <button class="btn sm primary" style="margin-left:auto;" onclick="saveProviderGroupOrder()">💾 Speichern</button>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
-            <span style="font-size:12px;color:var(--text);">Nummerierung in IPTV-App</span>
-            <span style="font-size:11px;color:var(--text2);font-family:var(--mono);">(z.B. "01. Kinder", "02. Sport")</span>
-            <label style="margin-left:auto;display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="checkbox" id="group-prefix-toggle-g" onchange="saveGroupPrefix(this.checked)" style="accent-color:var(--teal);width:16px;height:16px;">
-              <span id="group-prefix-label-g" style="font-size:12px;color:var(--text2);">Aus</span>
-            </label>
-          </div>
-          <div id="provider-groups-sortable-g" style="max-height:320px;overflow-y:auto;">
-            <div class="empty-state" style="font-size:11px;">Lädt…</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Providers / Anbieter -->
-      <div id="page-providers" class="content-area" style="display:none">
-        <div class="section-hdr">
-          <span class="section-title">🌐 Anbieter</span>
-          <button class="btn primary" onclick="openAddProvider()">+ Anbieter hinzufügen</button>
-        </div>
-
-        <!-- Provider Cards -->
-        <div id="providers-list" style="margin-bottom:24px;">
-          <div class="empty-state">Lädt…</div>
-        </div>
-
-        <!-- M3U Import Section -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:20px;">
-          <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);margin-bottom:14px;">↓ M3U importieren</div>
-
-          <!-- Tab Switch -->
-
-
-
-
-          <!-- URL Import Panel -->
-          <div id="import-panel-url">
-            <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-bottom:12px;">
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">M3U URL</label>
-                <input class="form-input" id="import-url" placeholder="http://anbieter.tv/get.php?…">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Verfügbare Lines</label>
-                <input class="form-input" id="import-provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Typ</label>
-                <select class="form-select" id="import-source-type">
-                  <option value="m3u" selected>M3U / HLS</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-
-
-
-
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
-              <input type="checkbox" id="import-update-users" checked style="width:15px;height:15px;accent-color:var(--teal);">
-              Bestehende User dieses Anbieters umstellen
-            </label>
-            <button class="btn primary" id="import-btn" onclick="doImport()" style="margin-left:auto;">↓ Importieren</button>
-          </div>
-        </div>
-
-        <!-- Provider Group Order -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:20px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-            <span style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);">⠿ Gruppen-Reihenfolge</span>
-            <span style="font-size:9px;color:var(--text3);">— Drag & Drop</span>
-            <button class="btn sm primary" style="margin-left:auto;" onclick="saveProviderGroupOrder()">💾 Speichern</button>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
-            <span style="font-size:12px;color:var(--text);">Nummerierung in IPTV-App</span>
-            <span style="font-size:11px;color:var(--text2);font-family:var(--mono);">(erzwingt Sortierung in IPTV Pro)</span>
-            <label style="margin-left:auto;display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="checkbox" id="group-prefix-toggle" onchange="saveGroupPrefix(this.checked)" style="accent-color:var(--teal);width:16px;height:16px;">
-              <span id="group-prefix-label" style="font-size:12px;color:var(--text2);">Aus</span>
-            </label>
-          </div>
-          <div id="provider-groups-sortable" style="max-height:320px;overflow-y:auto;">
-            <div class="empty-state" style="font-size:11px;">Lädt…</div>
-          </div>
-        </div>
-
-        <!-- EPG Sources per provider -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
-            <span style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);">📅 EPG-Quellen pro Anbieter</span>
-            
-          </div>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:14px;font-family:var(--mono);">
-            Jeder Anbieter kann eine eigene EPG-Quelle haben. Die Spalte <strong>Anbieter</strong> in der EPG-Tabelle zeigt die Zuordnung. Über ✏️ bearbeiten und Anbieter zuordnen.
-          </p>
-          <div id="epg-per-provider-list">
-            <div class="empty-state" style="font-size:11px;">Lädt…</div>
-          </div>
-        </div>
-      </div>
-
 
       <!-- EPG -->
       <div id="page-epg" class="content-area" style="display:none">
         <div class="section-hdr">
           <span class="section-title">EPG Quellen</span>
-          <div></div>
-        </div>
-        <!-- EPG Quelle hinzufügen + Cache oben -->
-        <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap;">
-          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
-            <div class="form-group" style="margin:0;flex:1;min-width:160px;">
-              <label class="form-label">Name</label>
-              <input class="form-input" id="epg-name" placeholder="z.B. Anbieter EPG">
-            </div>
-            <div class="form-group" style="margin:0;flex:3;min-width:260px;">
-              <label class="form-label">URL</label>
-              <input class="form-input" id="epg-url" placeholder="http://epg.anbieter.tv/epg.xml">
-            </div>
-            <button class="btn primary" onclick="addEpg()" style="margin-bottom:0;">+ Hinzufügen</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" onclick="downloadEpg()" title="Gefilterte EPG XML herunterladen">⬇ EPG.xml Download</button>
+            <button class="btn primary" onclick="openAddEpg()">+ Quelle hinzufügen</button>
           </div>
         </div>
-
-        <!-- EPG Cache & Filter -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;margin-bottom:14px;">
-          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <label class="form-label" style="margin:0;white-space:nowrap;">⚙️ Cache-Dauer:</label>
-              <select class="form-select" id="epg-refresh" style="width:160px;">
-                <option value="1">Jede Stunde</option>
-                <option value="3">Alle 3 Stunden</option>
-                <option value="6" selected>Alle 6 Stunden</option>
-                <option value="12">Alle 12 Stunden</option>
-                <option value="24">Einmal täglich</option>
-                <option value="72">Alle 3 Tage</option>
-                <option value="168">Alle 7 Tage</option>
-              </select>
-            </div>
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;">
-              <input type="checkbox" id="epg-filter" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
-              Nur Kanäle aus Kanal-Manager anzeigen
-            </label>
-            <div style="display:flex;gap:6px;margin-left:auto;">
-              <button class="btn primary sm" onclick="saveEpgSettings()">Speichern</button>
-              <button class="btn sm" onclick="forceEpgRefresh()">↻ Neu laden</button>
-            </div>
-          </div>
-          <div id="epg-cache-status" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text2);"></div>
-        </div>
-
-        <!-- Quellen-Tabelle -->
-        <div class="table-wrap" style="margin-bottom:14px;">
+        <div class="table-wrap">
           <table>
             <thead><tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr></thead>
             <tbody id="epg-tbody"></tbody>
           </table>
         </div>
-
-        <!-- Globale EPG-URL -->
         <div class="epg-global">
           <strong style="color:var(--text);">Globale EPG-URL</strong> – direkt in IPTV-App eintragen (gleich für alle):
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
@@ -598,29 +366,47 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <tr style="border-bottom:1px solid var(--border);">
                 <td style="padding:6px 0;color:var(--text2);white-space:nowrap;width:50px;">1 Tag</td>
                 <td style="padding:6px 4px 6px 8px;color:var(--teal);font-size:10px;white-space:nowrap;" id="epg-1d-val">—</td>
-                <td style="padding:4px 8px 4px 0;white-space:nowrap;"><button class="btn sm" onclick="doCopy(document.getElementById('epg-1d-val').textContent,this)">📋 Lang</button></td>
+                <td style="padding:4px 8px 4px 0;white-space:nowrap;">
+                  <button class="btn sm" onclick="doCopy(document.getElementById('epg-1d-val').textContent,this)">📋 Lang</button>
+                </td>
                 <td style="padding:6px 4px 6px 12px;color:var(--text2);white-space:nowrap;">Short:</td>
                 <td style="padding:6px 4px 6px 8px;color:var(--green);font-size:10px;white-space:nowrap;" id="epg-1d-short">—</td>
-                <td style="padding:4px 0;white-space:nowrap;"><button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-1d-short').textContent,this)">📋 Short</button></td>
-                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;"><button class="btn sm" onclick="downloadEpgDays(1)">⬇ 1T</button></td>
+                <td style="padding:4px 0;white-space:nowrap;">
+                  <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-1d-short').textContent,this)">📋 Short</button>
+                </td>
+                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;">
+                  <button class="btn sm" onclick="downloadEpgDays(1)">⬇ 1T</button>
+                </td>
               </tr>
               <tr style="border-bottom:1px solid var(--border);">
                 <td style="padding:6px 0;color:var(--text2);white-space:nowrap;">3 Tage</td>
                 <td style="padding:6px 4px 6px 8px;color:var(--teal);font-size:10px;white-space:nowrap;" id="epg-3d-val">—</td>
-                <td style="padding:4px 8px 4px 0;white-space:nowrap;"><button class="btn sm" onclick="doCopy(document.getElementById('epg-3d-val').textContent,this)">📋 Lang</button></td>
+                <td style="padding:4px 8px 4px 0;white-space:nowrap;">
+                  <button class="btn sm" onclick="doCopy(document.getElementById('epg-3d-val').textContent,this)">📋 Lang</button>
+                </td>
                 <td style="padding:6px 4px 6px 12px;color:var(--text2);white-space:nowrap;">Short:</td>
                 <td style="padding:6px 4px 6px 8px;color:var(--green);font-size:10px;white-space:nowrap;" id="epg-3d-short">—</td>
-                <td style="padding:4px 0;white-space:nowrap;"><button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-3d-short').textContent,this)">📋 Short</button></td>
-                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;"><button class="btn sm" onclick="downloadEpgDays(3)">⬇ 3T</button></td>
+                <td style="padding:4px 0;white-space:nowrap;">
+                  <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-3d-short').textContent,this)">📋 Short</button>
+                </td>
+                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;">
+                  <button class="btn sm" onclick="downloadEpgDays(3)">⬇ 3T</button>
+                </td>
               </tr>
               <tr>
                 <td style="padding:6px 0;color:var(--text2);white-space:nowrap;">7 Tage</td>
                 <td style="padding:6px 4px 6px 8px;color:var(--teal);font-size:10px;white-space:nowrap;" id="epg-7d-val">—</td>
-                <td style="padding:4px 8px 4px 0;white-space:nowrap;"><button class="btn sm" onclick="doCopy(document.getElementById('epg-7d-val').textContent,this)">📋 Lang</button></td>
+                <td style="padding:4px 8px 4px 0;white-space:nowrap;">
+                  <button class="btn sm" onclick="doCopy(document.getElementById('epg-7d-val').textContent,this)">📋 Lang</button>
+                </td>
                 <td style="padding:6px 4px 6px 12px;color:var(--text2);white-space:nowrap;">Short:</td>
                 <td style="padding:6px 4px 6px 8px;color:var(--green);font-size:10px;white-space:nowrap;" id="epg-7d-short">—</td>
-                <td style="padding:4px 0;white-space:nowrap;"><button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-7d-short').textContent,this)">📋 Short</button></td>
-                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;"><button class="btn sm" onclick="downloadEpgDays(7)">⬇ 7T</button></td>
+                <td style="padding:4px 0;white-space:nowrap;">
+                  <button class="btn sm" style="border-color:rgba(63,185,80,.4);color:var(--green);" onclick="doCopy(document.getElementById('epg-7d-short').textContent,this)">📋 Short</button>
+                </td>
+                <td style="padding:4px 0 4px 8px;white-space:nowrap;text-align:right;width:1%;">
+                  <button class="btn sm" onclick="downloadEpgDays(7)">⬇ 7T</button>
+                </td>
               </tr>
             </table>
           </div>
@@ -641,46 +427,83 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <button class="btn" onclick="scanEpgChannels()" id="epg-scan-btn">📡 EPG einlesen</button>
               <button class="btn sm" onclick="epgChToggleAll(1)">Alle ✓</button>
               <button class="btn sm danger" onclick="epgChToggleAll(0)">Alle ✗</button>
-              <button class="btn sm primary" onclick="autoMatchEpgChannels()">⚡ Auto-Match</button>
+              <button class="btn sm primary" onclick="autoMatchEpgChannels()" title="Automatisch alle Kanäle aktivieren die im Kanal-Manager vorhanden sind">⚡ Auto-Match</button>
             </div>
           </div>
           <p style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:10px;">
-            💡 <strong>EPG einlesen</strong> lädt alle Kanäle aus deiner EPG-Quelle. <strong>Auto-Match</strong> aktiviert automatisch nur die Kanäle die du im Kanal-Manager hast.
+            💡 <strong>EPG einlesen</strong> lädt alle Kanäle aus deiner EPG-Quelle. <strong>Auto-Match</strong> aktiviert automatisch nur die Kanäle die du im Kanal-Manager hast. Drag & Drop zum Sortieren.
           </p>
           <div class="channel-grid" id="epg-ch-grid">
             <div class="empty-state" style="grid-column:1/-1">Erst "EPG einlesen" klicken um Kanäle zu laden</div>
           </div>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="section-title" style="margin-bottom:10px;">Eigene EPG-URL eintragen</div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+              <label class="form-label">Name</label>
+              <input class="form-input" id="epg-name" placeholder="z.B. Anbieter EPG">
+            </div>
+            <div class="form-group" style="margin:0;flex:3;min-width:300px;">
+              <label class="form-label">URL</label>
+              <input class="form-input" id="epg-url" placeholder="http://epg.anbieter.tv/epg.xml">
+            </div>
+            <button class="btn primary" onclick="addEpg()" style="margin-bottom:0;">Speichern</button>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;background:var(--bg2);border:1px solid var(--border);padding:16px;">
+          <div class="section-title" style="margin-bottom:14px;">⚙️ EPG Cache & Filter</div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Cache-Dauer (wie oft EPG neu geladen wird)</label>
+              <select class="form-select" id="epg-refresh" style="width:200px;">
+                <option value="1">Jede Stunde</option>
+                <option value="3">Alle 3 Stunden</option>
+                <option value="6" selected>Alle 6 Stunden</option>
+                <option value="12">Alle 12 Stunden</option>
+                <option value="24">Einmal täglich</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">EPG filtern</label>
+              <label style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;">
+                <input type="checkbox" id="epg-filter" onchange="saveEpgSettings()">
+                <span style="font-size:12px;">Nur Kanäle aus Kanal-Manager anzeigen</span>
+              </label>
+              <div class="form-hint">Reduziert EPG-Größe erheblich (nur eigene Sender)</div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:20px;">
+              <button class="btn primary" onclick="saveEpgSettings()">Speichern</button>
+              <button class="btn" onclick="forceEpgRefresh()">↻ Jetzt neu laden</button>
+            </div>
+          </div>
+          <div id="epg-cache-status" style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--text2);"></div>
         </div>
       </div>
 
       <!-- Logs -->
       <div id="page-logs" class="content-area" style="display:none">
         <div class="section-hdr">
-          <span class="section-title">Watch-Verlauf</span>
+          <span class="section-title">Watch-Verlauf (letzte 200)</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input class="form-input logs-control" id="logs-user-filter" placeholder="Benutzer filtern..." style="width:180px;padding:5px 8px;font-size:11px;" oninput="scheduleLogsReload()">
-            <input class="form-input logs-control" id="logs-date-from" type="date" style="width:140px;padding:5px 8px;font-size:11px;" title="Von Datum" onchange="loadLogs(1)">
-            <input class="form-input logs-control" id="logs-date-to" type="date" style="width:140px;padding:5px 8px;font-size:11px;" title="Bis Datum" onchange="loadLogs(1)">
-            <select id="logs-page-size" class="form-select logs-control" style="width:auto;padding:5px 8px;font-size:11px;" onchange="loadLogs(1)">
-              <option value="50">50 / Seite</option>
-              <option value="100" selected>100 / Seite</option>
-              <option value="200">200 / Seite</option>
+            <select id="log-ret" class="group-filter" style="font-size:11px;padding:5px 8px;">
+              <option value="-1">∞ Unbegrenzt</option>
+              <option value="0">Deaktiviert</option>
+              <option value="3">3 Tage</option>
+              <option value="7">7 Tage</option>
+              <option value="30">30 Tage</option>
+              <option value="90">90 Tage</option>
             </select>
             <button class="btn sm danger" onclick="clearLogs()">🗑 Löschen</button>
-            <button class="btn sm" onclick="loadLogs()">↻ Refresh</button>
+            <button class="refresh-btn" onclick="loadLogs()">↻ Refresh</button>
           </div>
         </div>
-        <div id="logs-meta" class="form-hint" style="margin-bottom:10px;">Lädt...</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Zeit</th><th>Benutzer</th><th>IP</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead>
+            <thead><tr><th>Zeit</th><th>Benutzer</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead>
             <tbody id="logs-tbody"></tbody>
           </table>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
-          <button class="btn sm" id="logs-prev-btn" onclick="loadLogs(Math.max(1, logsPage-1))">← Zurück</button>
-          <div id="logs-page-info" class="form-hint">Seite 1</div>
-          <button class="btn sm" id="logs-next-btn" onclick="loadLogs(logsPage+1)">Weiter →</button>
         </div>
       </div>
 
@@ -688,6 +511,27 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div id="page-settings" class="content-area" style="display:none">
         <div class="section-title" style="margin-bottom:16px;">Einstellungen</div>
         <div class="settings-grid">
+
+          <div class="scard">
+            <div class="scard-title">🖼 Logo anpassen</div>
+            <div class="form-group">
+              <label class="form-label">Login-Logo (wird groß angezeigt)</label>
+              <input type="file" id="upload-login-logo" accept="image/*" style="display:none" onchange="uploadLogo('login',this)">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                <img id="preview-login" src="/logo.png" style="height:60px;object-fit:contain;background:var(--bg3);padding:4px;">
+                <button class="btn sm" onclick="document.getElementById('upload-login-logo').click()">📁 Bild wählen</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">App-Logo (Topbar, klein)</label>
+              <input type="file" id="upload-app-logo" accept="image/*" style="display:none" onchange="uploadLogo('app',this)">
+              <div style="display:flex;gap:8px;align-items:center;">
+                <img id="preview-app" src="/logo.png" style="height:40px;object-fit:contain;background:var(--bg3);padding:4px;">
+                <button class="btn sm" onclick="document.getElementById('upload-app-logo').click()">📁 Bild wählen</button>
+              </div>
+            </div>
+            <div class="form-hint" style="margin-top:8px;">PNG mit Transparenz empfohlen (wie selfstream-logo-klein-trans.png)</div>
+          </div>
 
           <div class="scard">
             <div class="scard-title">🌐 URLs</div>
@@ -704,8 +548,23 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <input class="form-input" id="cfg-short-domain" placeholder="https://iptv.example.com">
               <div class="form-hint">z.B. https://iptv.tv → Benutzer bekommen https://iptv.tv/s/AbCd1234/playlist.m3u</div>
             </div>
-
+            <div class="form-group">
+              <label class="form-label">M3U Quell-URL</label>
+              <input class="form-input" id="cfg-m3u" placeholder="http://anbieter.tv/playlist.m3u">
+            </div>
             <button class="btn primary" onclick="saveUrls()">Speichern</button>
+          </div>
+
+          <div class="scard">
+            <div class="scard-title">🗂 Gruppen</div>
+            <div class="form-group">
+              <label class="form-label">Gruppen-Sortierung in IPTV-App</label>
+              <label style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;">
+                <input type="checkbox" id="cfg-group-prefix" onchange="saveGroupPrefix()">
+                <span style="font-size:12px;">Nummerierung vor Gruppenname (z.B. "01. Kinder")</span>
+              </label>
+              <div class="form-hint">Ermöglicht feste Reihenfolge in IPTV-Apps die alphabetisch sortieren</div>
+            </div>
           </div>
 
           <div class="scard">
@@ -726,335 +585,29 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <label class="form-label">Read Timeout (s)</label>
               <input class="form-input" type="number" id="cfg-rtimeout" value="30">
             </div>
-            <div class="form-group">
-              <label class="form-label">🗄️ Segment-Prefetch (Vorpuffer)</label>
-              <select class="form-select" id="cfg-prefetch">
-                <option value="0">0 – Deaktiviert (kein Vorpuffern)</option>
-                <option value="1">1 – 1 Segment voraus</option>
-                <option value="2" selected>2 – 2 Segmente voraus (Standard)</option>
-                <option value="3">3 – 3 Segmente voraus</option>
-              </select>
-              <div class="form-hint">Wie viele Segmente selfstream im Voraus lädt. Mehr = flüssiger aber mehr RAM/CPU. Bei Lag: auf 0 oder 1 reduzieren.</div>
-            </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
           <div class="scard">
             <div class="scard-title">🔒 Sicherheit</div>
-            <form onsubmit="changePw();return false;" autocomplete="on">
-            <input type="text" name="username" autocomplete="username" style="display:none;">
             <div class="form-group">
               <label class="form-label">Neues Admin-Passwort</label>
-              <input class="form-input" type="password" id="cfg-pw1" name="new-password" placeholder="Min. 8 Zeichen" autocomplete="new-password">
+              <input class="form-input" type="password" id="cfg-pw1" placeholder="Min. 8 Zeichen">
             </div>
             <div class="form-group">
               <label class="form-label">Bestätigen</label>
-              <input class="form-input" type="password" id="cfg-pw2" name="confirm-password" autocomplete="new-password">
+              <input class="form-input" type="password" id="cfg-pw2">
             </div>
-            <button type="submit" class="btn primary">Passwort ändern</button>
-            </form>
-          </div>
-
-          <div class="scard">
-            <div class="scard-title">📋 Verlaufspeicherung</div>
-            <div class="form-group">
-              <label class="form-label">Aufbewahrung Watch-Logs</label>
-              <select class="form-select" id="cfg-log-retention">
-                <option value="-1">∞ Unbegrenzt</option>
-                <option value="0">Deaktiviert (alles loeschen)</option>
-                <option value="3">3 Tage</option>
-                <option value="7">7 Tage</option>
-                <option value="30">30 Tage</option>
-                <option value="90">90 Tage</option>
-              </select>
-              <div class="form-hint">
-                Gespeichert werden Watch-Verlauf (Zeit, Benutzer, IP, Kanal, Sendung, Dauer).<br>
-                Wenn du auf kuerzere Aufbewahrung oder Deaktiviert stellst, werden alte Logs sofort geloescht.
-              </div>
-            </div>
-            <button class="btn primary" onclick="saveLogRetention()">Speichern</button>
-          </div>
-
-        </div>
-
-        <!-- Version Info -->
-        <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.0</span>
-            <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
-            <a href="https://github.com/kabelsalatundklartext/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- VPN Page -->
-      <div id="page-vpn" class="content-area" style="display:none">
-        <div class="section-title" style="margin-bottom:16px;">🔒 VPN – OpenVPN Integration</div>
-        <div class="settings-grid">
-
-          <div class="scard">
-            <div class="scard-title">📡 VPN Status</div>
-            <div id="vpn-status-box" style="padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:14px;">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <span id="vpn-status-dot" style="width:12px;height:12px;border-radius:50%;background:#888;display:inline-block;flex-shrink:0;"></span>
-                <span id="vpn-status-text" style="font-family:var(--mono);font-size:12px;">Unbekannt</span>
-              </div>
-              <div id="vpn-status-ip" style="font-size:11px;color:var(--teal);margin-top:6px;font-family:var(--mono);"></div>
-            </div>
-            <div style="display:flex;gap:8px;margin-bottom:14px;">
-              <button class="btn primary" id="vpn-btn-start" onclick="vpnStart()">▶ VPN Starten</button>
-              <button class="btn" id="vpn-btn-stop" onclick="vpnStop()">⏹ Stoppen</button>
-              <button class="btn" onclick="vpnRefreshStatus()">🔄</button>
-            </div>
-            <div class="scard-title" style="margin-bottom:8px;">📋 Live Log</div>
-            <div id="vpn-log" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--mono);font-size:10px;line-height:1.6;height:220px;overflow-y:auto;color:var(--text2);white-space:pre-wrap;">– Log erscheint hier –</div>
-          </div>
-
-          <div class="scard">
-            <div class="scard-title">⚙️ Konfiguration</div>
-
-            <form onsubmit="vpnSaveCredentials();return false;" autocomplete="on">
-            <div class="form-group">
-              <label class="form-label">OpenVPN Benutzername</label>
-              <input class="form-input" id="vpn-user" name="username" placeholder="Benutzername vom VPN-Anbieter" autocomplete="username">
-              <div class="form-hint">Bei ExpressVPN: Manuelle Konfiguration → OpenVPN</div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">OpenVPN Passwort</label>
-              <input class="form-input" type="password" id="vpn-password" name="password" placeholder="Passwort vom VPN-Anbieter" autocomplete="current-password">
-            </div>
-            <button type="submit" class="btn primary" style="margin-bottom:16px;">💾 Zugangsdaten speichern</button>
-            </form>
-
-            <div class="form-group" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
-              <label class="form-label">.ovpn Datei hochladen</label>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <input type="file" id="vpn-file" accept=".ovpn" style="display:none" onchange="vpnUpload(this)">
-                <button class="btn sm" onclick="document.getElementById('vpn-file').click()">📁 Datei wählen</button>
-                <span id="vpn-file-name" style="font-family:var(--mono);font-size:11px;color:var(--text2);">Keine Datei gewählt</span>
-              </div>
-              <div class="form-hint">Lade deine .ovpn Datei vom VPN-Anbieter hoch (z.B. expressvpn_switzerland.ovpn)</div>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Aktive .ovpn Datei</label>
-              <div id="vpn-ovpn-list" style="font-family:var(--mono);font-size:11px;color:var(--teal);padding:6px 0;">Lädt…</div>
-            </div>
-
-            <div class="form-hint" style="margin-top:8px;padding:10px;background:var(--bg2);border-radius:6px;border:1px solid var(--border);">
-              ⚠️ selfstream Container braucht:<br>
-              <code style="color:var(--teal);">--cap-add=NET_ADMIN</code><br>
-              <code style="color:var(--teal);">--device=/dev/net/tun</code><br>
-              In Unraid: Container bearbeiten → Privilegierte Rechte = AN
-            </div>
-          </div>
-
-          <div class="scard" style="grid-column:1/-1">
-            <div class="scard-title">🚀 Speedtest – Flaschenhals-Analyse</div>
-            <div class="form-hint" style="margin-bottom:14px;">
-              Misst <strong>Internet/VPN-Geschwindigkeit</strong> und <strong>IPTV-Anbieter-Geschwindigkeit</strong> getrennt – zeigt wo der Flaschenhals ist.
-            </div>
-            <button class="btn primary" id="speedtest-btn" onclick="runSpeedtest()">▶ Speedtest starten</button>
-
-            <div id="speedtest-result" style="display:none;margin-top:20px;">
-
-              <!-- Bottleneck Banner -->
-              <div id="speedtest-bottleneck" style="padding:10px 14px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:16px;font-size:12px;font-family:var(--mono);"></div>
-
-              <!-- Two columns -->
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-
-                <!-- Internet/VPN -->
-                <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;">
-                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🌐 INTERNET / VPN</div>
-                  <div style="display:flex;align-items:flex-end;gap:4px;margin-bottom:4px;">
-                    <span id="st-inet-mbps" style="font-size:42px;font-family:var(--mono);color:var(--teal);line-height:1;">–</span>
-                    <span style="font-size:13px;color:var(--text2);margin-bottom:6px;">Mbit/s</span>
-                  </div>
-                  <div id="st-inet-detail" style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:12px;"></div>
-                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
-                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
-                      <div id="st-inet-hd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
-                      <div style="font-size:9px;color:var(--text2);">HD</div>
-                    </div>
-                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
-                      <div id="st-inet-fhd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
-                      <div style="font-size:9px;color:var(--text2);">FHD</div>
-                    </div>
-                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
-                      <div id="st-inet-4k" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
-                      <div style="font-size:9px;color:var(--text2);">4K</div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- IPTV Provider -->
-                <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;">
-                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📺 IPTV-ANBIETER</div>
-                  <div style="display:flex;align-items:flex-end;gap:4px;margin-bottom:4px;">
-                    <span id="st-iptv-mbps" style="font-size:42px;font-family:var(--mono);color:var(--teal);line-height:1;">–</span>
-                    <span style="font-size:13px;color:var(--text2);margin-bottom:6px;">Mbit/s</span>
-                  </div>
-                  <div id="st-iptv-detail" style="font-size:10px;color:var(--text2);font-family:var(--mono);margin-bottom:12px;"></div>
-                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
-                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
-                      <div id="st-iptv-hd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
-                      <div style="font-size:9px;color:var(--text2);">HD</div>
-                    </div>
-                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
-                      <div id="st-iptv-fhd" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
-                      <div style="font-size:9px;color:var(--text2);">FHD</div>
-                    </div>
-                    <div style="text-align:center;background:var(--bg);border-radius:6px;padding:8px;">
-                      <div id="st-iptv-4k" style="font-size:18px;font-family:var(--mono);color:var(--teal);">–</div>
-                      <div style="font-size:9px;color:var(--text2);">4K</div>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            </div>
+            <button class="btn primary" onclick="changePw()">Passwort ändern</button>
           </div>
 
         </div>
       </div>
+    </div>
+  </div>
+</div>
 
-      <!-- Traffic Page -->
-      <div id="page-traffic" class="content-area" style="display:none">
-        <div class="section-hdr">
-          <span class="section-title">📊 Traffic-Analyse</span>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px;">
-              Speichern:
-              <select id="traffic-retention" class="form-select" style="width:auto;padding:4px 6px;font-size:11px;" onchange="saveTrafficRetention(this.value)">
-                <option value="7">7 Tage</option>
-                <option value="14">14 Tage</option>
-                <option value="30" selected>30 Tage</option>
-                <option value="60">60 Tage</option>
-                <option value="-1">Unbegrenzt</option>
-              </select>
-            </label>
-            <select id="traffic-interval" class="form-select" style="width:auto;padding:4px 6px;font-size:11px;" onchange="startTrafficMonitor()">
-              <option value="3">Alle 3s</option>
-              <option value="5" selected>Alle 5s</option>
-              <option value="10">Alle 10s</option>
-              <option value="30">Alle 30s</option>
-            </select>
-            <button class="btn sm" onclick="startTrafficMonitor()">↻ Refresh</button>
-          </div>
-        </div>
-
-        <!-- Live Stats Row -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">
-          <div class="scard" style="text-align:center;padding:16px;">
-            <div id="tr-streams" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
-            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">AKTIVE STREAMS</div>
-          </div>
-          <div class="scard" style="text-align:center;padding:16px;">
-            <div id="tr-mbps" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
-            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">MBIT/S GESAMT</div>
-          </div>
-          <div class="scard" style="text-align:center;padding:16px;">
-            <div id="tr-today" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
-            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">STREAMS HEUTE</div>
-          </div>
-          <div class="scard" style="text-align:center;padding:16px;">
-            <div id="tr-peak" style="font-size:36px;font-family:var(--mono);color:var(--teal);">0</div>
-            <div style="font-size:10px;color:var(--text2);margin-top:4px;letter-spacing:.1em;">PEAK (SESSION)</div>
-          </div>
-        </div>
-
-        <!-- Live Sessions Detail -->
-        <div class="scard" style="margin-bottom:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);">
-            <div class="scard-title" style="margin:0;">🔴 Live Streams</div>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <select id="tr-sessions-limit" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="renderTrafficSessions()">
-                <option value="10" selected>10 / Seite</option>
-                <option value="25">25 / Seite</option>
-                <option value="50">50 / Seite</option>
-              </select>
-            </div>
-          </div>
-          <div id="tr-sessions-list" style="font-family:var(--mono);font-size:12px;">
-            <div class="empty-state">Keine aktiven Streams</div>
-          </div>
-          <div id="tr-sessions-pager" style="display:flex;gap:8px;align-items:center;margin-top:8px;"></div>
-        </div>
-
-        <!-- Traffic History Chart -->
-        <div class="scard">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div class="scard-title" style="margin:0;">📈 Stream-Verlauf</div>
-            <select id="tr-range" class="group-filter" style="font-size:11px;padding:4px 8px;" onchange="drawTrafficChart()">
-              <option value="300">Letzte 5 Min</option>
-              <option value="900">Letzte 15 Min</option>
-              <option value="1800">Letzte 30 Min</option>
-              <option value="3600" selected>Letzte 1h</option>
-              <option value="all">Alles</option>
-            </select>
-          </div>
-          <canvas id="tr-chart" height="120" style="width:100%;display:block;"></canvas>
-          <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:10px;color:var(--text2);font-family:var(--mono);">
-            <span id="tr-chart-min">–</span>
-            <span style="color:#ff6b6b;">● Peak</span>
-            <span>Jetzt →</span>
-          </div>
-        </div>
-        <!-- Channel Buffering Stats -->
-        <div class="scard" style="margin-top:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div class="scard-title" style="margin:0;">📺 Sender-Statistik (Buffering-Ranking)</div>
-            <button class="btn sm" onclick="exportChannelReport()">📋 Bericht kopieren</button>
-          </div>
-          <div class="form-hint" style="margin-bottom:10px;">
-            Zeigt welche Sender am häufigsten stocken – sortiert nach Schweregrad. Nutze "Bericht kopieren" um Beweise an deinen IPTV-Anbieter zu schicken.
-          </div>
-          <div id="tr-channel-stats">
-            <div class="empty-state">Noch keine Daten – tritt auf sobald Buffering-Ereignisse vorliegen</div>
-          </div>
-        </div>
-
-        <!-- Buffering Events -->
-        <div class="scard" style="margin-top:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-            <div class="scard-title" style="margin:0;">⚠️ Buffering-Ereignisse</div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <select id="seg-days" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="window._segManualReload=true;loadSegmentEvents()">
-                <option value="1">Heute</option>
-                <option value="7">7 Tage</option>
-                <option value="30" selected>30 Tage</option>
-                <option value="90">90 Tage</option>
-              </select>
-              <select id="seg-limit" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="window._segEventsPage=1;renderSegEvents()">
-                <option value="25">25 / Seite</option>
-                <option value="50">50 / Seite</option>
-                <option value="100" selected>100 / Seite</option>
-                <option value="250">250 / Seite</option>
-                <option value="500">500 / Seite</option>
-              </select>
-              <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;">
-                <input type="checkbox" id="tr-debug-mode" style="accent-color:var(--teal);" onchange="window._segManualReload=true;toggleDebugMode(this)">
-                <span style="color:var(--text2);">🔬 Debug</span>
-              </label>
-              <button class="btn sm" window._segManualReload=true;loadSegmentEvents()">↻</button>
-              <button class="btn sm danger" onclick="clearSegmentEvents()">🗑</button>
-            </div>
-          </div>
-          <div class="form-hint" style="margin-bottom:10px;">
-            🔴 <strong>Langsam (&gt;2s)</strong> = Buffering sehr wahrscheinlich &nbsp;|&nbsp;
-            🟡 <strong>Verzögert (&gt;1s)</strong> = Buffering möglich &nbsp;|&nbsp;
-            ✅ <strong>OK (&lt;1s)</strong> = nur im Debug-Modus sichtbar<br>
-            💡 Buffering-Ereignisse werden auf <strong>selfstream-Seite</strong> gemessen — d.h. sie zeigen wie schnell der IPTV-Anbieter die Segmente liefert, nicht ob der Benutzer puffert. Langsame Segmente = Anbieter-Problem.
-            <span id="seg-total-count" style="margin-left:8px;color:var(--teal);font-family:var(--mono);font-size:10px;"></span>
-          </div>
-          <div id="tr-seg-events" style="font-family:var(--mono);font-size:11px;">
-            <div class="empty-state">Noch keine Ereignisse – tritt auf wenn ein Segment &gt;1s braucht</div>
-          </div>
-          <div id="tr-seg-pager" style="display:flex;gap:8px;align-items:center;margin-top:10px;"></div>
-        </div>
-      </div>
+<!-- Add User Modal -->
 <div class="modal-bg" id="modal-adduser">
   <div class="modal">
     <div class="modal-title">Benutzer anlegen</div>
@@ -1076,118 +629,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
       </select>
       <div class="form-hint">Verhindert Weitergabe des Links.</div>
     </div>
-
-    <div class="form-group">
-      <label class="form-label">Erlaubte Kanalgruppen (optional)</label>
-      <div id="nu-groups-wrap" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);">
-        <div style="font-size:11px;color:var(--text2);">Kanäle werden nach Import geladen…</div>
-      </div>
-      <div class="form-hint">Leer lassen = alle Gruppen erlaubt. Auswahl = nur diese Gruppen in der Playlist.</div>
-    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeM('modal-adduser')">Abbrechen</button>
       <button class="btn primary" onclick="addUser()">Erstellen</button>
-    </div>
-  </div>
-</div>
-
-<!-- Group Channel Editor Modal -->
-<div class="modal-bg" id="modal-group-editor">
-  <div class="modal" style="width:800px;max-width:95vw;">
-    <div class="modal-title" id="group-editor-title">Kanäle für Gruppe</div>
-    <div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap;">
-      <input class="search-input" id="group-editor-search" placeholder="Kanal suchen…" oninput="renderGroupEditorChannels()" style="flex:1;min-width:150px;">
-      <select class="group-filter" id="group-editor-grp" onchange="renderGroupEditorChannels()">
-        <option value="">Alle Anbieter-Gruppen</option>
-      </select>
-      <span id="group-editor-count" style="font-family:var(--mono);font-size:11px;color:var(--text2);white-space:nowrap;">0 ausgewählt</span>
-    </div>
-    <div id="group-editor-channels" style="max-height:420px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">
-      <div class="empty-state">Lädt…</div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeM('modal-group-editor')">Abbrechen</button>
-      <button class="btn primary" onclick="saveGroupChannels()">💾 Speichern</button>
-    </div>
-  </div>
-</div>
-
-<!-- Group Manager Modal -->
-<div class="modal-bg" id="modal-groups">
-  <div class="modal" style="width:700px;max-width:95vw;">
-    <div class="modal-title">🏷 Gruppen verwalten</div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">
-      Klicke auf einen Gruppennamen um ihn umzubenennen. Das Mapping bleibt auch nach einem M3U-Refresh erhalten.
-    </p>
-    <div id="groups-manager-content" style="max-height:450px;overflow-y:auto;">
-      <div class="empty-state">Lädt…</div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeM('modal-groups')">Schließen</button>
-    </div>
-  </div>
-</div>
-
-<!-- EPG Edit Modal -->
-<div class="modal-bg" id="modal-epg-edit">
-  <div class="modal" style="max-width:460px;width:95vw;">
-    <div class="modal-title">EPG-Quelle bearbeiten</div>
-    <input type="hidden" id="epg-edit-id" value="">
-    <div class="form-group">
-      <label class="form-label">Name</label>
-      <input class="form-input" id="epg-edit-name" placeholder="z.B. Anbieter EPG">
-    </div>
-    <div class="form-group">
-      <label class="form-label">URL</label>
-      <input class="form-input" id="epg-edit-url" placeholder="http://epg.anbieter.tv/epg.xml">
-    </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeM('modal-epg-edit')">Abbrechen</button>
-      <button class="btn primary" onclick="saveEpgEdit()">Speichern</button>
-    </div>
-  </div>
-</div>
-
-<!-- Add/Edit Provider Modal -->
-<div class="modal-bg" id="modal-provider">
-  <div class="modal" style="max-width:480px;width:95vw;">
-    <div class="modal-title" id="provider-modal-title">Anbieter hinzufügen</div>
-    <input type="hidden" id="provider-edit-id" value="">
-    <div class="form-group">
-      <label class="form-label">Name *</label>
-      <input class="form-input" id="provider-name" placeholder="z.B. Provider A">
-    </div>
-    <div class="form-group">
-      <label class="form-label">M3U URL *</label>
-      <input class="form-input" id="provider-url" placeholder="http://anbieter.tv/get.php?…">
-      <div class="form-hint">Die M3U-Quelle dieses Anbieters</div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-      <div class="form-group">
-        <label class="form-label">Verfügbare Lines</label>
-        <input class="form-input" id="provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
-        <div class="form-hint">0 = unbegrenzt</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Auto-Refresh</label>
-        <select class="form-select" id="provider-refresh-hours">
-          <option value="0">Deaktiviert</option>
-          <option value="6">Alle 6 Stunden</option>
-          <option value="12">Alle 12 Stunden</option>
-          <option value="24">Alle 24 Stunden</option>
-          <option value="48">Alle 48 Stunden</option>
-        </select>
-      </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Stream-Typ</label>
-      <select class="form-select" id="provider-source-type">
-        <option value="m3u" selected>M3U / HLS</option>
-      </select>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeM('modal-provider')">Abbrechen</button>
-      <button class="btn primary" onclick="saveProvider()">Speichern</button>
     </div>
   </div>
 </div>
@@ -1201,49 +645,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <input class="form-input" id="import-url" placeholder="http://anbieter.tv/get.php?…">
       <div class="form-hint">URL wird gespeichert und kann später neu geladen werden.</div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Anbietername</label>
-      <input class="form-input" id="import-provider-name" placeholder="z.B. Provider A">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Verfuegbare Lines</label>
-      <input class="form-input" id="import-provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
-      <div class="form-hint">0 = unbekannt/unbegrenzt (nur Tracking ohne Kapazitaetsgrenze).</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Quellentyp</label>
-      <select class="form-select" id="import-source-type">
-        <option value="m3u" selected>M3U / HLS</option>
-      </select>
-    </div>
-    <div class="form-group" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px;">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-        <input type="checkbox" id="import-update-users" checked style="width:16px;height:16px;accent-color:var(--teal);">
-        <span style="font-size:13px;">Alle bestehenden User auf neue URL umstellen</span>
-      </label>
-      <div class="form-hint" style="margin-top:6px;">
-        ⚠️ Empfohlen wenn du den Anbieter wechselst oder eine neue M3U-URL hast.<br>
-        Deaktivieren wenn du nur die Kanalliste aktualisieren willst.
-      </div>
-    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeM('modal-import')">Abbrechen</button>
       <button class="btn primary" id="import-btn" onclick="doImport()">Importieren</button>
-    </div>
-  </div>
-</div>
-
-<!-- User Groups Modal -->
-<div class="modal-bg" id="modal-ugroups">
-  <div class="modal" style="width:600px;max-width:95vw;">
-    <div class="modal-title" id="ugroups-title">Kanalgruppen · User</div>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">Leer lassen = alle Gruppen erlaubt. Auswahl = nur diese Gruppen in der Playlist sichtbar.</p>
-    <div id="ugroups-content" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg2);">
-      <div class="empty-state">Lädt…</div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeM('modal-ugroups')">Abbrechen</button>
-      <button class="btn primary" id="ugroups-save-btn">Speichern</button>
     </div>
   </div>
 </div>
@@ -1266,14 +670,9 @@ let TOKEN = sessionStorage.getItem('ss_token') || '';
 let statsTimer = null;
 let allCh = [];
 let dragId = null;
-let logsPage = 1;
-let logsTotalPages = 1;
-let logsReloadTimer = null;
-let currentLogRetention = '-1';
-let usersPage = 1;
-let usersTotalPages = 1;
-const userTokenVisible = {};
-let providersCache = [];
+let _recentLogs = [];
+let _recentPage = 1;
+const _recentPerPage = 10;
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
@@ -1312,26 +711,8 @@ async function loadApp() {
   await loadStats();
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
-  applySidebarState();
   loadUsers();
   setRefresh();
-}
-
-function applySidebarState() {
-  const app = document.getElementById('app');
-  const btn = document.getElementById('menu-toggle-btn');
-  const collapsed = localStorage.getItem('ss_sidebar_collapsed') === '1';
-  app.classList.toggle('sidebar-collapsed', collapsed);
-  if (btn) btn.textContent = collapsed ? '→' : '☰';
-}
-
-function toggleSidebar() {
-  const app = document.getElementById('app');
-  const nextCollapsed = !app.classList.contains('sidebar-collapsed');
-  app.classList.toggle('sidebar-collapsed', nextCollapsed);
-  localStorage.setItem('ss_sidebar_collapsed', nextCollapsed ? '1' : '0');
-  const btn = document.getElementById('menu-toggle-btn');
-  if (btn) btn.textContent = nextCollapsed ? '→' : '☰';
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
@@ -1343,15 +724,9 @@ function nav(page, el) {
   if(page==='dashboard') loadStats();
   if(page==='users') loadUsers();
   if(page==='channels') loadCh();
-  if(page==='groups') { loadUserGroups(); loadProviderGroupOrderGroups(); loadGroupPrefixSettingGroups(); }
-  if(page==='providers') { loadProviders(); loadProviderGroupOrder(); loadGroupPrefixSetting(); loadEpgMini(); loadProviderImportDropdown(); loadChProviderFilter(); }
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
-  if(page==='channels') { loadChProviderFilter(); }
   if(page==='logs') loadLogs();
   if(page==='settings') loadSettings();
-  if(page==='vpn') loadVpnSettings();
-  if(page==='traffic') startTrafficMonitor();
-  if(page!=='traffic') stopTrafficMonitor();
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -1392,7 +767,6 @@ async function loadStats() {
         return `<div class="session-row" style="padding:10px 14px;flex-wrap:nowrap;overflow:hidden;">
           <div class="live-dot active" style="flex-shrink:0;"></div>
           <strong style="flex-shrink:0;">${esc(sess.user)}</strong>
-          ${sess.ip?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-left:4px;flex-shrink:0;">(${esc(sess.ip)})</span>`:''}
           <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
           <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(sess.channel)}</span>
           ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${np.start||''}–${np.stop||''}</span>`:''}
@@ -1423,122 +797,112 @@ async function loadStats() {
       }
     }
 
-    // ── Zuletzt geschaut — direkt aus Verlauf API ────────────────────────────
+    // ── Zuletzt geschaut ──────────────────────────────────────────────────────
     const feed=document.getElementById('recent-feed');
     if(feed){
-      try {
-        const logs=await api('GET','/api/logs?limit=30');
-        if(!logs.length){
-          feed.innerHTML='<div class="empty-state">Noch keine Einträge</div>';
-        } else {
-          const tbody=logs.map(l=>{
-            const isCatchup=l.is_catchup===1||l.is_catchup==='1';
-            const icon=isCatchup?'<span style="color:var(--teal);">⏪</span>':'<span style="color:var(--green);">▶</span>';
-            const dt=l.started_at?new Date(l.started_at+'Z'):null;
-            const dateStr=dt?dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'}):'';
-            const timeStr=dt?dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):'';
-            const sendung=l.epg_title?`<span style="color:var(--teal);font-size:11px;">${esc(l.epg_title)}</span>`:'<span style="color:var(--text2);">—</span>';
-            const dur=l.duration_seconds>0?fmtDur(l.duration_seconds):'—';
-            return `<tr style="border-bottom:1px solid var(--border);">
-              <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--text2);">${dateStr} ${timeStr}</td>
-              <td style="padding:6px 8px;font-size:12px;">${icon} <strong>${esc(l.user_name)}</strong></td>
-              <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:var(--text2);">${esc(l.ip_address||l.ip||'')}</td>
-              <td style="padding:6px 8px;font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</td>
-              <td style="padding:6px 8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
-              <td style="padding:6px 8px;font-family:var(--mono);font-size:11px;text-align:right;color:var(--text2);">${dur}</td>
-            </tr>`;
-          }).join('');
-          feed.innerHTML=`<table style="width:100%;border-collapse:collapse;">
-            <thead><tr style="border-bottom:2px solid var(--border);">
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">ZEIT</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">BENUTZER</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">IP</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">KANAL</th>
-              <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--text2);font-family:var(--mono);">SENDUNG</th>
-              <th style="padding:6px 8px;text-align:right;font-size:10px;color:var(--text2);font-family:var(--mono);">DAUER</th>
-            </tr></thead>
-            <tbody>${tbody}</tbody>
-          </table>`;
-        }
-      } catch(e){ feed.innerHTML='<div class="empty-state">Fehler beim Laden</div>'; }
+      _recentLogs=(s.recent_logs||[]);
+      _recentPage=1;
+      renderRecentFeed();
     }
   } catch(e){console.error('stats error',e);}
 }
 
-// ── Users ─────────────────────────────────────────────────────────────────────
-async function loadUsers(pageArg) {
-  const users=await api('GET','/api/users');
-  const providerCap = await api('GET','/api/providers/capacity').catch(() => []);
-  providersCache = await api('GET','/api/providers').catch(() => []);
-  const pageSize = parseInt(document.getElementById('users-page-size')?.value || '20');
-  const page = Math.max(1, parseInt(pageArg || usersPage || 1));
-  const tbody=document.getElementById('users-tbody');
-  const meta=document.getElementById('users-meta');
-  const pageInfo=document.getElementById('users-page-info');
-  const prevBtn=document.getElementById('users-prev-btn');
-  const nextBtn=document.getElementById('users-next-btn');
-  if(!users.length){
-    tbody.innerHTML='<tr><td colspan="11"><div class="empty-state">Noch keine Benutzer</div></td></tr>';
-    if (meta) meta.textContent = 'Gesamt: 0 Benutzer';
-    if (pageInfo) pageInfo.textContent = 'Seite 1 / 1';
-    if (prevBtn) prevBtn.disabled = true;
-    if (nextBtn) nextBtn.disabled = true;
+// ── Recent Feed Pagination ────────────────────────────────────────────────────
+function renderRecentFeed() {
+  const feed = document.getElementById('recent-feed');
+  if (!feed) return;
+  const allLogs = _recentLogs;
+  if (!allLogs.length) {
+    feed.innerHTML = '<div class="empty-state">Noch keine Einträge</div>';
     return;
   }
-  usersTotalPages = Math.max(1, Math.ceil(users.length / pageSize));
-  usersPage = Math.min(page, usersTotalPages);
-  const start = (usersPage - 1) * pageSize;
-  const pageUsers = users.slice(start, start + pageSize);
-  if (meta) {
-    const shownFrom = pageUsers.length ? (start + 1) : 0;
-    const shownTo = start + pageUsers.length;
-    meta.textContent = `Gesamt: ${users.length} Benutzer | Anzeige: ${shownFrom}-${shownTo}`;
+  const countEl = document.getElementById('recent-count');
+  if (countEl) countEl.textContent = `(${allLogs.length})`;
+  const totalPages = Math.ceil(allLogs.length / _recentPerPage);
+  _recentPage = Math.max(1, Math.min(_recentPage, totalPages));
+  const start = (_recentPage - 1) * _recentPerPage;
+  const slice = allLogs.slice(start, start + _recentPerPage);
+
+  const rows = slice.map(l => {
+    const isCatchup = l.is_catchup === 1 || l.is_catchup === '1';
+    const dt = l.started_at ? new Date(l.started_at + 'Z') : null;
+    const dateStr = dt ? dt.toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit',year:'2-digit'}) : '';
+    const timeStr = dt ? dt.toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'}) : '';
+    const icon = isCatchup
+      ? '<span style="font-size:12px;color:var(--teal);flex-shrink:0;">⏪</span>'
+      : '<span style="font-size:12px;color:var(--green);flex-shrink:0;">▶</span>';
+    const dur = l.duration > 0 ? fmtDur(l.duration) : '—';
+    const title = l.epg_title
+      ? `<span style="color:var(--text2);margin:0 4px;">·</span><span style="font-size:11px;color:var(--teal);">📺 ${esc(l.epg_title)}</span>`
+      : '';
+    return `<div class="session-row" style="opacity:.85;padding:8px 14px;">
+      ${icon}
+      <span style="font-family:var(--mono);font-size:9px;color:var(--text2);white-space:nowrap;flex-shrink:0;">${dateStr} ${timeStr}</span>
+      <strong style="font-size:12px;">${esc(l.user)}</strong>
+      <span style="color:var(--text2);margin:0 4px;">→</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--teal);">${esc(l.channel)}</span>
+      ${title}
+      <span class="session-meta">${dur}</span>
+    </div>`;
+  }).join('');
+
+  const pager = totalPages > 1 ? `
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:10px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;">
+      <button class="btn sm" onclick="_recentPage--;renderRecentFeed()" ${_recentPage<=1?'disabled':''}>◀</button>
+      <span style="color:var(--text2);">Seite ${_recentPage} / ${totalPages}</span>
+      <span style="color:var(--text3);">(${allLogs.length} gesamt)</span>
+      <button class="btn sm" onclick="_recentPage++;renderRecentFeed()" ${_recentPage>=totalPages?'disabled':''}>▶</button>
+    </div>` : '';
+
+  feed.innerHTML = rows + pager;
+}
+
+async function saveGroupPrefix() {
+  const val = document.getElementById('cfg-group-prefix')?.checked ? '1' : '0';
+  await api('POST', '/api/settings', {group_sort_prefix: val});
+  showToast('Gruppen-Einstellung gespeichert');
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+async function loadUsers() {
+  const users=await api('GET','/api/users');
+  const tbody=document.getElementById('users-tbody');
+  if(!users.length){
+    tbody.innerHTML='<tr><td colspan="8"><div class="empty-state">Noch keine Benutzer</div></td></tr>';
+    return;
   }
-  if (pageInfo) pageInfo.textContent = `Seite ${usersPage} / ${usersTotalPages}`;
-  if (prevBtn) prevBtn.disabled = usersPage <= 1;
-  if (nextBtn) nextBtn.disabled = usersPage >= usersTotalPages;
-
-  tbody.innerHTML=pageUsers.map(u=>{
+  tbody.innerHTML=users.map(u=>{
     const hours=Math.round((u.total_watch_seconds||0)/3600*10)/10;
-    const tokenRaw = getUserToken(u);
-    const shortLabel = formatShortUrlLabel(u.short_playlist_url || '');
-
-    // Max streams input
-    const maxStr = (u.max_streams === 0) ? 0 : (u.max_streams || 1);
     return `<tr>
       <td><strong>${esc(u.name)}</strong>${u.notes?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2)">${esc(u.notes)}</div>`:''}</td>
-      <td style="text-align:center;">${u.active?'<span style="color:#3fb950;font-size:14px;" title="Aktiv">●</span>':'<span style="color:#f85149;font-size:14px;" title="Gesperrt">●</span>'}</td>
-      <td style="text-align:center;">
-        <button class="copy-btn" onclick="doCopy('${esc(u.playlist_url)}',this)" title="Playlist URL kopieren">📋</button>
-      </td>
-      <td style="min-width:160px;max-width:240px;">
+      <td>${u.active?'<span class="badge green">● Aktiv</span>':'<span class="badge red">● Gesperrt</span>'}</td>
+      <td style="max-width:200px;">
         <div class="url-cell">
-          <span class="url-text" style="color:var(--green);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;" title="${esc(u.short_playlist_url||'')}">${esc(shortLabel)}</span>
-          ${u.short_playlist_url?`<button class="copy-btn" onclick="doCopy('${esc(u.short_playlist_url)}',this)" style="border-color:rgba(63,185,80,.3);flex-shrink:0;">📋</button>`:''}
+          <span class="url-text" title="${esc(u.playlist_url)}" style="max-width:140px;">${esc(u.playlist_url)}</span>
+          <button class="copy-btn" onclick="doCopy('${esc(u.playlist_url)}',this)">📋</button>
         </div>
       </td>
-      <td style="width:60px;text-align:center;">
-        <div style="display:flex;align-items:center;gap:3px;justify-content:center;">
-          <button class="copy-btn" onclick="doCopy('${esc(tokenRaw)}',this)" title="${esc(tokenRaw)}">📋</button>
-          <button class="copy-btn" onclick="toggleUserToken(${u.id})" title="Token anzeigen">${userTokenVisible[u.id]?'🙈':'👁'}</button>
-        </div>
-        ${userTokenVisible[u.id]?`<div style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:80px;">${esc(tokenRaw)}</div>`:''}
-      </td>
-
-      <td style="width:90px;">
-        <div style="display:flex;align-items:center;gap:3px;">
-          <input type="number" min="0" max="99" value="${maxStr}" style="width:48px;padding:3px 5px;font-size:11px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--mono);" onchange="setMaxStr(${u.id},this.value)" title="0 = unbegrenzt">
-          <span style="font-size:10px;color:var(--text2);">${maxStr===0?'∞':''}</span>
+      <td style="max-width:180px;">
+        <div class="url-cell">
+          <span class="url-text" style="color:var(--green);" title="${esc(u.short_playlist_url||'')}">${esc(u.short_playlist_url||'—')}</span>
+          ${u.short_playlist_url?`<button class="copy-btn" onclick="doCopy('${esc(u.short_playlist_url)}',this)" style="border-color:rgba(63,185,80,.3);">📋</button>`:''}
         </div>
       </td>
-      <td style="font-family:var(--mono);font-size:11px;text-align:center;">${u.total_streams||0}</td>
-      <td style="font-family:var(--mono);font-size:11px;text-align:center;">${hours}h</td>
+      <td>
+        <select class="form-select" style="padding:4px 6px;font-size:11px;width:75px;" onchange="setMaxStr(${u.id},this.value)">
+          <option value="1"${(u.max_streams||1)==1?' selected':''}>1</option>
+          <option value="2"${u.max_streams==2?' selected':''}>2</option>
+          <option value="3"${u.max_streams==3?' selected':''}>3</option>
+          <option value="0"${u.max_streams==0?' selected':''}>∞</option>
+        </select>
+      </td>
+      <td style="font-family:var(--mono);font-size:11px;">${u.total_streams||0}</td>
+      <td style="font-family:var(--mono);font-size:11px;">${hours}h</td>
       <td style="font-family:var(--mono);font-size:10px;">${timeAgo(u.last_seen)}</td>
       <td>
         <div class="action-cell">
-          <button class="btn sm" onclick="userGroups(${u.id},'${esc(u.name)}','${esc(u.allowed_groups||'')}')">🔒</button>
           <button class="btn sm" onclick="userLogs(${u.id},'${esc(u.name)}')">Log</button>
-          <button class="btn sm" onclick="regenToken(${u.id},'${esc(u.name)}')" title="Neuen Token generieren">🔄</button>
+          <button class="btn sm" onclick="regenToken(${u.id},'${esc(u.name)}')" title="Neuen Token generieren (alte URL wird ungültig)">🔄 Token</button>
           <button class="btn sm" onclick="toggleUser(${u.id},${u.active})">${u.active?'Sperren':'Freigeben'}</button>
           <button class="btn sm danger" onclick="delUser(${u.id},'${esc(u.name)}')">✕</button>
         </div>
@@ -1550,28 +914,6 @@ async function loadUsers(pageArg) {
 function cpUrl(url, e) {
   if(e) e.preventDefault();
   navigator.clipboard.writeText(url).then(()=>showToast('URL kopiert!'));
-}
-
-function getUserToken(u) {
-  if (u && u.token) return String(u.token);
-  const pl = String(u?.playlist_url || '');
-  const m = pl.match(/\/iptv\/([^\/]+)\/playlist\.m3u8?$/);
-  return m ? m[1] : '';
-}
-
-function maskToken(tok) {
-  if (!tok) return '***';
-  return '***';
-}
-
-function formatShortUrlLabel(url) {
-  if (!url) return '—';
-  return url;
-}
-
-function toggleUserToken(userId) {
-  userTokenVisible[userId] = !userTokenVisible[userId];
-  loadUsers(usersPage);
 }
 
 async function cpBtn(url, btn) {
@@ -1599,93 +941,15 @@ async function doCopy(url, btn) {
   }
 }
 
-async function openAddUser(){
-  document.getElementById('modal-adduser').classList.add('open');
-
-  // Load groups for checkbox list
-  const wrap=document.getElementById('nu-groups-wrap');
-  try {
-    const [providerGroups, userGroups] = await Promise.all([
-      api('GET','/api/channels/groups'),
-      api('GET','/api/user-groups')
-    ]);
-    const allGroupItems = [
-      ...userGroups.map(g => ({name: g.name, isCustom: true})),
-      ...providerGroups.map(g => ({name: g, isCustom: false}))
-    ];
-    if(!allGroupItems.length){
-      wrap.innerHTML='<div style="font-size:11px;color:var(--text2);">Noch keine Kanäle oder Gruppen.</div>';
-    } else {
-      wrap.innerHTML=(userGroups.length?'<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:4px 0;">EIGENE GRUPPEN</div>':'')
-        +userGroups.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;">
-          <input type="checkbox" value="${esc(g.name)}" style="accent-color:var(--teal);">
-          <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
-          <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>
-        </label>`).join('')
-        +(providerGroups.length?'<div style="font-size:10px;color:var(--text2);font-family:var(--mono);padding:6px 0 4px;">ANBIETER-GRUPPEN</div>':'')
-        +providerGroups.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;">
-          <input type="checkbox" value="${esc(g)}" style="accent-color:var(--teal);">
-          <span>${esc(g)}</span>
-        </label>`).join('');
-    }
-  } catch(e){ wrap.innerHTML='<div style="font-size:11px;color:var(--text2);">Fehler beim Laden.</div>'; }
-}
-
-async function userGroups(id, name, currentGroups){
-  document.getElementById('ugroups-title').textContent=`Kanalgruppen · ${name}`;
-  document.getElementById('modal-ugroups').classList.add('open');
-  const wrap=document.getElementById('ugroups-content');
-  wrap.innerHTML='<div class="empty-state">Lädt…</div>';
-  try {
-    const [providerGroups2, userGroups2] = await Promise.all([
-      api('GET','/api/channels/groups'),
-      api('GET','/api/user-groups')
-    ]);
-    const selected=new Set((currentGroups||'').split(',').map(g=>g.trim()).filter(Boolean));
-    const allItems2 = [
-      ...userGroups2.map(g=>({name:g.name, label:`🏷 ${g.name}`, count:g.channel_count, isCustom:true})),
-      ...providerGroups2.map(g=>({name:g, label:g, count:null, isCustom:false}))
-    ];
-    if(!allItems2.length){
-      wrap.innerHTML='<div class="empty-state">Noch keine Kanäle oder Gruppen.</div>';
-    } else {
-      wrap.innerHTML=(userGroups2.length?'<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:6px 0 4px;">EIGENE GRUPPEN</div>':'')
-        +userGroups2.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
-          <input type="checkbox" value="${esc(g.name)}" ${selected.has(g.name)?'checked':''} style="accent-color:var(--teal);">
-          <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
-          <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>
-        </label>`).join('')
-        +(providerGroups2.length?'<div style="font-size:10px;color:var(--text2);font-family:var(--mono);padding:6px 0 4px;">ANBIETER-GRUPPEN</div>':'')
-        +providerGroups2.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
-          <input type="checkbox" value="${esc(g)}" ${selected.has(g)?'checked':''} style="accent-color:var(--teal);">
-          <span>${esc(g)}</span>
-        </label>`).join('');
-    }
-    document.getElementById('ugroups-save-btn').onclick=async()=>{
-      const checks=wrap.querySelectorAll('input[type=checkbox]:checked');
-      const allowed_groups=[...checks].map(c=>c.value);
-      await api('PUT',`/api/users/${id}/groups`,{allowed_groups});
-      closeM('modal-ugroups');
-      loadUsers();
-      showToast(allowed_groups.length?`${allowed_groups.length} Gruppe(n) gesetzt`:'Alle Gruppen erlaubt');
-    };
-  } catch(e){ wrap.innerHTML='<div class="empty-state">Fehler.</div>'; }
-}
+function openAddUser(){ document.getElementById('modal-adduser').classList.add('open'); }
 
 async function addUser() {
   const name=document.getElementById('nu-name').value.trim();
   const notes=document.getElementById('nu-notes').value.trim();
   const max_streams=parseInt(document.getElementById('nu-max').value);
-
   if(!name) return showToast('Name erforderlich',true);
-  // Collect selected groups
-  const groupChecks=document.querySelectorAll('#nu-groups-wrap input[type=checkbox]:checked');
-  const allowed_groups=[...groupChecks].map(c=>c.value).join(',')||null;
   try {
-    await api('POST','/api/users',{
-      name,notes,max_streams,allowed_groups,
-      provider_id: provider_id ? parseInt(provider_id) : null
-    });
+    await api('POST','/api/users',{name,notes,max_streams});
     closeM('modal-adduser');
     document.getElementById('nu-name').value='';
     document.getElementById('nu-notes').value='';
@@ -1708,398 +972,6 @@ async function setMaxStr(id,val) {
   showToast('Gespeichert');
 }
 
-
-
-// ── Provider Management ───────────────────────────────────────────────────────
-async function loadProviders() {
-  const wrap = document.getElementById('providers-list');
-  if (!wrap) return;
-  wrap.innerHTML = '<div class="empty-state">Lädt…</div>';
-  try {
-    const [providers, capacity] = await Promise.all([
-      api('GET', '/api/providers'),
-      api('GET', '/api/providers/capacity').catch(()=>[])
-    ]);
-    providersCache = providers;
-    if (!providers.length) {
-      wrap.innerHTML = '<div class="empty-state">Noch keine Anbieter. Über M3U importieren oder "+ Anbieter hinzufügen" anlegen.</div>';
-      return;
-    }
-    const capMap = {};
-    (capacity||[]).forEach(c => capMap[c.id] = c);
-    wrap.innerHTML = providers.map(p => {
-      const cap = capMap[p.id] || {};
-      const lineCap = Number(p.line_capacity || 0);
-      const active = Number(cap.active_streams || 0);
-      const over = Number(cap.overbooked_by || 0);
-      const users = Number(cap.users_count || 0);
-      let capacityHtml = '';
-      if (lineCap > 0) {
-        const pct = Math.round(active / lineCap * 100);
-        const barColor = over > 0 ? '#ff4444' : pct >= 90 ? '#ff9900' : '#3fb950';
-        capacityHtml = `
-          <div style="margin-top:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <span style="font-size:10px;color:var(--text2);font-family:var(--mono);">Aktive Streams: <strong style="color:${barColor}">${active}</strong> / ${lineCap} Lines${over>0?` <span style="color:#ff4444;font-weight:bold;">(+${over} über Limit)</span>`:''}</span>
-              <span style="font-size:10px;color:var(--text2);font-family:var(--mono);">${pct}%</span>
-            </div>
-            <div style="height:4px;background:var(--border);overflow:hidden;">
-              <div style="height:100%;width:${Math.min(pct,100)}%;background:${barColor};transition:width .3s;"></div>
-            </div>
-          </div>`;
-      } else {
-        capacityHtml = `<div style="margin-top:6px;font-size:10px;color:var(--text2);font-family:var(--mono);">Aktive Streams: <strong style="color:var(--teal)">${active}</strong> / ∞ unbegrenzt</div>`;
-      }
-      const isLocal = (p.source_url||'').startsWith('local://');
-      const rh = Number(p.refresh_hours||0);
-      const refreshLabel = rh > 0 ? `Auto-Refresh alle ${rh}h` : 'Kein Auto-Refresh';
-      const lastRef = p.last_refresh && Number(p.last_refresh) > 0 ? `Zuletzt: ${timeAgo(new Date(Number(p.last_refresh)*1000).toISOString())}` : 'Noch nie';
-      return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-          <div style="flex:1;min-width:0;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-              <span style="font-weight:600;font-size:14px;">${esc(p.name)}</span>
-              <span style="font-size:10px;padding:2px 6px;border-radius:3px;background:var(--bg);border:1px solid var(--border);color:var(--text2);font-family:var(--mono);">${(p.source_type||'m3u').toUpperCase()}</span>
-              ${isLocal ? '<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(255,200,0,.1);border:1px solid rgba(255,200,0,.3);color:#ffcc00;font-family:var(--mono);">📁 Datei-Upload</span>' : ''}
-              ${rh > 0 ? `<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(0,229,200,.1);border:1px solid rgba(0,229,200,.3);color:var(--teal);font-family:var(--mono);">↻ ${refreshLabel}</span>` : ''}
-            </div>
-            <div style="font-size:11px;color:var(--text2);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(p.source_url||'')}">${isLocal ? '📁 '+esc((p.source_url||'').split('/').pop()) : esc(p.source_url||'—')}</div>
-            <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${users} Benutzer · ${isLocal ? '—' : lastRef}</div>
-            ${capacityHtml}
-          </div>
-          <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;align-items:center;">
-            ${!isLocal ? `
-            <div style="display:flex;align-items:center;gap:4px;">
-              <select onchange="setProviderRefresh(${p.id},this.value)" title="Auto-Refresh einstellen"
-                style="font-size:10px;padding:3px 5px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;">
-                <option value="0"${rh===0?' selected':''}>Kein Refresh</option>
-                <option value="6"${rh===6?' selected':''}>↻ 6h</option>
-                <option value="12"${rh===12?' selected':''}>↻ 12h</option>
-                <option value="24"${rh===24?' selected':''}>↻ 24h</option>
-                <option value="48"${rh===48?' selected':''}>↻ 48h</option>
-              </select>
-              <button class="btn sm" onclick="refreshProviderNow(${p.id},'${esc(p.name)}')" title="Jetzt sofort aktualisieren">↻</button>
-            </div>` : ''}
-            <button class="btn sm" onclick="openEditProvider(${p.id})">✏️</button>
-            <button class="btn sm danger" onclick="deleteProvider(${p.id},'${esc(p.name)}')">✕</button>
-          </div>
-        </div>
-      </div>`;
-    }).join('');
-  } catch(e) {
-    wrap.innerHTML = '<div class="empty-state" style="color:var(--red);">Fehler beim Laden</div>';
-  }
-}
-
-function openAddProvider() {
-  document.getElementById('provider-modal-title').textContent = 'Anbieter hinzufügen';
-  document.getElementById('provider-edit-id').value = '';
-  document.getElementById('provider-name').value = '';
-  document.getElementById('provider-url').value = '';
-  document.getElementById('provider-lines').value = '0';
-  document.getElementById('provider-source-type').value = 'm3u';
-  const rh = document.getElementById('provider-refresh-hours');
-  if (rh) rh.value = '0';
-  document.getElementById('modal-provider').classList.add('open');
-}
-
-async function openEditProvider(id) {
-  const providers = await api('GET', '/api/providers').catch(()=>[]);
-  const p = providers.find(x => x.id === id);
-  if (!p) return;
-  document.getElementById('provider-modal-title').textContent = 'Anbieter bearbeiten';
-  document.getElementById('provider-edit-id').value = p.id;
-  document.getElementById('provider-name').value = p.name || '';
-  document.getElementById('provider-url').value = p.source_url || '';
-  document.getElementById('provider-lines').value = p.line_capacity || 0;
-  document.getElementById('provider-source-type').value = p.source_type || 'm3u';
-  const rh = document.getElementById('provider-refresh-hours');
-  if (rh) rh.value = String(p.refresh_hours || 0);
-  document.getElementById('modal-provider').classList.add('open');
-}
-
-async function saveProvider() {
-  const editId = document.getElementById('provider-edit-id').value;
-  const name = document.getElementById('provider-name').value.trim();
-  const url = document.getElementById('provider-url').value.trim();
-  const lines = parseInt(document.getElementById('provider-lines').value || '0');
-  const stype = document.getElementById('provider-source-type').value;
-  const refresh_hours = parseInt(document.getElementById('provider-refresh-hours')?.value || '0');
-  if (!name) { showToast('Name erforderlich'); return; }
-  if (!url) { showToast('URL erforderlich'); return; }
-  try {
-    if (editId) {
-      await api('PUT', `/api/providers/${editId}`, {name, source_url: url, line_capacity: lines, source_type: stype, refresh_hours});
-      showToast('Anbieter aktualisiert');
-    } else {
-      await api('POST', '/api/providers', {name, source_url: url, line_capacity: lines, source_type: stype, refresh_hours});
-      showToast('Anbieter angelegt');
-    }
-    closeM('modal-provider');
-    loadProviders();
-  } catch(e) {
-    showToast('Fehler: ' + (e.message || e));
-  }
-}
-
-async function refreshProviderNow(id, name) {
-  try {
-    showToast(`↻ ${name} wird aktualisiert…`);
-    const r = await api('POST', `/api/providers/${id}/refresh`);
-    showToast(`✓ ${r.imported} Kanäle aktualisiert`);
-    loadProviders();
-  } catch(e) { showToast('Fehler: ' + (e.message||e), true); }
-}
-
-async function saveTrafficRetention(days) {
-  await api('POST', '/api/settings', {log_retention_days: parseInt(days)}).catch(()=>{});
-  showToast(`Verlauf wird ${days === '-1' ? 'unbegrenzt' : days + ' Tage'} gespeichert`);
-}
-
-let _trafficSessionsData = [];
-let _trafficSessionsPage = 1;
-
-function renderTrafficSessions() {
-  const list = document.getElementById('tr-sessions-list');
-  const pager = document.getElementById('tr-sessions-pager');
-  if (!list) return;
-  if (!_trafficSessionsData.length) {
-    list.innerHTML = '<div class="empty-state">Keine aktiven Streams</div>';
-    if (pager) pager.innerHTML = '';
-    return;
-  }
-  const limit = parseInt(document.getElementById('tr-sessions-limit')?.value || '10');
-  const total = _trafficSessionsData.length;
-  const pages = Math.ceil(total / limit);
-  _trafficSessionsPage = Math.min(_trafficSessionsPage, pages);
-  const start = (_trafficSessionsPage - 1) * limit;
-  const page = _trafficSessionsData.slice(start, start + limit);
-  list.innerHTML = page.map(s => `
-    <div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
-      <div class="live-dot active" style="flex-shrink:0;"></div>
-      <strong style="min-width:120px;color:var(--teal);">${esc(s.user)}</strong>
-      <span style="flex:1;color:var(--text);">${esc(s.channel)}</span>
-      ${s.now_playing?.title ? `<span style="color:var(--text2);font-size:11px;">· ${esc(s.now_playing.title)}</span>` : ''}
-      <span style="color:var(--text2);font-size:10px;font-family:var(--mono);">${esc(s.ip||'')}</span>
-      <span style="color:var(--text2);font-size:10px;font-family:var(--mono);white-space:nowrap;">⏱ ${s._dur}</span>
-    </div>`).join('');
-  if (pager) {
-    pager.innerHTML = pages > 1 ? `
-      <button class="btn sm" onclick="_trafficSessionsPage=Math.max(1,_trafficSessionsPage-1);renderTrafficSessions()">← Zurück</button>
-      <span style="font-size:11px;color:var(--text2);">Seite ${_trafficSessionsPage}/${pages} (${total} gesamt)</span>
-      <button class="btn sm" onclick="_trafficSessionsPage=Math.min(${pages},_trafficSessionsPage+1);renderTrafficSessions()">Weiter →</button>` : '';
-  }
-}
-
-async function setProviderRefresh(id, hours) {
-  await api('PUT', `/api/providers/${id}`, {refresh_hours: parseInt(hours)});
-  showToast(hours==='0' ? 'Auto-Refresh deaktiviert' : `Auto-Refresh: alle ${hours}h`);
-  loadProviders();
-}
-
-async function deleteProvider(id, name) {
-  if (!confirm(`Anbieter "${name}" wirklich löschen? Benutzer werden nicht gelöscht, nur die Zuweisung wird aufgehoben.`)) return;
-  await api('DELETE', `/api/providers/${id}`);
-  showToast('Anbieter gelöscht');
-  loadProviders();
-}
-
-// ── EPG per-provider view on Anbieter page ───────────────────────────────────
-async function loadEpgMini() {
-  return loadEpgPerProvider();
-}
-
-async function loadEpgPerProvider() {
-  const wrap = document.getElementById('epg-per-provider-list');
-  if (!wrap) return;
-  const [sources, providers] = await Promise.all([
-    api('GET', '/api/epg').catch(()=>[]),
-    api('GET', '/api/providers').catch(()=>[])
-  ]);
-  if (!providers.length) {
-    wrap.innerHTML = '<div class="empty-state" style="font-size:11px;">Noch keine Anbieter vorhanden.</div>';
-    return;
-  }
-  // Group EPG sources by provider_id
-  const epgByProvider = {};
-  sources.forEach(e => {
-    const key = e.provider_id || '__none__';
-    if (!epgByProvider[key]) epgByProvider[key] = [];
-    epgByProvider[key].push(e);
-  });
-  // Render one block per provider
-  wrap.innerHTML = providers.map(p => {
-    const provEpg = epgByProvider[p.id] || [];
-    const epgRows = provEpg.length
-      ? provEpg.map(e => `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
-          <span style="flex:0 0 120px;font-size:12px;font-weight:500;">${esc(e.name)}</span>
-          <span style="flex:1;font-family:var(--mono);font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(e.url)}">${esc(e.url)}</span>
-          ${e.active ? '<span class="badge green" style="flex-shrink:0;">Aktiv</span>' : '<span class="badge" style="flex-shrink:0;color:var(--text2);border-color:var(--border);">Inaktiv</span>'}
-          <div style="flex-shrink:0;display:flex;gap:4px;">
-            <button class="btn sm" onclick="openEditEpg(${e.id})">✏️</button>
-            <button class="btn sm" onclick="toggleEpg(${e.id},${e.active})">${e.active?'Deakt.':'Aktiv.'}</button>
-            <button class="btn sm danger" onclick="delEpg(${e.id});setTimeout(loadEpgPerProvider,400)">✕</button>
-          </div>
-        </div>`).join('')
-      : `<div style="font-size:11px;color:var(--text3);padding:8px 0;font-family:var(--mono);">Noch keine EPG-Quelle für diesen Anbieter</div>`;
-    return `<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:12px;overflow:hidden;">
-      <div style="padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
-        <span style="font-weight:600;font-size:13px;">${esc(p.name)}</span>
-        <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg2);border:1px solid var(--border);color:var(--text2);font-family:var(--mono);">${(p.source_type||'m3u').toUpperCase()}</span>
-        <button class="btn sm" style="margin-left:auto;font-size:10px;" onclick="openAddEpgForProvider(${p.id},'${esc(p.name)}')">+ EPG hinzufügen</button>
-      </div>
-      <div style="padding:0 14px 2px;">${epgRows}</div>
-    </div>`;
-  }).join('');
-  // Unassigned EPG sources
-  const unassigned = epgByProvider['__none__'] || [];
-  if (unassigned.length) {
-    const rows = unassigned.map(e => `
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
-        <span style="flex:0 0 120px;font-size:12px;">${esc(e.name)}</span>
-        <span style="flex:1;font-family:var(--mono);font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.url)}</span>
-        ${e.active ? '<span class="badge green" style="flex-shrink:0;">Aktiv</span>' : '<span class="badge" style="flex-shrink:0;">Inaktiv</span>'}
-        <button class="btn sm danger" onclick="delEpg(${e.id});setTimeout(loadEpgPerProvider,400)">✕</button>
-      </div>`).join('');
-    wrap.innerHTML += `<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:12px;overflow:hidden;">
-      <div style="padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);">
-        <span style="font-size:12px;color:var(--text2);">🗂 Keinem Anbieter zugeordnet</span>
-      </div>
-      <div style="padding:0 14px 2px;">${rows}</div>
-    </div>`;
-  }
-}
-
-let _epgForProviderId = null;
-
-async function addEpgFromProviders() {
-  const name = document.getElementById('epg-name-p')?.value?.trim();
-  const url = document.getElementById('epg-url-p')?.value?.trim();
-  if (!name || !url) return showToast('Name und URL erforderlich', true);
-  await api('POST', '/api/epg', {name, url});
-  if (document.getElementById('epg-name-p')) document.getElementById('epg-name-p').value = '';
-  if (document.getElementById('epg-url-p')) document.getElementById('epg-url-p').value = '';
-  loadEpgPerProvider();
-  showToast('EPG-Quelle gespeichert');
-}
-
-// ── Provider dropdown for import section ─────────────────────────────────────
-// ── Provider Import Dropdown ────────────────────────────────────────────────
-async function loadProviderImportDropdown() {
-  const sel = document.getElementById('import-provider-select');
-  if (!sel) return;
-  const providers = await api('GET', '/api/providers').catch(() => []);
-  providersCache = providers;
-  const existing = providers.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  sel.innerHTML = '<option value="">— Anbieter wählen —</option>' + existing + '<option value="__new__">+ Neuer Anbieter</option>';
-  // Also pre-fill URL from selected provider
-  sel.onchange = onImportProviderChange;
-}
-
-function onImportProviderChange() {
-  const sel = document.getElementById('import-provider-select');
-  const newNameWrap = document.getElementById('import-new-name-wrap');
-  const urlInput = document.getElementById('import-url');
-  const linesInput = document.getElementById('import-provider-lines');
-  const val = sel.value;
-  if (newNameWrap) newNameWrap.style.display = (val === '__new__') ? '' : 'none';
-  if (val && val !== '__new__') {
-    const p = (providersCache || []).find(x => String(x.id) === String(val));
-    if (p) {
-      if (urlInput && p.source_url) urlInput.value = p.source_url;
-      if (linesInput && p.line_capacity !== undefined) linesInput.value = p.line_capacity;
-    }
-  }
-}
-
-// ── Provider filter dropdown on Channels page ─────────────────────────────────
-async function loadChProviderFilter() {
-  const sel = document.getElementById('ch-provider-filter');
-  if (!sel) return;
-  const providers = await api('GET', '/api/providers').catch(() => []);
-  const opts = providers.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  sel.innerHTML = '<option value="">Alle Anbieter</option>' + opts;
-}
-
-// ── Import Tab Switch ─────────────────────────────────────────────────────────
-
-
-// ── Groups page sortable (separate from Anbieter page sortable) ───────────────
-let _providerGroupOrderG = [];
-let _pgDragIdG = null;
-
-async function loadProviderGroupOrderGroups() {
-  const wrap = document.getElementById('provider-groups-sortable-g');
-  if (!wrap) return;
-  try {
-    const [providerGroups, userGroups, saved] = await Promise.all([
-      api('GET', '/api/channels/groups'),
-      api('GET', '/api/user-groups'),
-      api('GET', '/api/channels/provider-group-order')
-    ]);
-    const savedMap = saved || {};
-    const customNames = userGroups.map(g => ({name: g.name, isCustom: true}));
-    const providerNames = providerGroups.map(g => ({name: g, isCustom: false}));
-    const allGroups = [...customNames, ...providerNames];
-    const seen = new Set();
-    const merged = allGroups.filter(g => { if (seen.has(g.name)) return false; seen.add(g.name); return true; });
-    merged.sort((a, b) => {
-      const ai = savedMap[a.name] !== undefined ? savedMap[a.name] : 9999;
-      const bi = savedMap[b.name] !== undefined ? savedMap[b.name] : 9999;
-      if (ai !== bi) return ai - bi;
-      return a.name.localeCompare(b.name);
-    });
-    _providerGroupOrderG = merged;
-    renderProviderGroupsG();
-  } catch(e) {
-    wrap.innerHTML = '<div class="empty-state">Fehler beim Laden.</div>';
-  }
-}
-
-async function loadGroupPrefixSettingGroups() {
-  const cb = document.getElementById('group-prefix-toggle-g');
-  const lbl = document.getElementById('group-prefix-label-g');
-  if (!cb) return;
-  try {
-    const settings = await api('GET', '/api/settings');
-    const enabled = settings.group_prefix_enabled === '1';
-    cb.checked = enabled;
-    if (lbl) lbl.textContent = enabled ? 'An' : 'Aus';
-  } catch(e) {}
-}
-
-function renderProviderGroupsG() {
-  const wrap = document.getElementById('provider-groups-sortable-g');
-  if (!wrap) return;
-  wrap.innerHTML = _providerGroupOrderG.map((g, i) => {
-    const isCustom = g.isCustom;
-    const label = isCustom
-      ? `<span style="color:var(--teal);">🏷 ${esc(g.name)}</span><span style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-left:4px;opacity:.6;">eigene</span>`
-      : `<span style="font-family:var(--mono);font-size:11px;color:var(--text);">${esc(g.name)}</span>`;
-    return `<div id="pgrow-g-${i}" draggable="true"
-      style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid var(--border);cursor:grab;${isCustom?'background:rgba(0,229,200,.03);':''}"
-      ondragstart="pgDragStartG(event,${i})"
-      ondragover="pgDragOverG(event,${i})"
-      ondrop="pgDropG(event,${i})"
-      ondragend="pgDragEndG()">
-      <span style="color:var(--text3);font-family:var(--mono);font-size:10px;width:22px;text-align:right;flex-shrink:0;">${i+1}.</span>
-      <span style="color:var(--text2);flex-shrink:0;">⠿</span>
-      ${label}
-    </div>`;
-  }).join('');
-  window.pgDragStartG = (e, idx) => { _pgDragIdG = idx; setTimeout(() => { const el = document.getElementById('pgrow-g-'+idx); if(el) el.style.opacity='0.35'; }, 0); e.dataTransfer.effectAllowed='move'; };
-  window.pgDragOverG = (e, idx) => { e.preventDefault(); const el = document.getElementById('pgrow-g-'+idx); if(el) el.style.borderColor='var(--teal)'; };
-  window.pgDragEndG = () => { _providerGroupOrderG.forEach((_,i) => { const el = document.getElementById('pgrow-g-'+i); if(el){el.style.opacity='1';el.style.borderColor='';} }); };
-  window.pgDropG = (e, targetIdx) => { e.preventDefault(); pgDragEndG(); if(_pgDragIdG===null||_pgDragIdG===targetIdx) return; const moved=_providerGroupOrderG.splice(_pgDragIdG,1)[0]; _providerGroupOrderG.splice(targetIdx,0,moved); _pgDragIdG=null; renderProviderGroupsG(); };
-}
-
-// saveProviderGroupOrder works for both — it reads from whichever sortable is visible
-const _origSaveProviderGroupOrder = window.saveProviderGroupOrder;
-
-// ── EPG provider filter ───────────────────────────────────────────────────────
-
-
 async function toggleUser(id,active) {
   await api('PUT',`/api/users/${id}`,{active:active?0:1});
   loadUsers(); showToast(active?'Benutzer gesperrt':'Benutzer freigegeben');
@@ -2119,7 +991,7 @@ async function userLogs(id,name) {
   document.getElementById('ulogs-content').innerHTML=!logs.length
     ?'<div class="empty-state">Noch keine Aktivität</div>'
     :`<div class="log-panel"><table style="width:100%"><thead><tr>
-        <th>Zeit</th><th>IP</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead><tbody>
+        <th>Zeit</th><th>Kanal</th><th>Sendung</th><th>Dauer</th></tr></thead><tbody>
         ${logs.map(l=>{
           const isCatchup=l.is_catchup===1||l.is_catchup==='1';
           const icon=isCatchup?'<span style="color:var(--teal);margin-right:3px;">⏪</span>':'<span style="color:var(--green);margin-right:3px;">▶</span>';
@@ -2128,7 +1000,6 @@ async function userLogs(id,name) {
             :'<span style="color:var(--text2);">—</span>';
           return `<tr>
             <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
-            <td style="font-family:var(--mono);font-size:10px;color:var(--text2);white-space:nowrap;">${esc(l.ip_address||'')}</td>
             <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
             <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
             <td style="font-family:var(--mono);font-size:11px;">${l.duration_seconds>0?fmtDur(l.duration_seconds):'—'}</td>
@@ -2137,306 +1008,9 @@ async function userLogs(id,name) {
       </tbody></table></div>`;
 }
 
-// ── User Groups ───────────────────────────────────────────────────────────────
-let _allChForGroups = [];
-
-async function loadUserGroups() {
-  const [groups, chs] = await Promise.all([
-    api('GET', '/api/user-groups'),
-    api('GET', '/api/channels')
-  ]);
-  _allChForGroups = chs;
-  const wrap = document.getElementById('ugroups-list');
-  if (!groups.length) {
-    wrap.innerHTML = '<div class="empty-state">Keine Gruppen. Oben eine anlegen.</div>';
-    return;
-  }
-  let _ugDragId = null;
-  let _ugOrder = groups.map(g => g.id);
-
-  wrap.innerHTML = groups.map((g, idx) => `
-    <div class="table-wrap" id="ugrow-${g.id}" style="margin-bottom:12px;cursor:grab;"
-         draggable="true"
-         ondragstart="ugDragStart(event,${g.id})"
-         ondragover="ugDragOver(event,${g.id})"
-         ondrop="ugDrop(event,${g.id})"
-         ondragend="ugDragEnd()">
-      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:var(--bg2);">
-        <span style="color:var(--text2);cursor:grab;font-size:16px;flex-shrink:0;" title="Ziehen zum Sortieren">⠿</span>
-        <span style="font-weight:700;font-size:14px;">${esc(g.name)}</span>
-        <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">${g.channel_count} Kanäle</span>
-        <div style="margin-left:auto;display:flex;gap:6px;">
-          <button class="btn sm primary" onclick="openGroupChannelEditor(${g.id},'${esc(g.name)}')">✏ Kanäle bearbeiten</button>
-          <button class="btn sm danger" onclick="deleteUserGroup(${g.id},'${esc(g.name)}')">✕</button>
-        </div>
-      </div>
-      <div id="ugch-preview-${g.id}" style="padding:8px 14px;font-size:11px;color:var(--text2);font-family:var(--mono);">
-        Lädt…
-      </div>
-    </div>
-  `).join('');
-
-  // Drag & Drop handlers scoped to this render
-  window.ugDragStart = (e, id) => {
-    _ugDragId = id;
-    setTimeout(() => document.getElementById('ugrow-'+id)?.classList.add('dragging'), 0);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-  window.ugDragOver = (e, id) => {
-    e.preventDefault();
-    document.getElementById('ugrow-'+id)?.classList.add('drag-over');
-  };
-  window.ugDragEnd = () => {
-    document.querySelectorAll('[id^="ugrow-"]').forEach(el => el.classList.remove('dragging','drag-over'));
-  };
-  window.ugDrop = async (e, targetId) => {
-    e.preventDefault();
-    ugDragEnd();
-    if (_ugDragId === targetId) return;
-    const fromIdx = _ugOrder.indexOf(_ugDragId);
-    const toIdx = _ugOrder.indexOf(targetId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    _ugOrder.splice(fromIdx, 1);
-    _ugOrder.splice(toIdx, 0, _ugDragId);
-    // Reorder DOM
-    const wrap2 = document.getElementById('ugroups-list');
-    _ugOrder.forEach(id => {
-      const el = document.getElementById('ugrow-'+id);
-      if (el) wrap2.appendChild(el);
-    });
-    // Save to backend
-    await api('POST', '/api/user-groups/reorder', {ordered_ids: _ugOrder});
-    showToast('Reihenfolge gespeichert');
-  };
-
-  // Load channel previews for each group
-  for (const g of groups) {
-    api('GET', `/api/user-groups/${g.id}/channels`).then(ids => {
-      const el = document.getElementById(`ugch-preview-${g.id}`);
-      if (!el) return;
-      if (!ids.length) { el.textContent = 'Keine Kanäle zugewiesen'; return; }
-      const names = ids.slice(0,8).map(id => {
-        const ch = _allChForGroups.find(c => c.id === id);
-        return ch ? esc(ch.name) : '?';
-      });
-      el.textContent = names.join(' · ') + (ids.length > 8 ? ` · +${ids.length-8} weitere` : '');
-    });
-  }
-}
-
-// ── Provider Group Order Drag & Drop ─────────────────────────────────────────
-let _providerGroupOrder = [];
-let _pgDragId = null;
-
-async function loadProviderGroupOrder() {
-  const wrap = document.getElementById('provider-groups-sortable');
-  if (!wrap) return;
-  try {
-    const [providerGroups, userGroups, saved] = await Promise.all([
-      api('GET', '/api/channels/groups'),
-      api('GET', '/api/user-groups'),
-      api('GET', '/api/channels/provider-group-order')
-    ]);
-    const savedMap = saved || {};
-    // Merge: custom groups (with 🏷 marker) + provider groups
-    const customNames = userGroups.map(g => ({name: g.name, isCustom: true}));
-    const providerNames = providerGroups.map(g => ({name: g, isCustom: false}));
-    const allGroups = [...customNames, ...providerNames];
-    // Remove duplicates (provider group that has same name as custom group)
-    const seen = new Set();
-    const merged = allGroups.filter(g => {
-      if (seen.has(g.name)) return false;
-      seen.add(g.name); return true;
-    });
-    // Sort by saved order
-    merged.sort((a, b) => {
-      const ai = savedMap[a.name] !== undefined ? savedMap[a.name] : 9999;
-      const bi = savedMap[b.name] !== undefined ? savedMap[b.name] : 9999;
-      if (ai !== bi) return ai - bi;
-      return a.name.localeCompare(b.name);
-    });
-    _providerGroupOrder = merged;
-    renderProviderGroups();
-  } catch(e) {
-    wrap.innerHTML = '<div class="empty-state">Fehler beim Laden.</div>';
-  }
-}
-
-function renderProviderGroups() {
-  const wrap = document.getElementById('provider-groups-sortable');
-  if (!wrap) return;
-  wrap.innerHTML = _providerGroupOrder.map((g, i) => {
-    const isCustom = g.isCustom;
-    const label = isCustom
-      ? `<span style="color:var(--teal);">🏷 ${esc(g.name)}</span><span style="font-family:var(--mono);font-size:9px;color:var(--teal);margin-left:4px;opacity:.6;">eigene</span>`
-      : `<span style="font-family:var(--mono);font-size:11px;color:var(--text);">${esc(g.name)}</span>`;
-    return `<div id="pgrow-${i}" draggable="true"
-      style="display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid var(--border);cursor:grab;transition:opacity .15s;${isCustom?'background:rgba(0,229,200,.03);':''}"
-      ondragstart="pgDragStart(event,${i})"
-      ondragover="pgDragOver(event,${i})"
-      ondrop="pgDrop(event,${i})"
-      ondragend="pgDragEnd()">
-      <span style="color:var(--text3);font-family:var(--mono);font-size:10px;width:22px;text-align:right;flex-shrink:0;">${i+1}.</span>
-      <span style="color:var(--text2);flex-shrink:0;">⠿</span>
-      ${label}
-    </div>`;
-  }).join('');
-
-  window.pgDragStart = (e, idx) => {
-    _pgDragId = idx;
-    setTimeout(() => { const el = document.getElementById('pgrow-'+idx); if(el) el.style.opacity = '0.35'; }, 0);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-  window.pgDragOver = (e, idx) => {
-    e.preventDefault();
-    const el = document.getElementById('pgrow-'+idx);
-    if (el) el.style.borderColor = 'var(--teal)';
-  };
-  window.pgDragEnd = () => {
-    _providerGroupOrder.forEach((_, i) => {
-      const el = document.getElementById('pgrow-'+i);
-      if (el) { el.style.opacity = '1'; el.style.borderColor = ''; }
-    });
-  };
-  window.pgDrop = (e, targetIdx) => {
-    e.preventDefault();
-    pgDragEnd();
-    if (_pgDragId === null || _pgDragId === targetIdx) return;
-    const moved = _providerGroupOrder.splice(_pgDragId, 1)[0];
-    _providerGroupOrder.splice(targetIdx, 0, moved);
-    renderProviderGroups();
-  };
-}
-
-async function saveProviderGroupOrder() {
-  await api('POST', '/api/channels/provider-group-order', {ordered_names: _providerGroupOrder.map(g => g.name)});
-  showToast('Reihenfolge gespeichert — Playlist in IPTV-App neu laden');
-}
-
-async function loadGroupPrefixSetting() {
-  try {
-    const s = await api('GET', '/api/settings');
-    const enabled = s.group_sort_prefix !== '0';
-    const cb = document.getElementById('group-prefix-toggle');
-    const lbl = document.getElementById('group-prefix-label');
-    if (cb) cb.checked = enabled;
-    if (lbl) lbl.textContent = enabled ? 'An' : 'Aus';
-  } catch(e) {}
-}
-
-async function saveGroupPrefix(enabled) {
-  await api('POST', '/api/settings', {group_sort_prefix: enabled ? '1' : '0'});
-  document.getElementById('group-prefix-label').textContent = enabled ? 'An' : 'Aus';
-  showToast(enabled ? 'Nummerierung aktiviert — Playlist neu laden in IPTV-App' : 'Nummerierung deaktiviert');
-}
-
-async function createUserGroup() {
-  const name = document.getElementById('new-ugroup-name').value.trim();
-  if (!name) return showToast('Name eingeben', true);
-  try {
-    await api('POST', '/api/user-groups', {name});
-    document.getElementById('new-ugroup-name').value = '';
-    showToast(`Gruppe "${name}" angelegt`);
-    loadUserGroups();
-  } catch(e) {
-    const msg = e.message || '';
-    if (msg.includes('already exists') || msg.includes('409')) {
-      showToast(`Gruppe "${name}" existiert bereits`, true);
-    } else {
-      showToast(msg || 'Fehler beim Anlegen', true);
-    }
-  }
-}
-
-async function deleteUserGroup(id, name) {
-  if (!confirm(`Gruppe "${name}" wirklich löschen?
-
-Kanäle bleiben erhalten, nur die Gruppenzuweisung wird gelöscht.`)) return;
-  await api('DELETE', `/api/user-groups/${id}`);
-  showToast(`Gruppe "${name}" gelöscht`);
-  loadUserGroups();
-}
-
-let _editingGroupId = null;
-let _editingGroupName = '';
-let _selectedChannelIds = new Set();
-
-async function openGroupChannelEditor(groupId, groupName) {
-  _editingGroupId = groupId;
-  _editingGroupName = groupName;
-  _selectedChannelIds = new Set();
-
-  // Show modal
-  document.getElementById('modal-group-editor').classList.add('open');
-  document.getElementById('group-editor-title').textContent = `Kanäle für: ${groupName}`;
-  document.getElementById('group-editor-search').value = '';
-
-  // Load current channel ids for this group
-  const [currentIds, chs, grps] = await Promise.all([
-    api('GET', `/api/user-groups/${groupId}/channels`),
-    api('GET', '/api/channels'),
-    api('GET', '/api/channels/groups')
-  ]);
-  _allChForGroups = chs;
-  currentIds.forEach(id => _selectedChannelIds.add(id));
-
-  // Populate group filter
-  const grpSel = document.getElementById('group-editor-grp');
-  grpSel.innerHTML = '<option value="">Alle Anbieter-Gruppen</option>' +
-    grps.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
-
-  renderGroupEditorChannels();
-}
-
-function renderGroupEditorChannels() {
-  const q = document.getElementById('group-editor-search').value.toLowerCase();
-  const grp = document.getElementById('group-editor-grp').value;
-  let list = _allChForGroups.filter(c => c.enabled);
-  if (grp) list = list.filter(c => c.group_title === grp);
-  if (q) list = list.filter(c => c.name.toLowerCase().includes(q));
-
-  const selectedFirst = [...list.filter(c => _selectedChannelIds.has(c.id)),
-                         ...list.filter(c => !_selectedChannelIds.has(c.id))];
-
-  document.getElementById('group-editor-count').textContent =
-    `${_selectedChannelIds.size} ausgewählt · ${list.length} angezeigt`;
-
-  document.getElementById('group-editor-channels').innerHTML = selectedFirst.map(ch => {
-    const sel = _selectedChannelIds.has(ch.id);
-    return `<label style="display:flex;align-items:center;gap:10px;padding:6px 8px;cursor:pointer;border-bottom:1px solid var(--border);${sel?'background:rgba(0,229,200,.05);':''}">
-      <input type="checkbox" ${sel?'checked':''} onchange="toggleGroupChannel(${ch.id},this.checked)" style="accent-color:var(--teal);flex-shrink:0;">
-      ${ch.tvg_logo?`<img src="${esc(ch.tvg_logo)}" style="width:24px;height:24px;object-fit:contain;flex-shrink:0;" onerror="this.style.display='none'">`:'<span style="width:24px;flex-shrink:0;">📺</span>'}
-      <span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(ch.name)}</span>
-      <span style="font-family:var(--mono);font-size:9px;color:var(--text2);flex-shrink:0;">${esc(ch.group_title||'')}</span>
-    </label>`;
-  }).join('') || '<div class="empty-state">Keine Kanäle gefunden</div>';
-}
-
-function toggleGroupChannel(channelId, checked) {
-  if (checked) _selectedChannelIds.add(channelId);
-  else _selectedChannelIds.delete(channelId);
-  document.getElementById('group-editor-count').textContent =
-    `${_selectedChannelIds.size} ausgewählt`;
-}
-
-async function saveGroupChannels() {
-  await api('POST', `/api/user-groups/${_editingGroupId}/channels`, {
-    channel_ids: [..._selectedChannelIds]
-  });
-  closeM('modal-group-editor');
-  showToast(`${_selectedChannelIds.size} Kanäle in "${_editingGroupName}" gespeichert`);
-  loadUserGroups();
-}
-
 // ── Channels ──────────────────────────────────────────────────────────────────
 async function loadCh() {
-  const [chs,grps,provs]=await Promise.all([
-    api('GET','/api/channels'),
-    api('GET','/api/channels/groups'),
-    api('GET','/api/providers').catch(()=>[])
-  ]);
-  window._chProvNameMap = {};
-  (provs||[]).forEach(p => window._chProvNameMap[p.id] = p.name);
+  const [chs,grps]=await Promise.all([api('GET','/api/channels'),api('GET','/api/channels/groups')]);
   allCh=chs;
   const sel=document.getElementById('ch-grp');
   const cur=sel.value;
@@ -2468,12 +1042,7 @@ function filterCh() {
       ${ch.tvg_logo?`<img class="ch-logo" src="${esc(ch.tvg_logo)}" onerror="this.style.display='none'" loading="lazy">`:`<div class="ch-ph">📺</div>`}
       <div class="ch-info">
         <div class="ch-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
-        <div class="ch-grp">
-          ${esc(ch.group_title||'—')}
-          ${ch.provider_id && window._chProvNameMap?.[ch.provider_id]
-            ? `<span style="padding:0 5px;background:rgba(0,229,200,.15);border:1px solid rgba(0,229,200,.4);color:var(--teal);font-size:8px;letter-spacing:.05em;">${esc(window._chProvNameMap[ch.provider_id])}</span>`
-            : '<span style="padding:0 5px;border:1px solid var(--border);color:var(--text3);font-size:8px;">Standard</span>'}
-        </div>
+        <div class="ch-grp">${esc(ch.group_title||'—')}</div>
       </div>
       <button class="btn sm${ch.enabled?' danger':''}" onclick="toggleCh(${ch.id},${ch.enabled})" title="${ch.enabled?'Deaktivieren':'Aktivieren'}" style="flex-shrink:0;">${ch.enabled?'✕':'✓'}</button>
     </div>`).join('');
@@ -2504,95 +1073,6 @@ async function toggleCh(id,enabled) {
   filterCh();
 }
 
-async function openGroupManager() {
-  document.getElementById('modal-groups').classList.add('open');
-  await loadGroupManager();
-}
-
-async function loadGroupManager() {
-  const wrap = document.getElementById('groups-manager-content');
-  wrap.innerHTML = '<div class="empty-state">Lädt…</div>';
-  try {
-    const [groups, mappings] = await Promise.all([
-      api('GET', '/api/channels/groups'),
-      api('GET', '/api/channels/group-mappings')
-    ]);
-    const mappingMap = {};
-    mappings.forEach(m => mappingMap[m.original_name] = m.custom_name);
-
-    if (!groups || !groups.length) {
-      wrap.innerHTML = '<div class="empty-state">Keine Gruppen vorhanden. M3U importieren.</div>';
-      return;
-    }
-
-    // Load provider info per group
-    let providersByGroup = {};
-    try {
-      const [allChs, provs] = await Promise.all([api('GET','/api/channels'), api('GET','/api/providers').catch(()=>[])]);
-      const provMap = {}; (provs||[]).forEach(p => provMap[p.id] = p.name);
-      allChs.forEach(ch => {
-        const g = ch.group_title || '';
-        if (!providersByGroup[g]) providersByGroup[g] = new Set();
-        if (ch.provider_id && provMap[ch.provider_id]) providersByGroup[g].add(provMap[ch.provider_id]);
-      });
-    } catch(e) {}
-
-    wrap.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;">
-        <thead>
-          <tr style="border-bottom:1px solid var(--border);">
-            <th style="padding:8px;text-align:left;font-size:11px;color:var(--text2);">ORIGINAL (vom Anbieter)</th>
-            <th style="padding:8px;text-align:left;font-size:11px;color:var(--text2);">ANBIETER</th>
-            <th style="padding:8px;text-align:left;font-size:11px;color:var(--text2);">DEIN NAME</th>
-            <th style="padding:8px;width:60px;"></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${groups.map(g => {
-            const custom = mappingMap[g] || g;
-            const provSet = providersByGroup[g] || new Set();
-            const provBadges = [...provSet].map(pn => `<span style="padding:0 5px;border:1px solid rgba(0,229,200,.4);color:var(--teal);font-size:9px;font-family:var(--mono);">${esc(pn)}</span>`).join(' ');
-            return `<tr style="border-bottom:1px solid var(--border);" id="grp-row-${btoa(g).replace(/=/g,'')}">
-              <td style="padding:8px;font-family:var(--mono);font-size:11px;color:var(--text2);">${esc(g)}</td>
-              <td style="padding:8px;">${provBadges || '<span style="color:var(--text3);font-size:10px;">—</span>'}</td>
-              <td style="padding:8px;">
-                <input class="form-input" style="margin:0;padding:5px 8px;font-size:12px;"
-                  value="${esc(custom)}"
-                  id="grp-input-${btoa(g).replace(/=/g,'')}"
-                  placeholder="${esc(g)}">
-              </td>
-              <td style="padding:8px;text-align:right;">
-                <button class="btn sm primary" onclick="saveGroupRename('${esc(g)}')">✓</button>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-      <div style="margin-top:12px;font-size:11px;color:var(--text2);font-family:var(--mono);">
-        💡 Originalnamen wiederherstellen: einfach Feld leer lassen und speichern.
-      </div>`;
-  } catch(e) {
-    wrap.innerHTML = '<div class="empty-state">Fehler beim Laden.</div>';
-  }
-}
-
-async function saveGroupRename(originalName) {
-  const key = btoa(originalName).replace(/=/g, '');
-  const input = document.getElementById(`grp-input-${key}`);
-  if (!input) return;
-  const newName = input.value.trim();
-  if (!newName || newName === originalName) {
-    // Revert to original
-    await api('POST', '/api/channels/group-mapping-delete', {original_name: originalName});
-    showToast(`"${originalName}" wiederhergestellt`);
-  } else {
-    await api('POST', '/api/channels/group-rename', {old_name: originalName, new_name: newName});
-    showToast(`Umbenannt zu "${newName}"`);
-  }
-  await loadCh();
-  await loadGroupManager();
-}
-
 async function grpToggle(val) {
   const grp=document.getElementById('ch-grp').value;
   if(!grp) return showToast('Erst Gruppe auswählen',true);
@@ -2603,48 +1083,14 @@ async function grpToggle(val) {
 function openImport(){ document.getElementById('modal-import').classList.add('open'); }
 
 async function doImport() {
-  const url = document.getElementById('import-url').value.trim();
-  const source_type = document.getElementById('import-source-type').value || 'm3u';
-  const provider_lines = parseInt(document.getElementById('import-provider-lines').value || '0');
-  if (!url) return showToast('URL erforderlich', true);
-
-  // Determine provider: existing or new
-  const provSelEl = document.getElementById('import-provider-select');
-  const provSelVal = provSelEl ? provSelEl.value : '';
-  let provider_name, provider_id_hint;
-  if (provSelVal === '__new__' || !provSelEl) {
-    // New provider name from name field
-    provider_name = (document.getElementById('import-provider-name')?.value || '').trim() || 'Neuer Anbieter';
-  } else if (provSelVal) {
-    // Existing provider
-    const p = (providersCache || []).find(x => String(x.id) === String(provSelVal));
-    provider_name = p ? p.name : 'Provider';
-    provider_id_hint = provSelVal;
-  } else {
-    provider_name = 'Provider';
-  }
-
-  const updateUsers = document.getElementById('import-update-users')?.checked ?? true;
-  const btn = document.getElementById('import-btn');
-  if (btn) btn.disabled = true;
+  const url=document.getElementById('import-url').value.trim();
+  if(!url) return showToast('URL erforderlich',true);
+  document.getElementById('import-btn').disabled=true;
   try {
-    const r = await api('POST', '/api/channels/import', {
-      url,
-      update_users: updateUsers,
-      provider_name,
-      provider_lines,
-      source_type
-    });
-    // Close old modal if open
-    const modal = document.getElementById('modal-import');
-    if (modal && modal.classList.contains('open')) closeM('modal-import');
-    let msg = `${r.imported} Kanäle importiert!`;
-    if (updateUsers && r.updated_users > 0) msg += ` • ${r.updated_users} User umgestellt`;
-    showToast(msg);
-    loadCh();
-    loadProviders();
-  } catch(e) { showToast(e.message, true); }
-  finally { if (btn) btn.disabled = false; }
+    const r=await api('POST','/api/channels/import',{url});
+    closeM('modal-import'); showToast(`${r.imported} Kanäle importiert!`); loadCh();
+  } catch(e){ showToast(e.message,true); }
+  finally{ document.getElementById('import-btn').disabled=false; }
 }
 
 async function refreshCh() {
@@ -2673,7 +1119,6 @@ async function forceEpgRefresh() {
 
 async function loadEpg() {
   const [sources, settings] = await Promise.all([api('GET','/api/epg'), api('GET','/api/settings')]);
-  const provMap = {};
   const proxyUrl = (settings.proxy_url || window.location.origin.replace('8081','8000').replace('8080','8000')).replace(/\/$/, '');
   const globalEpgUrl = proxyUrl + '/iptv/epg.xml';
 
@@ -2685,24 +1130,19 @@ async function loadEpg() {
 
   const tbody=document.getElementById('epg-tbody');
   if(!sources.length){
-    tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Noch keine EPG-Quelle. Auf der Anbieter-Seite hinzufügen.</div></td></tr>';
+    tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Noch keine EPG-Quelle</div></td></tr>';
   } else {
-    if (!sources.length) {
-      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Noch keine EPG-Quelle</div></td></tr>';
-    } else {
     tbody.innerHTML=sources.map(e=>`<tr>
       <td><strong>${esc(e.name)}</strong></td>
       <td style="max-width:300px;overflow:hidden;"><span class="mono" style="font-size:10px;" title="${esc(e.url)}">${esc(e.url)}</span></td>
       <td>${e.active?'<span class="badge green">Aktiv</span>':'<span class="badge" style="color:var(--text2);border-color:var(--border)">Inaktiv</span>'}</td>
       <td>
         <div class="action-cell">
-          <button class="btn sm" onclick="openEditEpg(${e.id})">✏️</button>
-          <button class="btn sm" onclick="toggleEpg(${e.id},${e.active})">${e.active?'Deakt.':'Aktiv.'}</button>
+          <button class="btn sm" onclick="toggleEpg(${e.id},${e.active})">${e.active?'Deaktivieren':'Aktivieren'}</button>
           <button class="btn sm danger" onclick="delEpg(${e.id})">✕</button>
         </div>
       </td>
     </tr>`).join('');
-    }
   }
 
   // Set global EPG URL + day variants
@@ -2760,93 +1200,11 @@ async function delEpg(id) {
   await api('DELETE',`/api/epg/${id}`); loadEpg(); showToast('Gelöscht');
 }
 
-async function openEditEpg(id) {
-  const sources = await api('GET', '/api/epg').catch(()=>[]);
-  const e = sources.find(x => x.id === id);
-  if (!e) return;
-  document.getElementById('epg-edit-id').value = e.id;
-  document.getElementById('epg-edit-name').value = e.name || '';
-  document.getElementById('epg-edit-url').value = e.url || '';
-  document.getElementById('modal-epg-edit').classList.add('open');
-}
-
-async function saveEpgEdit() {
-  const id = document.getElementById('epg-edit-id').value;
-  const name = document.getElementById('epg-edit-name').value.trim();
-  const url = document.getElementById('epg-edit-url').value.trim();
-  if (!name || !url) return showToast('Name und URL erforderlich', true);
-  await api('PUT', `/api/epg/${id}`, {name, url});
-  closeM('modal-epg-edit');
-  loadEpg();
-  loadEpgPerProvider();
-  showToast('EPG-Quelle gespeichert');
-}
-
 // ── Logs ──────────────────────────────────────────────────────────────────────
-async function loadLogs(pageArg) {
-  const user = document.getElementById('logs-user-filter')?.value?.trim() || '';
-  const dateFrom = document.getElementById('logs-date-from')?.value || '';
-  const dateTo = document.getElementById('logs-date-to')?.value || '';
-  const pageSize = parseInt(document.getElementById('logs-page-size')?.value || '100');
-  const page = Math.max(1, parseInt(pageArg || logsPage || 1));
-  let payload = null;
-  let logs = [];
-
-  try {
-    const params = new URLSearchParams({
-      page: String(page),
-      page_size: String(pageSize),
-      user,
-      date_from: dateFrom,
-      date_to: dateTo
-    });
-    payload = await api('GET', `/api/logs/query?${params.toString()}`);
-    logsPage = payload.page || page;
-    logsTotalPages = payload.total_pages || 1;
-    logs = payload.items || [];
-  } catch (e) {
-    // Fallback for older backend versions without /api/logs/query
-    const raw = await api('GET', '/api/logs?limit=2000');
-    logs = (raw || []).filter(l => {
-      const name = String(l.user_name || '').toLowerCase();
-      const byUser = !user || name.includes(user.toLowerCase());
-      const d = String(l.started_at || '').slice(0, 10);
-      const byFrom = !dateFrom || (d && d >= dateFrom);
-      const byTo = !dateTo || (d && d <= dateTo);
-      return byUser && byFrom && byTo;
-    });
-    const total = logs.length;
-    logsTotalPages = Math.max(1, Math.ceil(total / pageSize));
-    logsPage = Math.min(page, logsTotalPages);
-    const start = (logsPage - 1) * pageSize;
-    logs = logs.slice(start, start + pageSize);
-    payload = {
-      total,
-      stored_total: raw.length,
-      total_pages: logsTotalPages,
-      page: logsPage,
-    };
-  }
-
+async function loadLogs() {
+  const logs=await api('GET','/api/logs');
   const tbody=document.getElementById('logs-tbody');
-  const meta=document.getElementById('logs-meta');
-  const pageInfo=document.getElementById('logs-page-info');
-  const prevBtn=document.getElementById('logs-prev-btn');
-  const nextBtn=document.getElementById('logs-next-btn');
-  if (meta) {
-    const shownFrom = logs.length ? ((logsPage - 1) * pageSize + 1) : 0;
-    const shownTo = logs.length ? ((logsPage - 1) * pageSize + logs.length) : 0;
-    meta.textContent = `Gespeichert: ${payload.stored_total || 0} Eintraege | Gefiltert: ${payload.total || 0} | Anzeige: ${shownFrom}-${shownTo}`;
-  }
-  if (pageInfo) {
-    pageInfo.textContent = `Seite ${logsPage} / ${logsTotalPages}`;
-  }
-  if (prevBtn) prevBtn.disabled = logsPage <= 1;
-  if (nextBtn) nextBtn.disabled = logsPage >= logsTotalPages;
-  if (logsPage > logsTotalPages) {
-    logsPage = logsTotalPages;
-  }
-  if(!logs.length){ tbody.innerHTML='<tr><td colspan="6"><div class="empty-state">Keine Einträge</div></td></tr>'; return; }
+  if(!logs.length){ tbody.innerHTML='<tr><td colspan="5"><div class="empty-state">Keine Einträge</div></td></tr>'; return; }
   tbody.innerHTML=logs.map(l=>{
     const isCatchup=l.is_catchup===1||l.is_catchup==='1';
     const icon=isCatchup?'<span style="color:var(--teal);margin-right:4px;">⏪</span>':'<span style="color:var(--green);margin-right:4px;">▶</span>';
@@ -2856,7 +1214,6 @@ async function loadLogs(pageArg) {
     return `<tr>
       <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;">${fmtDate(l.started_at)}</td>
       <td><strong>${esc(l.user_name)}</strong></td>
-      <td style="font-family:var(--mono);font-size:10px;color:var(--text2);white-space:nowrap;">${esc(l.ip_address||l.ip||'')}</td>
       <td style="white-space:nowrap;font-size:12px;">${icon}${esc(l.channel)}</td>
       <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sendung}</td>
       <td style="font-family:var(--mono);font-size:11px;">${l.duration_seconds>0?fmtDur(l.duration_seconds):'—'}</td>
@@ -2864,17 +1221,12 @@ async function loadLogs(pageArg) {
   }).join('');
 }
 
-function scheduleLogsReload() {
-  clearTimeout(logsReloadTimer);
-  logsReloadTimer = setTimeout(() => loadLogs(1), 250);
-}
-
 async function clearLogs() {
-  const days=parseInt(currentLogRetention || '-1');
-  const msg=days===-1?'Wirklich ALLE Einträge loeschen?':days===0?'Verlauf komplett loeschen?':`Eintraege aelter als ${days} Tage loeschen?`;
+  const days=parseInt(document.getElementById('log-ret').value);
+  const msg=days===-1?'Wirklich ALLE Einträge löschen?':days===0?'Verlauf komplett löschen?':`Einträge älter als ${days} Tage löschen?`;
   if(!confirm(msg)) return;
-  await api('POST','/api/logs/clear',{days:days===-1?0:days});
-  loadLogs(1); showToast('Verlauf bereinigt');
+  await api('POST','/api/logs/clear',{days:days===-1?99999:days});
+  loadLogs(); showToast('Verlauf bereinigt');
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -2883,47 +1235,13 @@ async function loadSettings() {
   document.getElementById('cfg-base').value=s.base_url||'';
   document.getElementById('cfg-proxy').value=s.proxy_url||'';
   document.getElementById('cfg-short-domain').value=s.short_domain||'';
-  const cfgM3u=document.getElementById('cfg-m3u'); if(cfgM3u) cfgM3u.value=s.source_m3u_url||'';
+  document.getElementById('cfg-m3u').value=s.source_m3u_url||'';
   document.getElementById('cfg-ua').value=s.hls_user_agent||'';
   document.getElementById('cfg-ref').value=s.hls_referer||'';
   document.getElementById('cfg-timeout').value=s.hls_timeout||'10';
   document.getElementById('cfg-rtimeout').value=s.hls_read_timeout||'30';
-  document.getElementById('cfg-prefetch').value=s.prefetch_segments||'2';
-  currentLogRetention = s.log_retention_days || '-1';
-  const retEl = document.getElementById('cfg-log-retention');
-  if (retEl) retEl.value = currentLogRetention;
-  const refreshSel=document.getElementById('cfg-m3u-refresh');
-  if(refreshSel) refreshSel.value=s.m3u_refresh_hours||'0';
-  const lastEl=document.getElementById('cfg-m3u-last-refresh');
-  if(lastEl && s.m3u_last_refresh && parseFloat(s.m3u_last_refresh)>0){
-    const d=new Date(parseFloat(s.m3u_last_refresh)*1000);
-    lastEl.textContent='Letzter Refresh: '+d.toLocaleString('de-DE');
-  } else if(lastEl){
-    lastEl.textContent=s.m3u_refresh_hours&&s.m3u_refresh_hours!=='0'?'Noch kein automatischer Refresh':'Auto-Refresh deaktiviert';
-  }
-}
-
-function isRetentionTightened(oldVal, nextVal) {
-  if (nextVal === oldVal) return false;
-  if (nextVal === 0) return true;
-  if (oldVal === -1) return nextVal > 0;
-  if (oldVal === 0) return false;
-  return nextVal > 0 && nextVal < oldVal;
-}
-
-async function saveLogRetention() {
-  const next = parseInt(document.getElementById('cfg-log-retention').value);
-  const old = parseInt(currentLogRetention || '-1');
-  if (isRetentionTightened(old, next)) {
-    const warn = next === 0
-      ? 'Warnung: Du deaktivierst die Verlaufspeicherung. Alle vorhandenen Logs werden sofort geloescht. Fortfahren?'
-      : `Warnung: Du verkuerzt die Aufbewahrung auf ${next} Tage. Aeltere Logs werden sofort geloescht. Fortfahren?`;
-    if (!confirm(warn)) return;
-  }
-  await api('POST','/api/settings',{log_retention_days:String(next)});
-  currentLogRetention = String(next);
-  showToast('Verlaufspeicherung gespeichert');
-  if (document.getElementById('page-logs').style.display !== 'none') loadLogs(1);
+  const gp = document.getElementById('cfg-group-prefix');
+  if (gp) gp.checked = (s.group_sort_prefix || '1') === '1';
 }
 
 async function saveUrls() {
@@ -2931,12 +1249,10 @@ async function saveUrls() {
     base_url:document.getElementById('cfg-base').value.trim(),
     proxy_url:document.getElementById('cfg-proxy').value.trim(),
     short_domain:document.getElementById('cfg-short-domain').value.trim(),
-    source_m3u_url:'',
-    m3u_refresh_hours:'0'  // managed per-provider now
+    source_m3u_url:document.getElementById('cfg-m3u').value.trim()
   });
-  showToast('URLs gespeichert');
+  showToast('URLs gespeichert – Benutzer neu laden für Short URLs');
   loadUsers();
-  loadSettings();
 }
 
 async function saveHls() {
@@ -2944,8 +1260,7 @@ async function saveHls() {
     hls_user_agent:document.getElementById('cfg-ua').value.trim(),
     hls_referer:document.getElementById('cfg-ref').value.trim(),
     hls_timeout:document.getElementById('cfg-timeout').value,
-    hls_read_timeout:document.getElementById('cfg-rtimeout').value,
-    prefetch_segments:document.getElementById('cfg-prefetch').value
+    hls_read_timeout:document.getElementById('cfg-rtimeout').value
   });
   showToast('HLS-Einstellungen gespeichert');
 }
@@ -2963,6 +1278,43 @@ async function changePw() {
     setTimeout(logout,2000);
   } catch(e){ showToast(e.message,true); }
 }
+
+// ── Logo Upload ───────────────────────────────────────────────────────────────
+async function uploadLogo(type, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('type', type);
+  try {
+    const resp = await fetch('/api/settings/upload-logo', {
+      method: 'POST',
+      headers: {'x-admin-token': TOKEN},
+      body: formData
+    });
+    if (!resp.ok) throw new Error('Upload fehlgeschlagen');
+    // Reload logo with cache-busting
+    const ts = Date.now();
+    if (type === 'login') {
+      const src = `/logo.png?v=${ts}`;
+      document.getElementById('login-logo-img').src = src;
+      document.getElementById('preview-login').src = src;
+    } else {
+      const src = `/logo-app.png?v=${ts}`;
+      document.getElementById('app-logo-img').src = src;
+      document.getElementById('preview-app').src = src;
+    }
+    showToast('Logo gespeichert!');
+  } catch(e) { showToast(e.message, true); }
+}
+
+// Load logos from server (cache-busted)
+function applyStoredLogos() {
+  const ts = Date.now();
+  document.getElementById('login-logo-img').src = `/logo.png?v=${ts}`;
+  document.getElementById('app-logo-img').src = `/logo-app.png?v=${ts}`;
+}
+applyStoredLogos();
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function closeM(id){ document.getElementById(id).classList.remove('open'); }
@@ -3132,564 +1484,6 @@ async function epgDDrop(e, tgtId) {
   await api('POST', '/api/epg/channels/reorder', {order});
 }
 
-// ── VPN ───────────────────────────────────────────────────────────────────────
-
-let _vpnStatusInterval = null;
-
-async function loadVpnSettings() {
-  const s = await api('GET', '/api/vpn');
-  if (!s) return;
-  document.getElementById('vpn-user').value     = s.vpn_user || '';
-  document.getElementById('vpn-password').value = s.vpn_password || '';
-  renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
-  vpnRefreshStatus();
-  // Auto-poll log every 3s when on VPN page
-  if (_vpnStatusInterval) clearInterval(_vpnStatusInterval);
-  _vpnStatusInterval = setInterval(vpnRefreshStatus, 3000);
-}
-
-function renderOvpnList(files, activePath) {
-  const el = document.getElementById('vpn-ovpn-list');
-  if (!files.length) { el.textContent = 'Keine .ovpn Datei hochgeladen'; return; }
-  el.innerHTML = files.map(f => {
-    const fullPath = `/data/vpn/${f}`;
-    const isActive = activePath === fullPath;
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-      <span style="color:${isActive ? 'var(--teal)' : 'var(--text2)'};">${isActive ? '✅' : '○'} ${f}</span>
-      ${!isActive ? `<button class="btn sm" onclick="vpnSetActive('${f}')">Aktivieren</button>` : ''}
-      <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn('${f}')">🗑</button>
-    </div>`;
-  }).join('');
-}
-
-async function vpnSaveCredentials() {
-  await api('POST', '/api/vpn', {
-    vpn_user:     document.getElementById('vpn-user').value.trim(),
-    vpn_password: document.getElementById('vpn-password').value.trim(),
-  });
-  showToast('Zugangsdaten gespeichert!');
-}
-
-async function vpnUpload(input) {
-  const file = input.files[0];
-  if (!file) return;
-  document.getElementById('vpn-file-name').textContent = file.name;
-  const fd = new FormData();
-  fd.append('file', file);
-  const resp = await fetch('/api/vpn/upload', {
-    method: 'POST',
-    headers: { 'X-Admin-Token': TOKEN },
-    body: fd,
-  });
-  const data = await resp.json();
-  if (data.ok) {
-    showToast(`✅ ${data.filename} hochgeladen und aktiviert!`);
-    loadVpnSettings();
-  } else {
-    showToast('Fehler beim Upload');
-  }
-}
-
-async function vpnSetActive(filename) {
-  await api('POST', '/api/vpn', { vpn_ovpn_path: `/data/vpn/${filename}` });
-  showToast(`${filename} aktiviert`);
-  loadVpnSettings();
-}
-
-async function vpnDeleteOvpn(filename) {
-  if (!confirm(`${filename} löschen?`)) return;
-  await api('DELETE', `/api/vpn/ovpn/${filename}`);
-  showToast('Datei gelöscht');
-  loadVpnSettings();
-}
-
-async function vpnStart() {
-  document.getElementById('vpn-btn-start').disabled = true;
-  const r = await api('POST', '/api/vpn/start');
-  document.getElementById('vpn-btn-start').disabled = false;
-  if (r && r.ok) {
-    showToast('▶ VPN wird gestartet…');
-  } else {
-    showToast('❌ ' + (r?.error || 'Fehler'));
-  }
-  vpnRefreshStatus();
-}
-
-async function vpnStop() {
-  await api('POST', '/api/vpn/stop');
-  showToast('⏹ VPN gestoppt');
-  // Wait a moment for tun0 to disappear before checking status
-  setTimeout(vpnRefreshStatus, 2000);
-}
-
-async function runSpeedtest() {
-  const btn = document.getElementById('speedtest-btn');
-  const result = document.getElementById('speedtest-result');
-  btn.disabled = true;
-  btn.textContent = '⏳ Teste Internet…';
-  result.style.display = 'block';
-
-  // Reset
-  ['inet','iptv'].forEach(t => {
-    document.getElementById(`st-${t}-mbps`).textContent = '…';
-    document.getElementById(`st-${t}-detail`).textContent = '';
-    document.getElementById(`st-${t}-hd`).textContent = '–';
-    document.getElementById(`st-${t}-fhd`).textContent = '–';
-    document.getElementById(`st-${t}-4k`).textContent = '–';
-  });
-  document.getElementById('speedtest-bottleneck').textContent = '⏳ Teste…';
-
-  btn.textContent = '⏳ Teste IPTV-Anbieter…';
-
-  try {
-    const data = await api('GET', '/api/vpn/speedtest');
-
-    // Internet result
-    const inet = data.internet;
-    if (inet && inet.ok) {
-      document.getElementById('st-inet-mbps').textContent = inet.mbps;
-      document.getElementById('st-inet-detail').textContent =
-        `${inet.mb} MB in ${inet.seconds}s • ${inet.server || ''} • ${data.via_vpn ? '🔒 VPN' : '🌐 direkt'}`;
-      document.getElementById('st-inet-hd').textContent  = (inet.streams?.hd_720p  || 0) + 'x';
-      document.getElementById('st-inet-fhd').textContent = (inet.streams?.fhd_1080p|| 0) + 'x';
-      document.getElementById('st-inet-4k').textContent  = (inet.streams?.uhd_4k   || 0) + 'x';
-    } else {
-      document.getElementById('st-inet-mbps').textContent = '!';
-      document.getElementById('st-inet-detail').textContent = inet?.error || 'Fehler';
-    }
-
-    // IPTV result
-    const iptv = data.iptv;
-    if (iptv && iptv.ok) {
-      document.getElementById('st-iptv-mbps').textContent = iptv.mbps;
-      document.getElementById('st-iptv-detail').textContent =
-        `${iptv.mb} MB in ${iptv.seconds}s • ${iptv.server || ''} • ${iptv.parallel ? iptv.parallel + ' Streams parallel' : ''}`;
-      document.getElementById('st-iptv-hd').textContent  = (iptv.streams?.hd_720p  || 0) + 'x';
-      document.getElementById('st-iptv-fhd').textContent = (iptv.streams?.fhd_1080p|| 0) + 'x';
-      document.getElementById('st-iptv-4k').textContent  = (iptv.streams?.uhd_4k   || 0) + 'x';
-    } else {
-      document.getElementById('st-iptv-mbps').textContent = '!';
-      document.getElementById('st-iptv-detail').textContent = iptv?.error || 'Kein IPTV-Kanal zum Testen';
-    }
-
-    // Bottleneck
-    const bn = document.getElementById('speedtest-bottleneck');
-    if (data.bottleneck) {
-      const isBottleneck = data.bottleneck.includes('Flaschenhals') && !data.bottleneck.includes('Kein');
-      bn.style.borderColor = isBottleneck ? '#ef4444' : '#00e5c8';
-      bn.style.color = isBottleneck ? '#ef4444' : 'var(--teal)';
-      bn.textContent = data.bottleneck;
-    } else {
-      bn.textContent = '';
-    }
-
-  } catch(e) {
-    document.getElementById('speedtest-bottleneck').textContent = 'Fehler: ' + e;
-  }
-
-  btn.disabled = false;
-  btn.textContent = '▶ Speedtest starten';
-}
-
-async function vpnRefreshStatus() {
-  const s = await api('GET', '/api/vpn/status');
-  if (!s) return;
-  const dot  = document.getElementById('vpn-status-dot');
-  const text = document.getElementById('vpn-status-text');
-  const ipEl = document.getElementById('vpn-status-ip');
-  if (s.running) {
-    dot.style.background  = '#00e5c8';
-    text.textContent      = '✅ Verbunden';
-    ipEl.textContent      = s.public_ip ? `Öffentliche IP: ${s.public_ip}` : '';
-  } else {
-    dot.style.background  = '#ef4444';
-    text.textContent      = '🔴 Nicht verbunden';
-    ipEl.textContent      = '';
-  }
-  // Update log
-  const logEl = document.getElementById('vpn-log');
-  if (s.log && s.log.length) {
-    logEl.textContent = s.log.join('\n');
-    logEl.scrollTop   = logEl.scrollHeight;
-  }
-}
-
-// ── Traffic Monitor ───────────────────────────────────────────────────────────
-
-let _trafficInterval = null;
-let _trafficHistory = []; // [{time, streams, mbps}]
-let _trafficPeak = 0;
-const ASSUMED_MBPS_PER_STREAM = 6;
-const TRAFFIC_MAX_POINTS = 720; // up to 720 data points (1h @ 5s = 720)
-
-async function toggleDebugMode(checkbox) {
-  await api('POST', '/api/settings', { segment_debug: checkbox.checked ? '1' : '0' });
-  showToast(checkbox.checked ? '🔬 Debug-Modus AN – alle Segmente werden geloggt' : 'Debug-Modus AUS');
-  loadSegmentEvents();
-}
-
-async function loadSegmentEvents() {
-  const days = document.getElementById('seg-days')?.value || '30';
-  const debugOn = document.getElementById('tr-debug-mode')?.checked ? 1 : 0;
-  // Load ALL events for the time range - pagination is client-side
-  const serverLimit = 10000;
-  const [events, stats, channels, providers] = await Promise.all([
-    api('GET', `/api/segment-events?days=${days}&limit=${serverLimit}&debug=${debugOn}`),
-    api('GET', `/api/segment-events/stats?days=${days}`),
-    api('GET', '/api/channels').catch(()=>[]),
-    api('GET', '/api/providers').catch(()=>[]),
-  ]);
-  // Build channel name → provider name map
-  const provNameMap = {};
-  (providers||[]).forEach(p => provNameMap[p.id] = p.name);
-  const chProvMap = {};
-  (channels||[]).forEach(ch => { if(ch.provider_id) chProvMap[ch.name] = provNameMap[ch.provider_id] || null; });
-  window.chProvMap = chProvMap;  // make available to renderSegEvents
-
-  // Channel stats table
-  const statsEl = document.getElementById('tr-channel-stats');
-  if (statsEl) {
-    if (!stats?.length) {
-      statsEl.innerHTML = '<div class="empty-state">Noch keine Daten</div>';
-    } else {
-      const maxScore = stats[0].score || 1;
-      statsEl.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-        <thead><tr style="border-bottom:1px solid var(--border);">
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SENDER</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">PROBLEM-SCORE</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">🔴 LANGSAM</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">🟡 VERZÖGERT</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">Ø DAUER</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">Ø SPEED</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">MIN SPEED</th>
-        </tr></thead>
-        <tbody>${stats.map((s, i) => {
-          const barW = Math.round((s.score / maxScore) * 100);
-          const color = s.slow > 0 ? '#ef4444' : '#f59e0b';
-          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
-          return `<tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:6px 8px;font-weight:bold;color:var(--teal);">${medal} ${esc(s.channel)}</td>
-            <td style="padding:6px 8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <div style="flex:1;background:var(--bg);border-radius:3px;height:8px;overflow:hidden;">
-                  <div style="width:${barW}%;height:100%;background:${color};border-radius:3px;"></div>
-                </div>
-                <span style="font-family:var(--mono);font-size:11px;color:${color};min-width:20px;">${s.score}</span>
-              </div>
-            </td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:#ef4444;">${s.slow}x</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:#f59e0b;">${s.delayed}x</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:var(--text2);">${s.avg_elapsed}s</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:${s.avg_mbps < 10 ? '#ef4444' : 'var(--teal)'};">${s.avg_mbps} Mbit/s</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:${s.min_mbps < 5 ? '#ef4444' : 'var(--text2)'};">${s.min_mbps} Mbit/s</td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table>`;
-    }
-  }
-
-  // Events table - keep current page on auto-refresh
-  window._segEventsAll = events;
-  if (!window._segEventsPage || window._segManualReload) {
-    window._segEventsPage = 1;
-    window._segManualReload = false;
-  }
-  renderSegEvents();
-}
-
-function renderSegEvents() {
-  const el = document.getElementById('tr-seg-events');
-  const pager = document.getElementById('tr-seg-pager');
-  if (!el) return;
-  const events = window._segEventsAll || [];
-  const pageSize = parseInt(document.getElementById('seg-limit')?.value || '100');
-  const totalPages = Math.max(1, Math.ceil(events.length / pageSize));
-  window._segEventsPage = Math.min(window._segEventsPage || 1, totalPages);
-  const start = (window._segEventsPage - 1) * pageSize;
-  const pageEvents = events.slice(start, start + pageSize);
-
-  if (!pageEvents.length) {
-    el.innerHTML = '<div class="empty-state">Noch keine Ereignisse – tritt auf wenn ein Segment &gt;1s braucht</div>';
-    if (pager) pager.innerHTML = '';
-    return;
-  }
-
-  // Build provider map from pre-loaded chProvMap
-  el.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-    <thead><tr style="border-bottom:1px solid var(--border);background:var(--bg2);">
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ZEIT</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">USER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ANBIETER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SENDER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">DAUER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SPEED</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SEGMENT</th>
-    </tr></thead>
-    <tbody>${pageEvents.map(e => {
-      const isSlow = e.type === 'slow';
-      const isOk = e.type === 'ok';
-      const isEmpty = (e.seg||'').startsWith('⚠️ LEER');
-      const color = isEmpty ? '#ff6b6b' : isSlow ? '#ef4444' : isOk ? '#00e5c8' : '#f59e0b';
-      const icon = isEmpty ? '⚠️' : isSlow ? '🔴' : isOk ? '✅' : '🟡';
-      const ts = e.ts || e.time || 0;
-      const userName = e.user_name || e.user || '—';
-      const provName = e.provider_name || (window.chProvMap||{})[e.channel] || '—';
-      const dt = ts ? new Date(ts * 1000) : null;
-      const timeStr = dt && !isNaN(dt.getTime())
-        ? dt.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'2-digit'}) + ' ' + dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'})
-        : '—';
-      const mbps = Number(e.mbps) || 0;
-      const elapsed = Number(e.elapsed) || 0;
-      return `<tr style="border-bottom:1px solid var(--border);${isEmpty ? 'background:rgba(255,107,107,0.05);' : ''}">
-        <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;font-family:var(--mono);font-size:11px;">${timeStr}</td>
-        <td style="padding:4px 8px;"><strong>${esc(userName)}</strong></td>
-        <td style="padding:4px 8px;font-size:10px;color:var(--teal);">${esc(provName)}</td>
-        <td style="padding:4px 8px;color:var(--text);font-size:11px;">${esc(e.channel||'—')}</td>
-        <td style="padding:4px 8px;color:${color};font-weight:bold;">${icon} ${isEmpty ? 'LEER!' : elapsed === 0 ? '—' : elapsed+'s'}</td>
-        <td style="padding:4px 8px;font-family:var(--mono);color:${mbps < 4 && mbps > 0 ? '#ef4444' : mbps === 0 ? 'var(--text3)' : 'var(--teal)'};">${isEmpty || mbps === 0 ? '—' : (mbps > 9999 ? '>10 Gbit/s' : mbps+' Mbit/s')}</td>
-        <td style="padding:4px 8px;color:var(--text3);font-family:var(--mono);font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(e.seg||'')}">${esc(e.seg||'—')}</td>
-      </tr>`;
-    }).join('')}</tbody>
-  </table>`;
-
-  // Total count in header
-  const countEl = document.getElementById('seg-total-count');
-  if (countEl) countEl.textContent = events.length ? `· ${events.length} Einträge gesamt` : '';
-
-  // Pager
-  if (pager) {
-    const showing = `${start+1}–${Math.min(start+pageSize, events.length)} von ${events.length}`;
-    pager.innerHTML = totalPages <= 1
-      ? `<span style="font-size:11px;color:var(--text2);">${events.length} Einträge</span>`
-      : `<button class="btn sm" onclick="window._segEventsPage=1;renderSegEvents();" ${window._segEventsPage<=1?'disabled':''}>«</button>
-         <button class="btn sm" onclick="window._segEventsPage=Math.max(1,window._segEventsPage-1);renderSegEvents();" ${window._segEventsPage<=1?'disabled':''}>← Zurück</button>
-         <span style="font-size:11px;color:var(--text2);font-family:var(--mono);">Seite ${window._segEventsPage} / ${totalPages} &nbsp;·&nbsp; ${showing}</span>
-         <button class="btn sm" onclick="window._segEventsPage=Math.min(${totalPages},window._segEventsPage+1);renderSegEvents();" ${window._segEventsPage>=totalPages?'disabled':''}>Weiter →</button>
-         <button class="btn sm" onclick="window._segEventsPage=${totalPages};renderSegEvents();" ${window._segEventsPage>=totalPages?'disabled':''}>»</button>`;
-  }
-}
-
-async function exportChannelReport() {
-  const [stats, events] = await Promise.all([
-    api('GET', '/api/segment-events/stats'),
-    api('GET', '/api/segment-events'),
-  ]);
-  if (!stats?.length) return showToast('Keine Daten zum Exportieren');
-
-  const now = new Date().toLocaleString('de-DE');
-  let report = `SELFSTREAM – BUFFERING-BERICHT\n`;
-  report += `Erstellt: ${now}\n`;
-  report += `Gesamt-Ereignisse: ${events.length}\n`;
-  report += `${'='.repeat(60)}\n\n`;
-
-  report += `SENDER-RANKING (nach Schweregrad):\n`;
-  report += `${'─'.repeat(60)}\n`;
-  stats.forEach((s, i) => {
-    report += `${i+1}. ${s.channel}\n`;
-    report += `   Langsam (>2s): ${s.slow}x  |  Verzögert (>1s): ${s.delayed}x  |  Gesamt: ${s.total}x\n`;
-    report += `   Ø Download-Zeit: ${s.avg_elapsed}s  |  Ø Speed: ${s.avg_mbps} Mbit/s  |  Min Speed: ${s.min_mbps} Mbit/s\n\n`;
-  });
-
-  report += `${'='.repeat(60)}\n`;
-  report += `DETAIL-EREIGNISSE (letzte ${Math.min(events.length, 50)}):\n`;
-  report += `${'─'.repeat(60)}\n`;
-  events.slice(0, 50).forEach(e => {
-    const dt = new Date(e.time * 1000).toLocaleTimeString('de-DE');
-    const type = e.type === 'slow' ? '🔴 LANGSAM ' : '🟡 VERZÖGERT';
-    report += `${dt}  ${type}  ${e.channel||'?'}  ${e.elapsed}s  ${e.size_kb}KB  ${e.mbps}Mbit/s\n`;
-  });
-
-  navigator.clipboard.writeText(report).then(() => showToast('✅ Bericht in Zwischenablage kopiert!'));
-}
-
-async function clearSegmentEvents() {
-  await api('DELETE', '/api/segment-events');
-  loadSegmentEvents();
-}
-
-function stopTrafficMonitor() {
-  if (_trafficInterval) { clearInterval(_trafficInterval); _trafficInterval = null; }
-}
-
-async function startTrafficMonitor() {
-  stopTrafficMonitor();
-  // Load current debug mode state
-  const s = await api('GET', '/api/settings');
-  if (s) {
-    const cb = document.getElementById('tr-debug-mode');
-    if (cb) cb.checked = s.segment_debug === '1';
-  }
-  await updateTraffic();
-  await loadSegmentEvents();
-  const secs = parseInt(document.getElementById('traffic-interval')?.value || '5');
-  _trafficInterval = setInterval(async () => {
-    await updateTraffic();
-    await loadSegmentEvents();
-  }, secs * 1000);
-}
-
-async function updateTraffic() {
-  const s = await api('GET', '/api/stats');
-  if (!s) return;
-
-  const activeStreams = (s.active_sessions || []).length;
-  const estimatedMbps = activeStreams * ASSUMED_MBPS_PER_STREAM;
-  if (activeStreams > _trafficPeak) _trafficPeak = activeStreams;
-
-  document.getElementById('tr-streams').textContent = activeStreams;
-  document.getElementById('tr-mbps').textContent = estimatedMbps;
-  document.getElementById('tr-today').textContent = s.watch_logs_today || 0;
-  document.getElementById('tr-peak').textContent = _trafficPeak;
-
-  // Live sessions list — use pagination renderer
-  _trafficSessionsData = (s.active_sessions || []).map(sess => {
-    const np = sess.now_playing || {};
-    const startTs = sess.started_at ? Number(sess.started_at) : 0;
-    const dur = startTs ? Math.floor(Date.now()/1000 - startTs) : 0;
-    const durStr = dur > 3600 ? `${Math.floor(dur/3600)}h ${Math.floor((dur%3600)/60)}m`
-                 : dur > 60   ? `${Math.floor(dur/60)}m ${dur%60}s`
-                 : dur > 0    ? `${dur}s` : '—';
-    return {...sess, _dur: durStr, _np: np};
-  });
-  renderTrafficSessions();
-
-  // History
-  _trafficHistory.push({ time: new Date(), streams: activeStreams, mbps: estimatedMbps });
-  if (_trafficHistory.length > TRAFFIC_MAX_POINTS) _trafficHistory.shift();
-  drawTrafficChart();
-}
-
-function getVisiblePoints() {
-  const range = document.getElementById('tr-range')?.value || '300';
-  if (range === 'all') return _trafficHistory;
-  const cutoff = Date.now() - parseInt(range) * 1000;
-  return _trafficHistory.filter(p => p.time.getTime() >= cutoff);
-}
-
-function drawTrafficChart() {
-  const canvas = document.getElementById('tr-chart');
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  const W = canvas.offsetWidth;
-  const H = 120;
-  canvas.width = W * dpr;
-  canvas.height = H * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, W, H);
-
-  const pts = getVisiblePoints();
-  const PAD_L = 36; // left padding for Y-axis labels
-  const PAD_R = 8;
-  const PAD_T = 8;
-  const PAD_B = 20;
-  const chartW = W - PAD_L - PAD_R;
-  const chartH = H - PAD_T - PAD_B;
-
-  const maxStreams = Math.max(4, ..._trafficHistory.map(p => p.streams));
-  const yMax = Math.ceil(maxStreams / 2) * 2 + 2; // round up to even + buffer
-
-  // Y-axis gridlines + labels
-  const ySteps = Math.min(yMax, 8);
-  for (let i = 0; i <= ySteps; i++) {
-    const val = Math.round((yMax / ySteps) * i);
-    const y = PAD_T + chartH - (val / yMax) * chartH;
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.font = `${9 * dpr / dpr}px monospace`;
-    ctx.textAlign = 'right';
-    ctx.fillText(val, PAD_L - 4, y + 3);
-  }
-
-  // Y-axis label
-  ctx.save();
-  ctx.translate(10, PAD_T + chartH / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font = '9px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('STREAMS', 0, 0);
-  ctx.restore();
-
-  if (pts.length < 2) {
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.font = '11px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Noch zu wenig Daten…', W/2, H/2);
-    return;
-  }
-
-  const xStep = chartW / (pts.length - 1);
-
-  const getXY = (i) => ({
-    x: PAD_L + i * xStep,
-    y: PAD_T + chartH - (pts[i].streams / yMax) * chartH
-  });
-
-  // Filled area
-  ctx.beginPath();
-  pts.forEach((p, i) => {
-    const {x, y} = getXY(i);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.lineTo(PAD_L + (pts.length-1) * xStep, PAD_T + chartH);
-  ctx.lineTo(PAD_L, PAD_T + chartH);
-  ctx.closePath();
-  const grad = ctx.createLinearGradient(0, PAD_T, 0, PAD_T + chartH);
-  grad.addColorStop(0, 'rgba(0,229,200,0.35)');
-  grad.addColorStop(1, 'rgba(0,229,200,0.02)');
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  // Line
-  ctx.beginPath();
-  ctx.strokeStyle = '#00e5c8';
-  ctx.lineWidth = 2;
-  pts.forEach((p, i) => {
-    const {x, y} = getXY(i);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Peak dots
-  const peakVal = Math.max(...pts.map(p => p.streams));
-  pts.forEach((p, i) => {
-    if (p.streams === peakVal && peakVal > 0) {
-      const {x, y} = getXY(i);
-      ctx.beginPath();
-      ctx.arc(x, y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#ff6b6b';
-      ctx.fill();
-    }
-  });
-
-  // X-axis time labels
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font = '9px monospace';
-  ctx.textAlign = 'center';
-  const labelCount = Math.min(6, pts.length);
-  for (let i = 0; i < labelCount; i++) {
-    const idx = Math.round(i * (pts.length - 1) / (labelCount - 1));
-    const x = PAD_L + idx * xStep;
-    const t = pts[idx].time;
-    const label = t.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-    ctx.fillText(label, x, H - 4);
-  }
-
-  // Update time range label
-  if (pts.length > 1) {
-    const diffSec = Math.round((pts[pts.length-1].time - pts[0].time) / 1000);
-    const el = document.getElementById('tr-chart-min');
-    if (el) el.textContent = diffSec > 3600 ? `${Math.floor(diffSec/3600)}h ${Math.floor((diffSec%3600)/60)}m ago`
-                           : diffSec > 60   ? `${Math.floor(diffSec/60)}m ago` : `${diffSec}s ago`;
-  }
-}
-
 </script>
-  <div style="position:fixed;bottom:8px;right:12px;font-family:var(--mono);font-size:10px;color:var(--text3);opacity:.5;pointer-events:none;z-index:1;">
-    selfstream v1.0
-  </div>
 </body>
 </html>
