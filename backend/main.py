@@ -2045,6 +2045,7 @@ def get_stats(_=Depends(check_admin)):
                         "epg_title": row["epg_title"] or "",
                         "catchup_time": row["catchup_time"] or "",
                         "duration": int(now_ts - cv["start"]),
+                        "ip": cv.get("ip", ""),
                     })
             except Exception:
                 pass
