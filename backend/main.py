@@ -896,7 +896,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         except Exception as e:
                             logger.error(f"Catchup TS segment error: {e}")
                     return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
-                                            headers={"Cache-Control": "no-cache"})
+                                            headers={
+                                                "Cache-Control": "no-cache, no-store",
+                                                "X-Accel-Buffering": "no",
+                                                "Access-Control-Allow-Origin": "*",
+                                            })
         except Exception as e:
             logger.error(f"Catchup segment error: {e}")
             raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
@@ -1049,7 +1053,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
 
     media_type = "application/vnd.apple.mpegurl" if not is_ts else "video/mp2t"
     return StreamingResponse(stream_segment(), media_type=media_type,
-                             headers={"Cache-Control": "no-cache"})
+                             headers={
+                                 "Cache-Control": "no-cache, no-store",
+                                 "X-Accel-Buffering": "no",
+                                 "Access-Control-Allow-Origin": "*",
+                             })
 
 
 @proxy_app.get("/iptv/{token}/stop")
