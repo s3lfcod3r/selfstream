@@ -151,6 +151,7 @@ async def startup():
     _generate_error_video()
     asyncio.create_task(_epg_watchdog())
     asyncio.create_task(_m3u_watchdog())
+    asyncio.create_task(_catchup_epg_watchdog())
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -865,6 +866,81 @@ def _user_stream_count(user_id: int) -> int:
 
 def _user_has_session(user_id: int, session_key: str) -> bool:
     return session_key in _sessions
+
+async def _catchup_epg_watchdog():
+    """Every 2 minutes: check if catchup EPG title is still correct based on elapsed time."""
+    await asyncio.sleep(30)  # wait for startup
+    while True:
+        try:
+            now = time.time()
+            for _ck, _cv in list(_catchup_sessions.items()):
+                if now - _cv["last_seen"] >= CATCHUP_TTL:
+                    continue
+                try:
+                    # Get current catchup_time and channel from DB
+                    with db.conn() as con:
+                        row = con.execute(
+                            "SELECT wl.catchup_time, wl.channel, wl.epg_title FROM watch_logs wl WHERE wl.id = ?",
+                            (_cv["log_id"],)
+                        ).fetchone()
+                    if not row or not row["catchup_time"]:
+                        continue
+
+                    # Calculate how much time has elapsed since catchup started
+                    elapsed_since_start = now - _cv["start"]
+                    # Parse original catchup_time and add elapsed time
+                    try:
+                        _base_dt = datetime.strptime(row["catchup_time"], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                        _current_dt = _base_dt + __import__("datetime").timedelta(seconds=elapsed_since_start)
+                    except Exception:
+                        continue
+
+                    # Look up EPG title for the current estimated position
+                    _new_epg = None
+                    try:
+                        import xml.etree.ElementTree as _ET3
+                        _epg_c3 = _epg_cache.get("content")
+                        if not _epg_c3:
+                            try:
+                                with open("/data/epg_cache.xml", "r", encoding="utf-8") as _ef3:
+                                    _epg_c3 = _ef3.read()
+                            except Exception:
+                                pass
+                        if _epg_c3:
+                            _root3 = _ET3.fromstring(_epg_c3)
+                            _ch_rec3 = db.get_channel_by_name(row["channel"]) or {}
+                            _tvg3 = _ch_rec3.get("tvg_id", "").strip()
+                            if _tvg3:
+                                for _prog3 in _root3.findall("programme"):
+                                    if _prog3.get("channel", "") != _tvg3:
+                                        continue
+                                    try:
+                                        _ps3 = datetime.strptime(_prog3.get("start", ""), "%Y%m%d%H%M%S %z")
+                                        _pe3 = datetime.strptime(_prog3.get("stop", ""),  "%Y%m%d%H%M%S %z")
+                                        if _ps3 <= _current_dt <= _pe3:
+                                            _new_epg = _prog3.findtext("title") or None
+                                            break
+                                    except Exception:
+                                        continue
+                    except Exception:
+                        pass
+
+                    # Update DB only if title changed
+                    if _new_epg and _new_epg != row["epg_title"]:
+                        try:
+                            with db.conn() as con:
+                                con.execute(
+                                    "UPDATE watch_logs SET epg_title=? WHERE id=?",
+                                    (_new_epg, _cv["log_id"])
+                                )
+                            logger.info(f"Catchup EPG updated: {row['channel']} → {_new_epg}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        await asyncio.sleep(120)  # check every 2 minutes
 
 
 @proxy_app.get("/iptv/{token}/segment")
