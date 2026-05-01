@@ -903,6 +903,60 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token, catchup=True)
+                    # Try to extract new timestamp from URL and update EPG title
+                    try:
+                        import re as _re
+                        _ts_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', decoded_url)
+                        if _ts_match:
+                            _y,_mo,_d,_h,_mi = _ts_match.groups()
+                            _new_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}"
+                            # Find this catchup session
+                            for _ck2, _cv2 in _catchup_sessions.items():
+                                if _cv2["token"] == token:
+                                    # Look up new EPG title for this timestamp
+                                    _new_epg = None
+                                    try:
+                                        import xml.etree.ElementTree as _ET2
+                                        _epg_c = _epg_cache.get("content")
+                                        if not _epg_c:
+                                            try:
+                                                with open("/data/epg_cache.xml","r",encoding="utf-8") as _ef2:
+                                                    _epg_c = _ef2.read()
+                                            except Exception: pass
+                                        if _epg_c:
+                                            _root2 = _ET2.fromstring(_epg_c)
+                                            with db.conn() as _con2:
+                                                _ch_row = _con2.execute(
+                                                    "SELECT wl.channel FROM watch_logs wl WHERE wl.id = ?",
+                                                    (_cv2["log_id"],)
+                                                ).fetchone()
+                                            if _ch_row:
+                                                _ch_name2 = _ch_row["channel"]
+                                                _ch_rec2 = db.get_channel_by_name(_ch_name2) or {}
+                                                _tvg2 = _ch_rec2.get("tvg_id","").strip()
+                                                if _tvg2:
+                                                    _ct2 = datetime.strptime(_new_dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                                                    for _prog2 in _root2.findall("programme"):
+                                                        if _prog2.get("channel","") != _tvg2: continue
+                                                        try:
+                                                            _ps2 = datetime.strptime(_prog2.get("start",""), "%Y%m%d%H%M%S %z")
+                                                            _pe2 = datetime.strptime(_prog2.get("stop",""),  "%Y%m%d%H%M%S %z")
+                                                            if _ps2 <= _ct2 <= _pe2:
+                                                                _new_epg = _prog2.findtext("title") or None
+                                                                break
+                                                        except Exception: continue
+                                    except Exception: pass
+                                    # Update DB log with new catchup_time and epg_title
+                                    if _new_epg is not None:
+                                        try:
+                                            with db.conn() as _cu:
+                                                _cu.execute(
+                                                    "UPDATE watch_logs SET catchup_time=?, epg_title=? WHERE id=?",
+                                                    (_new_dt_str, _new_epg, _cv2["log_id"])
+                                                )
+                                        except Exception: pass
+                                    break
+                    except Exception: pass
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
                 else:
@@ -2052,7 +2106,7 @@ def get_stats(_=Depends(check_admin)):
 
     return {
         "total_users": len(users),
-        "active_streams": len(active_sessions),
+        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < CATCHUP_TTL]),
         "active_sessions": sessions_out,
         "active_catchup": active_catchup_out,
         "recent_logs": logs_out,
