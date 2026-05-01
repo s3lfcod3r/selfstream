@@ -353,17 +353,20 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
 
 @proxy_app.get("/iptv/{token}/playlist.m3u")
 @proxy_app.get("/iptv/{token}/playlist.m3u8")
-async def serve_playlist(token: str):
+async def serve_playlist(token: str, local: str = None):
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
 
     channels = db.get_channels(enabled_only=True)
     proxy_url = db.get_proxy_url()
-    # If short_domain is set, use it as the public base for all M3U links
-    # so streams work from outside the local network
-    short_domain = db.get_setting("short_domain", "")
-    public_url = short_domain.rstrip("/") if short_domain else proxy_url
+    # local=1 → benutze interne IP (für Testzwecke vom Admin)
+    # sonst → öffentliche Subdomain
+    if local == "1":
+        public_url = proxy_url
+    else:
+        short_domain = db.get_setting("short_domain", "")
+        public_url = short_domain.rstrip("/") if short_domain else proxy_url
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
 
     if not channels:
