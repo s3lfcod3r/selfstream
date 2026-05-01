@@ -14,4 +14,9 @@ services:
       - DB_PATH=/data/selfstream.db
       # Optional: direkt setzen statt Web-Einrichtung
       # - ADMIN_TOKEN=dein-token
-      # - BASE_URL=http://192.168.1.69:8080
+      # - BASE_URL=http://192.168.1.69:8080      # Admin Panel URL
+      # ── Proxy URL: URL über die Streams erreichbar sind ──────────────────────
+      # Lokal (nur Heimnetz):
+      # - PROXY_URL=http://192.168.1.69:8000
+      # Subdomain (auch Internet) – Reverse Proxy muss Port 8000 weiterleiten:
+      # - PROXY_URL=https://iptv.deine-domain.de
