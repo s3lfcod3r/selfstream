@@ -259,9 +259,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <div class="login-logo-wrap">
       <img id="login-logo-img" src="/logo.png" alt="selfstream">
     </div>
-    <form onsubmit="doLogin();return false;" style="width:100%;" autocomplete="on">
-      <input type="text" name="username" value="admin" autocomplete="username" style="display:none;" aria-hidden="true">
-      <input type="password" id="token-input" name="password" placeholder="Admin-Passwort…" autocomplete="current-password" style="width:100%;margin-bottom:12px;">
+    <form onsubmit="doLogin();return false;" style="width:100%;">
+      <input type="password" id="token-input" placeholder="Admin-Passwort…" autocomplete="current-password" style="width:100%;margin-bottom:12px;">
       <button type="submit" class="btn primary full">▶ Anmelden</button>
     </form>
   </div>
@@ -295,9 +294,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('traffic',this)" title="Traffic"><span class="nav-icon">📊</span><span class="nav-label">Traffic</span></div>
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
-      <div style="padding:12px 16px;font-family:var(--mono);font-size:10px;color:var(--text3);border-top:1px solid var(--border);margin-top:auto;">
-        selfstream v1.0
-      </div>
     </div>
 
     <div style="flex:1;overflow:hidden;">
@@ -455,7 +451,82 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="empty-state">Lädt…</div>
         </div>
 
+        <!-- M3U Import Section -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:20px;">
+          <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);margin-bottom:14px;">↓ M3U importieren</div>
 
+          <!-- Tab Switch -->
+
+
+
+
+          <!-- URL Import Panel -->
+          <div id="import-panel-url">
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">M3U URL</label>
+                <input class="form-input" id="import-url" placeholder="http://anbieter.tv/get.php?…">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Verfügbare Lines</label>
+                <input class="form-input" id="import-provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Typ</label>
+                <select class="form-select" id="import-source-type">
+                  <option value="m3u" selected>M3U / HLS</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+
+
+
+
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+              <input type="checkbox" id="import-update-users" checked style="width:15px;height:15px;accent-color:var(--teal);">
+              Bestehende User dieses Anbieters umstellen
+            </label>
+            <button class="btn primary" id="import-btn" onclick="doImport()" style="margin-left:auto;">↓ Importieren</button>
+          </div>
+        </div>
+
+        <!-- Provider Group Order -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <span style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);">⠿ Gruppen-Reihenfolge</span>
+            <span style="font-size:9px;color:var(--text3);">— Drag & Drop</span>
+            <button class="btn sm primary" style="margin-left:auto;" onclick="saveProviderGroupOrder()">💾 Speichern</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
+            <span style="font-size:12px;color:var(--text);">Nummerierung in IPTV-App</span>
+            <span style="font-size:11px;color:var(--text2);font-family:var(--mono);">(erzwingt Sortierung in IPTV Pro)</span>
+            <label style="margin-left:auto;display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="group-prefix-toggle" onchange="saveGroupPrefix(this.checked)" style="accent-color:var(--teal);width:16px;height:16px;">
+              <span id="group-prefix-label" style="font-size:12px;color:var(--text2);">Aus</span>
+            </label>
+          </div>
+          <div id="provider-groups-sortable" style="max-height:320px;overflow-y:auto;">
+            <div class="empty-state" style="font-size:11px;">Lädt…</div>
+          </div>
+        </div>
+
+        <!-- EPG Sources per provider -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+            <span style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);">📅 EPG-Quellen pro Anbieter</span>
+            
+          </div>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:14px;font-family:var(--mono);">
+            Jeder Anbieter kann eine eigene EPG-Quelle haben. Die Spalte <strong>Anbieter</strong> in der EPG-Tabelle zeigt die Zuordnung. Über ✏️ bearbeiten und Anbieter zuordnen.
+          </p>
+          <div id="epg-per-provider-list">
+            <div class="empty-state" style="font-size:11px;">Lädt…</div>
+          </div>
+        </div>
+      </div>
 
 
       <!-- EPG -->
@@ -1137,7 +1208,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
     </div>
     <div class="form-group" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px;">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-        
+        <input type="checkbox" id="import-update-users" checked style="width:16px;height:16px;accent-color:var(--teal);">
+        <span style="font-size:13px;">Alle bestehenden User auf neue URL umstellen</span>
       </label>
       <div class="form-hint" style="margin-top:6px;">
         ⚠️ Empfohlen wenn du den Anbieter wechselst oder eine neue M3U-URL hast.<br>
@@ -1262,7 +1334,7 @@ function nav(page, el) {
   if(page==='users') loadUsers();
   if(page==='channels') loadCh();
   if(page==='groups') { loadUserGroups(); loadProviderGroupOrderGroups(); loadGroupPrefixSettingGroups(); }
-  if(page==='providers') { loadProviders(); loadProviderGroupOrder(); loadGroupPrefixSetting(); loadProviderImportDropdown(); loadChProviderFilter(); }
+  if(page==='providers') { loadProviders(); loadProviderGroupOrder(); loadGroupPrefixSetting(); loadEpgMini(); loadProviderImportDropdown(); loadChProviderFilter(); }
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='channels') { loadChProviderFilter(); }
   if(page==='logs') loadLogs();
@@ -1823,6 +1895,87 @@ async function deleteProvider(id, name) {
 }
 
 // ── EPG per-provider view on Anbieter page ───────────────────────────────────
+async function loadEpgMini() {
+  return loadEpgPerProvider();
+}
+
+async function loadEpgPerProvider() {
+  const wrap = document.getElementById('epg-per-provider-list');
+  if (!wrap) return;
+  const [sources, providers] = await Promise.all([
+    api('GET', '/api/epg').catch(()=>[]),
+    api('GET', '/api/providers').catch(()=>[])
+  ]);
+  if (!providers.length) {
+    wrap.innerHTML = '<div class="empty-state" style="font-size:11px;">Noch keine Anbieter vorhanden.</div>';
+    return;
+  }
+  // Group EPG sources by provider_id
+  const epgByProvider = {};
+  sources.forEach(e => {
+    const key = e.provider_id || '__none__';
+    if (!epgByProvider[key]) epgByProvider[key] = [];
+    epgByProvider[key].push(e);
+  });
+  // Render one block per provider
+  wrap.innerHTML = providers.map(p => {
+    const provEpg = epgByProvider[p.id] || [];
+    const epgRows = provEpg.length
+      ? provEpg.map(e => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+          <span style="flex:0 0 120px;font-size:12px;font-weight:500;">${esc(e.name)}</span>
+          <span style="flex:1;font-family:var(--mono);font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(e.url)}">${esc(e.url)}</span>
+          ${e.active ? '<span class="badge green" style="flex-shrink:0;">Aktiv</span>' : '<span class="badge" style="flex-shrink:0;color:var(--text2);border-color:var(--border);">Inaktiv</span>'}
+          <div style="flex-shrink:0;display:flex;gap:4px;">
+            <button class="btn sm" onclick="openEditEpg(${e.id})">✏️</button>
+            <button class="btn sm" onclick="toggleEpg(${e.id},${e.active})">${e.active?'Deakt.':'Aktiv.'}</button>
+            <button class="btn sm danger" onclick="delEpg(${e.id});setTimeout(loadEpgPerProvider,400)">✕</button>
+          </div>
+        </div>`).join('')
+      : `<div style="font-size:11px;color:var(--text3);padding:8px 0;font-family:var(--mono);">Noch keine EPG-Quelle für diesen Anbieter</div>`;
+    return `<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:12px;overflow:hidden;">
+      <div style="padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+        <span style="font-weight:600;font-size:13px;">${esc(p.name)}</span>
+        <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg2);border:1px solid var(--border);color:var(--text2);font-family:var(--mono);">${(p.source_type||'m3u').toUpperCase()}</span>
+        <button class="btn sm" style="margin-left:auto;font-size:10px;" onclick="openAddEpgForProvider(${p.id},'${esc(p.name)}')">+ EPG hinzufügen</button>
+      </div>
+      <div style="padding:0 14px 2px;">${epgRows}</div>
+    </div>`;
+  }).join('');
+  // Unassigned EPG sources
+  const unassigned = epgByProvider['__none__'] || [];
+  if (unassigned.length) {
+    const rows = unassigned.map(e => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+        <span style="flex:0 0 120px;font-size:12px;">${esc(e.name)}</span>
+        <span style="flex:1;font-family:var(--mono);font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.url)}</span>
+        ${e.active ? '<span class="badge green" style="flex-shrink:0;">Aktiv</span>' : '<span class="badge" style="flex-shrink:0;">Inaktiv</span>'}
+        <button class="btn sm danger" onclick="delEpg(${e.id});setTimeout(loadEpgPerProvider,400)">✕</button>
+      </div>`).join('');
+    wrap.innerHTML += `<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:12px;overflow:hidden;">
+      <div style="padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;color:var(--text2);">🗂 Keinem Anbieter zugeordnet</span>
+      </div>
+      <div style="padding:0 14px 2px;">${rows}</div>
+    </div>`;
+  }
+}
+
+let _epgForProviderId = null;
+
+async function addEpgFromProviders() {
+  const name = document.getElementById('epg-name-p')?.value?.trim();
+  const url = document.getElementById('epg-url-p')?.value?.trim();
+  if (!name || !url) return showToast('Name und URL erforderlich', true);
+  await api('POST', '/api/epg', {name, url});
+  if (document.getElementById('epg-name-p')) document.getElementById('epg-name-p').value = '';
+  if (document.getElementById('epg-url-p')) document.getElementById('epg-url-p').value = '';
+  loadEpgPerProvider();
+  showToast('EPG-Quelle gespeichert');
+}
+
+// ── Provider dropdown for import section ─────────────────────────────────────
+// ── Provider Import Dropdown ────────────────────────────────────────────────
 async function loadProviderImportDropdown() {
   const sel = document.getElementById('import-provider-select');
   if (!sel) return;
@@ -2461,19 +2614,22 @@ async function doImport() {
     provider_name = 'Provider';
   }
 
+  const updateUsers = document.getElementById('import-update-users')?.checked ?? true;
   const btn = document.getElementById('import-btn');
   if (btn) btn.disabled = true;
   try {
     const r = await api('POST', '/api/channels/import', {
       url,
-      update_users: false,
+      update_users: updateUsers,
       provider_name,
       provider_lines,
       source_type
     });
+    // Close old modal if open
     const modal = document.getElementById('modal-import');
     if (modal && modal.classList.contains('open')) closeM('modal-import');
     let msg = `${r.imported} Kanäle importiert!`;
+    if (updateUsers && r.updated_users > 0) msg += ` • ${r.updated_users} User umgestellt`;
     showToast(msg);
     loadCh();
     loadProviders();
@@ -2519,10 +2675,10 @@ async function loadEpg() {
 
   const tbody=document.getElementById('epg-tbody');
   if(!sources.length){
-    tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Noch keine EPG-Quelle.</div></td></tr>';
+    tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Noch keine EPG-Quelle. Auf der Anbieter-Seite hinzufügen.</div></td></tr>';
   } else {
     if (!sources.length) {
-      tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Noch keine EPG-Quelle</div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Noch keine EPG-Quelle</div></td></tr>';
     } else {
     tbody.innerHTML=sources.map(e=>`<tr>
       <td><strong>${esc(e.name)}</strong></td>
@@ -2612,6 +2768,7 @@ async function saveEpgEdit() {
   await api('PUT', `/api/epg/${id}`, {name, url});
   closeM('modal-epg-edit');
   loadEpg();
+  loadEpgPerProvider();
   showToast('EPG-Quelle gespeichert');
 }
 
@@ -2716,7 +2873,7 @@ async function loadSettings() {
   document.getElementById('cfg-base').value=s.base_url||'';
   document.getElementById('cfg-proxy').value=s.proxy_url||'';
   document.getElementById('cfg-short-domain').value=s.short_domain||'';
-  document.getElementById('cfg-m3u').value=s.source_m3u_url||'';
+  const cfgM3u=document.getElementById('cfg-m3u'); if(cfgM3u) cfgM3u.value=s.source_m3u_url||'';
   document.getElementById('cfg-ua').value=s.hls_user_agent||'';
   document.getElementById('cfg-ref').value=s.hls_referer||'';
   document.getElementById('cfg-timeout').value=s.hls_timeout||'10';
@@ -3521,6 +3678,8 @@ function drawTrafficChart() {
 }
 
 </script>
-
+  <div style="position:fixed;bottom:8px;right:12px;font-family:var(--mono);font-size:10px;color:var(--text3);opacity:.5;pointer-events:none;z-index:1;">
+    selfstream v1.0
+  </div>
 </body>
 </html>
