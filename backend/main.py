@@ -1020,7 +1020,14 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         debug_mode = db.get_setting("segment_debug", "0") == "1"
 
                         if _from_cache:
-                            pass
+                            if debug_mode:
+                                _ev_cache = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                                        "type": "ok", "elapsed": round(elapsed, 2),
+                                        "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                                        "seg": f"⚡ {seg_name}", "provider_id": user.get("provider_id")}
+                                _segment_events.append(_ev_cache)
+                                try: db.add_segment_event(_ev_cache)
+                                except Exception: pass
                         elif elapsed > 2.0:
                             logger.warning(f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s")
                             _ev1 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
