@@ -329,10 +329,12 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
     out = []
     # Same heuristic as selfstream v1.0: DVR / nested index playlists keep #EXT-X-ENDLIST;
     # live top-level strips ENDLIST so clients keep polling.
+    # For catchup with IPTV Pro/VLC we also strip ENDLIST, otherwise VLC can treat
+    # archive windows as finished and switch/stop too early (EOF behavior).
     is_dvr = "dvr" in original_url or "index-" in original_url
     for line in lines:
         stripped = line.strip()
-        if stripped == "#EXT-X-ENDLIST" and not is_dvr:
+        if stripped == "#EXT-X-ENDLIST" and (catchup or not is_dvr):
             continue
         if stripped.startswith("#"):
             out.append(line)
