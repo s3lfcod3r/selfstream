@@ -2114,6 +2114,7 @@ def get_stats(_=Depends(check_admin)):
     active_sessions = db.get_active_sessions()
     ch_stats = db.get_channels_count()
     recent_logs = db.get_all_logs(limit=20)
+    epg_root_for_logs = _get_epg_root()
     sessions_out = []
     for s in active_sessions:
         now_playing = _get_now_playing(s["channel"])
@@ -2128,30 +2129,27 @@ def get_stats(_=Depends(check_admin)):
     for l in recent_logs:
         epg_title = ""
         if l.get("is_catchup") and l.get("catchup_time"):
-            # For catchup: look up what was on at that time
+            # For catchup: look up what was on at that time (reuse parsed EPG — not ET.fromstring per row).
             try:
-                import xml.etree.ElementTree as ET
-                content = _epg_cache.get("content")
-                if content:
-                    root_el = ET.fromstring(content)
+                if epg_root_for_logs is not None:
                     ch_rec = db.get_channel_by_name(l["channel"]) or {}
-                    tvg_id = ch_rec.get("tvg_id","").strip()
+                    tvg_id = ch_rec.get("tvg_id", "").strip()
                     if not tvg_id:
-                        for ch_el in root_el.findall("channel"):
+                        for ch_el in epg_root_for_logs.findall("channel"):
                             disp = ch_el.findtext("display-name") or ""
                             if l["channel"].lower() in disp.lower() or disp.lower() in l["channel"].lower():
-                                tvg_id = ch_el.get("id","")
+                                tvg_id = ch_el.get("id", "")
                                 break
                     if tvg_id:
                         # catchup_time is "YYYY-MM-DD HH:MM"
                         ct = datetime.strptime(l["catchup_time"], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
                         fmt = "%Y%m%d%H%M%S %z"
-                        for prog in root_el.findall("programme"):
-                            if prog.get("channel","") != tvg_id:
+                        for prog in epg_root_for_logs.findall("programme"):
+                            if prog.get("channel", "") != tvg_id:
                                 continue
                             try:
-                                ps = datetime.strptime(prog.get("start",""), fmt)
-                                pe = datetime.strptime(prog.get("stop",""),  fmt)
+                                ps = datetime.strptime(prog.get("start", ""), fmt)
+                                pe = datetime.strptime(prog.get("stop", ""), fmt)
                                 if ps <= ct <= pe:
                                     epg_title = prog.findtext("title") or ""
                                     break
