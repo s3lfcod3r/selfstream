@@ -330,10 +330,12 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
     is_dvr = "dvr" in original_url or "index-" in original_url or catchup
     for line in lines:
         stripped = line.strip()
-        # For DVR/catchup: remove tags that signal end-of-stream to the player
-        if is_dvr and stripped in ("#EXT-X-ENDLIST", "#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-PLAYLIST-TYPE:EVENT"):
-            continue
+        # For live streams: remove ENDLIST so player keeps polling
         if stripped == "#EXT-X-ENDLIST" and not is_dvr:
+            continue
+        # For DVR/catchup: remove VOD/EVENT type so player doesn't stop after first batch
+        # but keep ENDLIST so player knows when the recording is truly done
+        if is_dvr and stripped in ("#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-PLAYLIST-TYPE:EVENT"):
             continue
         if stripped.startswith("#"):
             out.append(line)
