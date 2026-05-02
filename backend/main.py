@@ -682,7 +682,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 _catchup_sessions[_catchup_key] = {
                     "log_id": log_id, "start": time.time(), "last_seen": time.time(),
-                    "token": token, "ip": _catchup_ip
+                    "token": token, "ip": _catchup_ip,
+                    "epg_title": _catchup_epg_title or "",
+                    "catchup_time": dt_str,
                 }
                 # Show catchup in live sessions view
                 db.session_start(token, channel_name, _catchup_ip)
@@ -1069,7 +1071,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                                 _new_epg = _prog2.findtext("title") or None
                                                                 break
                                     except Exception: pass
-                                    # Update DB log with new catchup_time and epg_title
+                                    # Update DB log and in-memory session with new catchup_time and epg_title
                                     if _new_epg is not None:
                                         try:
                                             with db.conn() as _cu:
@@ -1078,6 +1080,8 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                     (_new_dt_str, _new_epg, _cv2["log_id"])
                                                 )
                                         except Exception: pass
+                                        _cv2["epg_title"] = _new_epg  # update live display
+                                        _cv2["catchup_time"] = _new_dt_str
                                     break
                     except Exception: pass
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
@@ -2207,14 +2211,17 @@ def get_stats(_=Depends(check_admin)):
                         "WHERE wl.id = ?", (cv["log_id"],)
                     ).fetchone()
                 if row:
-                    _cu_title = (row["epg_title"] or "").strip()
+                    # Prefer cached title from session, fallback to DB, then EPG lookup
+                    _cu_title = (cv.get("epg_title") or row["epg_title"] or "").strip()
                     if not _cu_title and epg_root_for_logs is not None and row["catchup_time"]:
                         _cu_title = _epg_title_at_time(row["channel"], row["catchup_time"], epg_root_for_logs)
+                        if _cu_title:
+                            _catchup_sessions[ck]["epg_title"] = _cu_title  # cache it
                     active_catchup_out.append({
                         "user": row["user_name"],
                         "channel": row["channel"],
                         "epg_title": _cu_title,
-                        "catchup_time": row["catchup_time"] or "",
+                        "catchup_time": cv.get("catchup_time") or row["catchup_time"] or "",
                         "duration": int(now_ts - cv["start"]),
                         "ip": cv.get("ip", ""),
                     })
