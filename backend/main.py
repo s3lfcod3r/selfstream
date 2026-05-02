@@ -706,8 +706,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     # Keep serving catchup for this sid to avoid unintended jumps to live channel.
     _cleanup_sessions()
     _sid_key = f"{token}::sid::{sid}"
-    _lock = _catchup_sid_locks.get(_sid_key)
-    if _lock and (time.time() - _lock.get("last_seen", 0) <= get_catchup_ttl()):
+    _lock = _get_recent_catchup_lock(token, sid=sid)
+    if _lock:
         try:
             base_cdn = _lock["source_url"].rsplit("/mono.m3u8", 1)[0]
             mono_q = urllib.parse.parse_qs(urllib.parse.urlparse(_lock["source_url"]).query)
@@ -725,7 +725,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 resp.raise_for_status()
                 archive_content = resp.text
             rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, sid=sid, catchup=True)
-            logger.info(f"Catchup lock active: forcing archive for sid={sid[:8]} user={user['name']}")
+            logger.info(f"Catchup lock active: forcing archive for sid={sid[:8]} user={user['name']} token-lock")
             return HTMLResponse(
                 content=rewritten,
                 media_type="application/vnd.apple.mpegurl",
@@ -914,6 +914,25 @@ CATCHUP_TTL_DEFAULT = 900  # seconds without segment = catchup done
 # Track catchup intent per device sid so player auto-fallbacks to live can be ignored.
 # {f"{token}::sid::{sid}": {"source_url": str, "utc": str, "lutc": str, "last_seen": float}}
 _catchup_sid_locks: dict = {}
+
+def _get_recent_catchup_lock(token: str, sid: str = None):
+    """Return most recent active catchup lock for token (prefer sid match)."""
+    now = time.time()
+    ttl = get_catchup_ttl()
+    best = None
+    best_ts = 0.0
+    for k, v in _catchup_sid_locks.items():
+        if not k.startswith(f"{token}::sid::"):
+            continue
+        last = float(v.get("last_seen", 0))
+        if now - last > ttl:
+            continue
+        if sid and k == f"{token}::sid::{sid}":
+            return v
+        if last > best_ts:
+            best = v
+            best_ts = last
+    return best
 
 def get_catchup_ttl() -> int:
     """Catchup idle TTL in seconds, configurable via admin settings."""
