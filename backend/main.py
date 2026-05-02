@@ -320,6 +320,56 @@ def make_headers(hls: dict) -> dict:
     return h
 
 
+_DVR_TS_PATH_RE = re.compile(
+    r"/dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})/(\d{2})-\d+\.ts",
+    re.I,
+)
+
+
+def _dvr_ts_tuple_from_catchup_proxy_line(line: str) -> tuple:
+    """Sort key from …/dvr-YYYY/MM/DD/HH/MM/SS-….ts inside proxy URL (possibly URL-encoded)."""
+    try:
+        raw = urllib.parse.unquote(line)
+    except Exception:
+        raw = line
+    m = _DVR_TS_PATH_RE.search(raw)
+    if not m:
+        return (9999, 99, 99, 99, 99, 99)
+    return tuple(int(x) for x in m.groups())
+
+
+def _reorder_catchup_dvr_segment_pairs(out: list) -> tuple:
+    """
+    Some DVR playlists list segments newest-first. Players fetch the first TS (wrong PCR),
+    then jump backward — endless buffering through Selfstream/Zoraxy. Sort EXTINF+segment pairs
+    chronologically when paths look like …/dvr-…/….ts.
+    Returns (new_out_list, did_reorder).
+    """
+    n = len(out)
+    pairs = []
+    i = 0
+    while i < n - 1:
+        if out[i].strip().startswith("#EXTINF") and "/segment?catchup=1&url=" in out[i + 1]:
+            pairs.append((_dvr_ts_tuple_from_catchup_proxy_line(out[i + 1]), i, i + 2))
+            i += 2
+            continue
+        i += 1
+    if len(pairs) < 2:
+        return out, False
+    keys = [p[0] for p in pairs]
+    if keys == sorted(keys):
+        return out, False
+    lo = min(p[1] for p in pairs)
+    hi = max(p[2] for p in pairs)
+    prefix = out[:lo]
+    suffix = out[hi:]
+    pairs.sort(key=lambda p: p[0])
+    middle = []
+    for _k, s, e in pairs:
+        middle.extend(out[s:e])
+    return prefix + middle + suffix, True
+
+
 def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str, sid: str = None, catchup: bool = False) -> str:
     # Base URL: directory of the playlist file
     # For DVR playlists like .../tracks-v1a1/index-xxx.m3u8
@@ -359,6 +409,13 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
         else:
             out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
     if catchup:
+        out, _cu_reordered = _reorder_catchup_dvr_segment_pairs(out)
+        if _cu_reordered:
+            # First playlist segment must match MEDIA-SEQUENCE after reorder.
+            out = [
+                "#EXT-X-MEDIA-SEQUENCE:0" if l.strip().startswith("#EXT-X-MEDIA-SEQUENCE") else l
+                for l in out
+            ]
         # Keep provider #EXT-X-MEDIA-SEQUENCE when present (required by HLS for first URI).
         # If the CDN omits it, some IPTV apps refuse to start catchup — insert a safe default.
         has_seq = any(l.strip().startswith("#EXT-X-MEDIA-SEQUENCE") for l in out)
