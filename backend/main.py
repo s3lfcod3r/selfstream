@@ -741,14 +741,14 @@ _segment_in_progress: dict = {}  # {url: asyncio.Event} – deduplication lock
 SEGMENT_CACHE_TTL = 30  # seconds
 
 def _get_segment_cache_max() -> int:
-    """Dynamic cache size: base 30 + 10 per active stream (prefetch 2 ahead each).
-    Ensures segments are never evicted while another user might need them."""
+    """Dynamic cache size: base 20 + 5 per active stream.
+    Keeps memory usage reasonable."""
     active = len(_sessions)
     prefetch = get_prefetch_count()
-    return max(30, active * (prefetch + 2) + 10)
+    return max(20, active * (prefetch + 2) + 5)
 
 # Keep SEGMENT_CACHE_MAX as a fallback constant
-SEGMENT_CACHE_MAX = 30
+SEGMENT_CACHE_MAX = 20
 
 def get_prefetch_count() -> int:
     """How many segments to prefetch ahead. 0 = disabled."""
