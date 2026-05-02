@@ -1099,10 +1099,54 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 else:
                     async def stream_catchup_ts():
                         try:
+                            _cu_t0 = time.time()
+                            _cu_data = b""
                             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
                                 async with c2.stream("GET", decoded_url) as r2:
                                     async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
+                                        _cu_data += chunk
                                         yield chunk
+                            # Log timing for catchup segments
+                            _cu_elapsed = time.time() - _cu_t0
+                            _cu_size_kb = len(_cu_data) / 1024
+                            _cu_speed = min((len(_cu_data) * 8) / (max(_cu_elapsed, 0.001) * 1_000_000), 10000.0)
+                            _cu_seg = decoded_url.split("/")[-1].split("?")[0]
+                            # Find channel name from catchup session
+                            _cu_ch = ""
+                            _cu_user = token[:8]
+                            for _ck, _cv in _catchup_sessions.items():
+                                if _cv.get("token") == token:
+                                    _cu_ch = _ck.split("::")[-1] if "::" in _ck else ""
+                                    break
+                            _cu_provider_id = user.get("provider_id")
+                            if _cu_elapsed > 2.0:
+                                logger.warning(f"⚠️ SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s")
+                                _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
+                                          "type": "slow", "elapsed": round(_cu_elapsed, 2),
+                                          "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
+                                          "seg": _cu_seg, "provider_id": _cu_provider_id}
+                                _segment_events.append(_cu_ev)
+                                if len(_segment_events) > 500: _segment_events.pop(0)
+                                try: db.add_segment_event(_cu_ev)
+                                except Exception: pass
+                            elif _cu_elapsed > 1.0:
+                                _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
+                                          "type": "delayed", "elapsed": round(_cu_elapsed, 2),
+                                          "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
+                                          "seg": _cu_seg, "provider_id": _cu_provider_id}
+                                _segment_events.append(_cu_ev)
+                                if len(_segment_events) > 500: _segment_events.pop(0)
+                                try: db.add_segment_event(_cu_ev)
+                                except Exception: pass
+                            elif db.get_setting("segment_debug", "0") == "1":
+                                _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
+                                          "type": "ok", "elapsed": round(_cu_elapsed, 2),
+                                          "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
+                                          "seg": _cu_seg, "provider_id": _cu_provider_id}
+                                _segment_events.append(_cu_ev)
+                                if len(_segment_events) > 500: _segment_events.pop(0)
+                                try: db.add_segment_event(_cu_ev)
+                                except Exception: pass
                         except Exception as e:
                             logger.error(f"Catchup TS segment error: {e}")
                     return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
