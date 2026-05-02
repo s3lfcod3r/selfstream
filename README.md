@@ -173,8 +173,8 @@ docker-compose up -d
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `hls_timeout` | `10` | Connection timeout in seconds |
-| `hls_read_timeout` | `30` | Read timeout in seconds for active streams |
+| `hls_timeout` | `15` | Connection timeout in seconds (outbound to provider) |
+| `hls_read_timeout` | `60` | Read timeout in seconds between chunks (Catchup / langsame CDN oft 45–60s+) |
 | `hls_chunk_size` | `65536` | Chunk size in bytes for TS segment streaming (64 KB) |
 | `hls_user_agent` | `VLC/3.0 LibVLC/3.0` | User-Agent for outgoing requests to IPTV provider |
 | `hls_referer` | *(empty)* | Referer header (if required by provider) |
@@ -295,9 +295,9 @@ Create your own channel groups independent of provider groups:
 | `/{short_token}.m3u` | Compact short playlist URL |
 | `/s/{short_token}/playlist.m3u` | Short playlist URL |
 | `/iptv/epg.xml` | Global EPG URL (same for all users) |
-| `/iptv/epg-1d.xml` | EPG filtered – 1 day |
-| `/iptv/epg-3d.xml` | EPG filtered – 3 days |
-| `/iptv/epg-7d.xml` | EPG filtered – 7 days |
+| `/iptv/epg-1d.xml` | EPG filtered – 1 day back **and** 1 day forward |
+| `/iptv/epg-3d.xml` | EPG filtered – 3 days back **and** 3 days forward |
+| `/iptv/epg-7d.xml` | EPG filtered – 7 days back **and** 7 days forward |
 
 ---
 
@@ -329,6 +329,18 @@ Create your own channel groups independent of provider groups:
 | External streams not working | Set your subdomain in Settings → Public Domain. Without it, stream links contain your local IP |
 | Streams work locally but not externally | Check that your reverse proxy forwards to port 8000 (not 8080) |
 | M3U import updates channels but users still use old URL | Enable "Update all users to new URL" checkbox in the import dialog |
+
+---
+
+## Optional: Catchup HLS debug (browser)
+
+A **separate** small Docker image for debugging catchup in the browser (hls.js + event log): **[catchup-hls-debug](https://github.com/kabelsalatundklartext/catchup-hls-debug)**. You paste your **public M3U and EPG URLs**; stream lines already include the selfstream path and token (`…/stream?url=…&utc=…`). It does **not** replace selfstream — run it alongside on another port.
+
+| | |
+|--|--|
+| **Repository** | [github.com/kabelsalatundklartext/catchup-hls-debug](https://github.com/kabelsalatundklartext/catchup-hls-debug) |
+| **Image** | `ghcr.io/kabelsalatundklartext/catchup-hls-debug:latest` (built via Actions on `main`) |
+| **Unraid “Template URL”** | `https://raw.githubusercontent.com/kabelsalatundklartext/catchup-hls-debug/main/unraid/catchup-hls-debug.xml` |
 
 ---
 
@@ -514,8 +526,8 @@ docker-compose up -d
 
 | Einstellung | Standard | Beschreibung |
 |-------------|---------|-------------|
-| `hls_timeout` | `10` | Verbindungs-Timeout in Sekunden |
-| `hls_read_timeout` | `30` | Lese-Timeout in Sekunden für laufende Streams |
+| `hls_timeout` | `15` | Verbindungs-Timeout in Sekunden (zum Anbieter) |
+| `hls_read_timeout` | `60` | Lese-Timeout in Sekunden zwischen Chunks (Catchup / langsame CDN) |
 | `hls_chunk_size` | `65536` | Chunk-Größe in Bytes beim Streamen von TS-Segmenten (64 KB) |
 | `hls_user_agent` | `VLC/3.0 LibVLC/3.0` | User-Agent für ausgehende Requests zum IPTV-Anbieter |
 | `hls_referer` | *(leer)* | Referer-Header (falls vom Anbieter benötigt) |
@@ -636,9 +648,9 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 | `/{short_token}.m3u` | Kompakte Short-Playlist-URL |
 | `/s/{short_token}/playlist.m3u` | Short-Playlist-URL |
 | `/iptv/epg.xml` | Globale EPG-URL (für alle gleich) |
-| `/iptv/epg-1d.xml` | EPG gefiltert – 1 Tag |
-| `/iptv/epg-3d.xml` | EPG gefiltert – 3 Tage |
-| `/iptv/epg-7d.xml` | EPG gefiltert – 7 Tage |
+| `/iptv/epg-1d.xml` | EPG gefiltert – 1 Tag zurück **und** 1 Tag voraus |
+| `/iptv/epg-3d.xml` | EPG gefiltert – 3 Tage zurück **und** 3 Tage voraus |
+| `/iptv/epg-7d.xml` | EPG gefiltert – 7 Tage zurück **und** 7 Tage voraus |
 
 ---
 
@@ -670,6 +682,18 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 | Externe Streams funktionieren nicht | Subdomain unter Einstellungen → Öffentliche Domain eintragen. Ohne diese Einstellung enthalten Stream-Links die lokale IP |
 | Lokal geht es, extern nicht | Prüfen ob Reverse Proxy auf Port 8000 weiterleitet (nicht 8080) |
 | M3U-Import aktualisiert Kanäle aber User nutzen noch alte URL | Beim Import-Dialog die Option „Alle bestehenden User auf neue URL umstellen" aktivieren |
+
+---
+
+## Optional: Catchup HLS-Debug (Browser)
+
+Eigenes kleines Docker-Image zum Debuggen von Catchup im Browser (**hls.js** + Ereignis-Log): **[catchup-hls-debug](https://github.com/kabelsalatundklartext/catchup-hls-debug)**. Öffentliche **M3U- und EPG-URLs** eintragen; Stream-Zeilen enthalten bereits Pfad und Token. **Ersetzt** selfstream **nicht** — parallel auf einem anderen Port starten.
+
+| | |
+|--|--|
+| **Repository** | [github.com/kabelsalatundklartext/catchup-hls-debug](https://github.com/kabelsalatundklartext/catchup-hls-debug) |
+| **Image** | `ghcr.io/kabelsalatundklartext/catchup-hls-debug:latest` (GitHub Actions bei Push auf `main`) |
+| **Unraid „Template URL“** | `https://raw.githubusercontent.com/kabelsalatundklartext/catchup-hls-debug/main/unraid/catchup-hls-debug.xml` |
 
 ---
 
