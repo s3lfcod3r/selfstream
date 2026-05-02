@@ -320,67 +320,6 @@ def make_headers(hls: dict) -> dict:
     return h
 
 
-_DVR_TS_PATH_RE = re.compile(
-    r"/dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})/(\d{2})-\d+\.ts",
-    re.I,
-)
-
-
-def _dvr_ts_tuple_from_catchup_proxy_line(line: str) -> tuple:
-    """Sort key from …/dvr-YYYY/MM/DD/HH/MM/SS-….ts inside proxy URL (possibly URL-encoded)."""
-    try:
-        raw = urllib.parse.unquote(line)
-    except Exception:
-        raw = line
-    m = _DVR_TS_PATH_RE.search(raw)
-    if not m:
-        return (9999, 99, 99, 99, 99, 99)
-    return tuple(int(x) for x in m.groups())
-
-
-def _trim_leading_dvr_segments_after_utc(out: list, original_url: str) -> tuple:
-    """
-    Some DVR playlists put one newest TS first (e.g. 15:04) before the real arc near utc (12:05).
-    Full-list reordering can drop non-segment lines (#EXT-X-DISCONTINUITY, KEY, gaps) and break playback.
-    Safe fix: drop only leading EXTINF+URL pairs whose dvr-path time is strictly after catchup utc.
-    Returns (new_out, did_trim).
-    """
-    try:
-        qs = urllib.parse.parse_qs(urllib.parse.urlparse(original_url).query)
-        if not qs.get("utc"):
-            return out, False
-        goal = datetime.fromtimestamp(int(qs["utc"][0]), tz=timezone.utc)
-        goal_t = (goal.year, goal.month, goal.day, goal.hour, goal.minute, goal.second)
-    except Exception:
-        return out, False
-
-    n = len(out)
-    pairs = []
-    i = 0
-    while i < n - 1:
-        if out[i].strip().startswith("#EXTINF") and "/segment?catchup=1&url=" in out[i + 1]:
-            pairs.append((_dvr_ts_tuple_from_catchup_proxy_line(out[i + 1]), i, i + 2))
-            i += 2
-            continue
-        i += 1
-    if not pairs:
-        return out, False
-
-    trim = 0
-    while trim < len(pairs) and pairs[trim][0] > goal_t:
-        trim += 1
-    if trim == 0:
-        return out, False
-    if trim >= len(pairs):
-        return out, False
-
-    drop = set()
-    for j in range(trim):
-        for idx in range(pairs[j][1], pairs[j][2]):
-            drop.add(idx)
-    return [out[k] for k in range(len(out)) if k not in drop], True
-
-
 def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str, sid: str = None, catchup: bool = False) -> str:
     # Base URL: directory of the playlist file
     # For DVR playlists like .../tracks-v1a1/index-xxx.m3u8
@@ -388,15 +327,12 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
     base = original_url.rsplit("/", 1)[0] + "/"
     lines = content.splitlines()
     out = []
-    is_dvr = "dvr" in original_url or "index-" in original_url or catchup
+    # Same heuristic as selfstream v1.0: DVR / nested index playlists keep #EXT-X-ENDLIST;
+    # live top-level strips ENDLIST so clients keep polling.
+    is_dvr = "dvr" in original_url or "index-" in original_url
     for line in lines:
         stripped = line.strip()
-        # Remove all end-of-stream signals for both live and catchup:
-        # - Live: player must keep polling for new segments
-        # - Catchup: player must keep requesting next playlist window
-        if stripped == "#EXT-X-ENDLIST":
-            continue
-        if stripped in ("#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-PLAYLIST-TYPE:EVENT"):
+        if stripped == "#EXT-X-ENDLIST" and not is_dvr:
             continue
         if stripped.startswith("#"):
             out.append(line)
@@ -404,7 +340,6 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
         if not stripped:
             out.append(line)
             continue
-        # Resolve relative URLs against the playlist base directory
         if stripped.startswith("http"):
             abs_url = stripped
         elif stripped.startswith("//"):
@@ -419,25 +354,6 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
             out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
         else:
             out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
-    if catchup:
-        out, _cu_trimmed = _trim_leading_dvr_segments_after_utc(out, original_url)
-        if _cu_trimmed:
-            out = [
-                "#EXT-X-MEDIA-SEQUENCE:0" if l.strip().startswith("#EXT-X-MEDIA-SEQUENCE") else l
-                for l in out
-            ]
-        # Keep provider #EXT-X-MEDIA-SEQUENCE when present (required by HLS for first URI).
-        # If the CDN omits it, some IPTV apps refuse to start catchup — insert a safe default.
-        has_seq = any(l.strip().startswith("#EXT-X-MEDIA-SEQUENCE") for l in out)
-        if not has_seq:
-            insert_at = 1 if out and out[0].strip().startswith("#EXTM3U") else 0
-            for i, l in enumerate(out):
-                if l.strip().startswith("#EXT-X-TARGETDURATION"):
-                    insert_at = i + 1
-                    break
-                if l.strip().startswith("#EXT-X-VERSION"):
-                    insert_at = i + 1
-            out.insert(insert_at, "#EXT-X-MEDIA-SEQUENCE:0")
     return "\n".join(out)
 
 
@@ -1148,23 +1064,25 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     except Exception: pass
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
-            # TS catchup: buffer full segment + Content-Length (same strategy as live).
-            # Chunked StreamingResponse often stays “loading” behind reverse proxies / ExoPlayer.
-            cu_data, _cu_elapsed, _cu_fc = await _get_segment(decoded_url, hls)
-            if len(cu_data) < 1_000:
-                _segment_cache.pop(decoded_url, None)
-                await asyncio.sleep(0.5)
-                cu_data, _cu_elapsed, _cu_fc = await _get_segment(decoded_url, hls)
-            if len(cu_data) < 1_000:
-                raise HTTPException(status_code=502, detail="Catchup segment empty")
-            return Response(
-                content=cu_data,
+
+            async def stream_catchup_ts():
+                try:
+                    async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=hdr) as c2:
+                        async with c2.stream("GET", decoded_url) as r2:
+                            async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
+                                yield chunk
+                except Exception as e:
+                    logger.error(f"Catchup TS segment error: {e}")
+
+            return StreamingResponse(
+                stream_catchup_ts(),
                 media_type="video/mp2t",
                 headers={
-                    "Content-Length": str(len(cu_data)),
                     "Cache-Control": "no-cache, no-store",
                     "X-Accel-Buffering": "no",
                     "Access-Control-Allow-Origin": "*",
+                    "Connection": "keep-alive",
+                    "X-Accel-Timeout": "0",
                 },
             )
         except HTTPException:
