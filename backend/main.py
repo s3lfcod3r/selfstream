@@ -34,6 +34,20 @@ for a in (proxy_app, admin_app):
 
 db = Database()
 
+
+def _parse_xmltv_datetime(value: str):
+    """Parse XMLTV programme start/stop. Supports 'YYYYMMDDHHMMSS +ZZZZ' and 'YYYYMMDDHHMMSSZZZZ'."""
+    if not value or not str(value).strip():
+        return None
+    s = str(value).strip()
+    for fmt in ("%Y%m%d%H%M%S %z", "%Y%m%d%H%M%S%z"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 # Segment timing events for buffering diagnosis
 _segment_events: list = []
 
@@ -615,18 +629,16 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                                     break
                         if _tvg_id:
                             _ct = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-                            _fmt = "%Y%m%d%H%M%S %z"
                             for _prog in _root.findall("programme"):
                                 if _prog.get("channel","") != _tvg_id:
                                     continue
-                                try:
-                                    _ps = datetime.strptime(_prog.get("start",""), _fmt)
-                                    _pe = datetime.strptime(_prog.get("stop",""),  _fmt)
-                                    if _ps <= _ct <= _pe:
-                                        _catchup_epg_title = _prog.findtext("title") or None
-                                        break
-                                except Exception:
+                                _ps = _parse_xmltv_datetime(_prog.get("start", ""))
+                                _pe = _parse_xmltv_datetime(_prog.get("stop", ""))
+                                if _ps is None or _pe is None:
                                     continue
+                                if _ps <= _ct <= _pe:
+                                    _catchup_epg_title = _prog.findtext("title") or None
+                                    break
                 except Exception:
                     pass
                 _catchup_ip = ""
@@ -924,14 +936,13 @@ async def _catchup_epg_watchdog():
                                 for _prog3 in _root3.findall("programme"):
                                     if _prog3.get("channel", "") != _tvg3:
                                         continue
-                                    try:
-                                        _ps3 = datetime.strptime(_prog3.get("start", ""), "%Y%m%d%H%M%S %z")
-                                        _pe3 = datetime.strptime(_prog3.get("stop", ""),  "%Y%m%d%H%M%S %z")
-                                        if _ps3 <= _current_dt <= _pe3:
-                                            _new_epg = _prog3.findtext("title") or None
-                                            break
-                                    except Exception:
+                                    _ps3 = _parse_xmltv_datetime(_prog3.get("start", ""))
+                                    _pe3 = _parse_xmltv_datetime(_prog3.get("stop", ""))
+                                    if _ps3 is None or _pe3 is None:
                                         continue
+                                    if _ps3 <= _current_dt <= _pe3:
+                                        _new_epg = _prog3.findtext("title") or None
+                                        break
                     except Exception:
                         pass
 
@@ -1024,13 +1035,13 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                     _ct2 = datetime.strptime(_new_dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
                                                     for _prog2 in _root2.findall("programme"):
                                                         if _prog2.get("channel","") != _tvg2: continue
-                                                        try:
-                                                            _ps2 = datetime.strptime(_prog2.get("start",""), "%Y%m%d%H%M%S %z")
-                                                            _pe2 = datetime.strptime(_prog2.get("stop",""),  "%Y%m%d%H%M%S %z")
-                                                            if _ps2 <= _ct2 <= _pe2:
-                                                                _new_epg = _prog2.findtext("title") or None
-                                                                break
-                                                        except Exception: continue
+                                                        _ps2 = _parse_xmltv_datetime(_prog2.get("start", ""))
+                                                        _pe2 = _parse_xmltv_datetime(_prog2.get("stop", ""))
+                                                        if _ps2 is None or _pe2 is None:
+                                                            continue
+                                                        if _ps2 <= _ct2 <= _pe2:
+                                                            _new_epg = _prog2.findtext("title") or None
+                                                            break
                                     except Exception: pass
                                     # Update DB log with new catchup_time and epg_title
                                     if _new_epg is not None:
@@ -1360,19 +1371,11 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
             ch_id = prog.get("channel", "")
             if known_ids and ch_id not in known_ids:
                 continue
-            try:
-                start_str = prog.get("start", "")
-                if start_str:
-                    dt = datetime.strptime(start_str[:14], "%Y%m%d%H%M%S")
-                    tz_str = start_str[15:] if len(start_str) > 15 else "+0000"
-                    sign = 1 if tz_str[0] == "+" else -1
-                    tz_h, tz_m = int(tz_str[1:3]), int(tz_str[3:5])
-                    tz_offset = timezone(timedelta(hours=sign*tz_h, minutes=sign*tz_m))
-                    dt = dt.replace(tzinfo=tz_offset)
-                    if not (t_from <= dt <= t_to):
-                        continue
-            except Exception:
-                pass
+            start_str = prog.get("start", "")
+            if start_str:
+                dt = _parse_xmltv_datetime(start_str)
+                if dt is not None and not (t_from <= dt <= t_to):
+                    continue
             new_root.append(prog)
 
         return ET.tostring(new_root, encoding="unicode", xml_declaration=True)
@@ -2086,22 +2089,20 @@ def _get_now_playing(channel_name: str) -> dict:
             return {}
 
         # Find currently running programme
-        fmt = "%Y%m%d%H%M%S %z"
         for programme in root.findall("programme"):
             if programme.get("channel", "") != tvg_id:
                 continue
-            try:
-                start = datetime.strptime(programme.get("start", ""), fmt)
-                stop  = datetime.strptime(programme.get("stop",  ""), fmt)
-                if start <= now <= stop:
-                    return {
-                        "title": programme.findtext("title") or "",
-                        "desc":  (programme.findtext("desc") or "")[:120],
-                        "start": start.strftime("%H:%M"),
-                        "stop":  stop.strftime("%H:%M"),
-                    }
-            except Exception:
+            start = _parse_xmltv_datetime(programme.get("start", ""))
+            stop = _parse_xmltv_datetime(programme.get("stop", ""))
+            if start is None or stop is None:
                 continue
+            if start <= now <= stop:
+                return {
+                    "title": programme.findtext("title") or "",
+                    "desc":  (programme.findtext("desc") or "")[:120],
+                    "start": start.strftime("%H:%M"),
+                    "stop":  stop.strftime("%H:%M"),
+                }
         return {}
     except Exception as e:
         logger.debug(f"EPG now_playing error for '{channel_name}': {e}")
@@ -2128,7 +2129,7 @@ def get_stats(_=Depends(check_admin)):
         })
     logs_out = []
     for l in recent_logs:
-        epg_title = ""
+        epg_title = (l.get("epg_title") or "").strip()
         if l.get("is_catchup") and l.get("catchup_time"):
             # For catchup: look up what was on at that time (reuse parsed EPG — not ET.fromstring per row).
             try:
@@ -2144,18 +2145,16 @@ def get_stats(_=Depends(check_admin)):
                     if tvg_id:
                         # catchup_time is "YYYY-MM-DD HH:MM"
                         ct = datetime.strptime(l["catchup_time"], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-                        fmt = "%Y%m%d%H%M%S %z"
                         for prog in epg_root_for_logs.findall("programme"):
                             if prog.get("channel", "") != tvg_id:
                                 continue
-                            try:
-                                ps = datetime.strptime(prog.get("start", ""), fmt)
-                                pe = datetime.strptime(prog.get("stop", ""), fmt)
-                                if ps <= ct <= pe:
-                                    epg_title = prog.findtext("title") or ""
-                                    break
-                            except Exception:
+                            ps = _parse_xmltv_datetime(prog.get("start", ""))
+                            pe = _parse_xmltv_datetime(prog.get("stop", ""))
+                            if ps is None or pe is None:
                                 continue
+                            if ps <= ct <= pe:
+                                epg_title = prog.findtext("title") or epg_title
+                                break
             except Exception:
                 pass
         logs_out.append({
