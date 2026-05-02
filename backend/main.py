@@ -1033,10 +1033,14 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token, catchup=True)
-                    # Try to extract new timestamp from URL and update EPG title
+                    # Try to extract new timestamp from playlist content (DVR segment URLs)
                     try:
                         import re as _re
-                        _ts_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', decoded_url)
+                        # First try playlist content (dvr-2026/05/01/13/24/...)
+                        _ts_match = _re.search(r'dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', resp.text)
+                        # Fallback: try URL path
+                        if not _ts_match:
+                            _ts_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', decoded_url)
                         if _ts_match:
                             _y,_mo,_d,_h,_mi = _ts_match.groups()
                             _new_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}:00"
