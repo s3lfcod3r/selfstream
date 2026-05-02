@@ -330,12 +330,12 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
     is_dvr = "dvr" in original_url or "index-" in original_url or catchup
     for line in lines:
         stripped = line.strip()
-        # For live streams: remove ENDLIST so player keeps polling
-        if stripped == "#EXT-X-ENDLIST" and not is_dvr:
+        # Remove all end-of-stream signals for both live and catchup:
+        # - Live: player must keep polling for new segments
+        # - Catchup: player must keep requesting next playlist window
+        if stripped == "#EXT-X-ENDLIST":
             continue
-        # For DVR/catchup: remove VOD/EVENT type so player doesn't stop after first batch
-        # but keep ENDLIST so player knows when the recording is truly done
-        if is_dvr and stripped in ("#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-PLAYLIST-TYPE:EVENT"):
+        if stripped in ("#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-PLAYLIST-TYPE:EVENT"):
             continue
         if stripped.startswith("#"):
             out.append(line)
@@ -358,6 +358,24 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
             out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
         else:
             out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
+    # For catchup: inject dynamic EXT-X-MEDIA-SEQUENCE so player keeps polling
+    if catchup:
+        import time as _t
+        seq = int(_t.time()) // 5
+        updated = []
+        found_seq = False
+        for l in out:
+            if l.strip().startswith("#EXT-X-MEDIA-SEQUENCE"):
+                updated.append(f"#EXT-X-MEDIA-SEQUENCE:{seq}")
+                found_seq = True
+            else:
+                updated.append(l)
+        if not found_seq:
+            for i, l in enumerate(updated):
+                if l.strip().startswith(("#EXT-X-VERSION", "#EXT-X-TARGETDURATION")):
+                    updated.insert(i + 1, f"#EXT-X-MEDIA-SEQUENCE:{seq}")
+                    break
+        out = updated
     return "\n".join(out)
 
 
