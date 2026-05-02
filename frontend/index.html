@@ -1312,9 +1312,15 @@ document.getElementById('token-input').addEventListener('keydown', e => { if(e.k
 function doLogin() {
   const t = document.getElementById('token-input').value.trim();
   if (!t) return;
+  const btn = document.querySelector('#login-screen button[type="submit"]');
+  if (btn && btn.disabled) return;
   TOKEN = t;
   sessionStorage.setItem('ss_token', t);
-  loadApp().catch(e => { showToast('Falsches Passwort', true); TOKEN=''; sessionStorage.removeItem('ss_token'); });
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Bitte warten…'; }
+  loadApp()
+    .catch(() => { showToast('Falsches Passwort', true); TOKEN=''; sessionStorage.removeItem('ss_token'); })
+    .finally(() => { if (btn) { btn.disabled = false; btn.textContent = label; } });
 }
 
 function logout() {
@@ -1334,17 +1340,17 @@ async function api(m, p, b) {
 }
 
 async function loadApp() {
-  await loadStats();
-  // Load proxy URL for local test button
-  try {
-    const s = await api('GET', '/api/settings');
-    window._localProxyUrl = s.proxy_url || '';
-  } catch(e) {}
+  // Validate token with a light endpoint first; /api/stats can take seconds (EPG parsing per session/log).
+  const s = await api('GET', '/api/settings');
+  window._localProxyUrl = s.proxy_url || '';
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   applySidebarState();
-  loadUsers();
   setRefresh();
+  Promise.all([
+    loadStats().catch(e => console.error('stats', e)),
+    loadUsers().catch(e => console.error('users', e)),
+  ]).catch(() => {});
 }
 
 function applySidebarState() {
