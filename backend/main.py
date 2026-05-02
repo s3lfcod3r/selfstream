@@ -2054,6 +2054,17 @@ async def scan_epg_channels(_=Depends(check_admin)):
 def list_epg(_=Depends(check_admin)):
     return db.get_epg_sources()
 
+@admin_app.get("/api/epg/status")
+def epg_status(_=Depends(check_admin)):
+    fetched_at = _epg_cache.get("fetched_at", 0)
+    content = _epg_cache.get("content", "")
+    size_kb = len(content) // 1024 if content else 0
+    return {
+        "fetched_at": fetched_at,
+        "size_kb": size_kb,
+        "source_url": _epg_cache.get("url", ""),
+    }
+
 @admin_app.post("/api/epg")
 def add_epg(body: dict, _=Depends(check_admin)):
     name = body.get("name", "").strip()
