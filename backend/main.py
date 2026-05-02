@@ -2445,7 +2445,11 @@ def vpn_start() -> dict:
     global _vpn_process, _vpn_log
 
     if vpn_is_running():
-        return {"ok": False, "error": "VPN läuft bereits"}
+        # Force-stop stale VPN before starting new one
+        vpn_stop()
+        import time; time.sleep(2)
+        if vpn_is_running():
+            return {"ok": False, "error": "VPN läuft bereits und konnte nicht gestoppt werden"}
 
     ovpn_path = db.get_setting("vpn_ovpn_path", "")
     vpn_user  = db.get_setting("vpn_user", "")
@@ -2527,7 +2531,16 @@ def vpn_stop() -> dict:
 
     # Kill any remaining openvpn processes
     try:
-        subprocess.run(["pkill", "-f", "openvpn"], capture_output=True, timeout=3)
+        subprocess.run(["pkill", "-9", "-f", "openvpn"], capture_output=True, timeout=3)
+    except Exception:
+        pass
+
+    # Force remove tun0 if still present
+    import time; time.sleep(1)
+    try:
+        result = subprocess.run(["ip", "link", "show", "tun0"], capture_output=True, timeout=2)
+        if result.returncode == 0:
+            subprocess.run(["ip", "link", "delete", "tun0"], capture_output=True, timeout=3)
     except Exception:
         pass
 
