@@ -112,7 +112,7 @@ async def _fetch_and_cache_epg():
             content = resp.text
         filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
         if filter_epg:
-            content = _filter_epg_xml(content)
+            content = _filter_epg_xml(content, days_back=7)
         now = int(time.time())
         _epg_cache = {"content": content, "fetched_at": now, "url": source_url}
         with open("/data/epg_cache.xml", "w", encoding="utf-8") as f:
@@ -649,18 +649,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
 
             # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
             rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, catchup=True)
-            # Try to extract real catchup time from DVR segment URLs in the playlist
-            # e.g. dvr-2026/05/01/13/24/... → 2026-05-01 13:24:00
-            _dvr_dt_str = None
-            try:
-                import re as _re2
-                _m = _re2.search(r'dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', archive_content)
-                if _m:
-                    _y,_mo,_d,_h,_mi = _m.groups()
-                    _dvr_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}:00"
-            except Exception:
-                pass
-            dt_str = _dvr_dt_str or datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
             # Log catchup access (no session, just a single log entry)
             try:
@@ -1357,7 +1346,7 @@ async def global_epg(force: str = None):
         # Filter EPG to only include channels we have in DB
         filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
         if filter_epg:
-            content_text = _filter_epg_xml(content_text)
+            content_text = _filter_epg_xml(content_text, days_back=7)
 
         _epg_cache = {"content": content_text, "fetched_at": now, "url": source_url}
         _epg_tree_cache["root"] = None  # invalidate parsed tree
