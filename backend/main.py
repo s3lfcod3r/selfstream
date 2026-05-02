@@ -16,7 +16,7 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Header
-from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import Database
@@ -1014,8 +1014,9 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             pass
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
-            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
-                if not is_ts:
+            hdr = make_headers(hls)
+            if not is_ts:
+                async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=hdr) as client:
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token, catchup=True)
@@ -1075,23 +1076,27 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     except Exception: pass
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
-                else:
-                    async def stream_catchup_ts():
-                        try:
-                            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
-                                async with c2.stream("GET", decoded_url) as r2:
-                                    async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
-                                        yield chunk
-                        except Exception as e:
-                            logger.error(f"Catchup TS segment error: {e}")
-                    return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
-                                            headers={
-                                                "Cache-Control": "no-cache, no-store",
-                                                "X-Accel-Buffering": "no",
-                                                "Access-Control-Allow-Origin": "*",
-                                                "Connection": "keep-alive",
-                                                "X-Accel-Timeout": "0",
-                                            })
+            # TS catchup: buffer full segment + Content-Length (same strategy as live).
+            # Chunked StreamingResponse often stays “loading” behind reverse proxies / ExoPlayer.
+            cu_data, _cu_elapsed, _cu_fc = await _get_segment(decoded_url, hls)
+            if len(cu_data) < 1_000:
+                _segment_cache.pop(decoded_url, None)
+                await asyncio.sleep(0.5)
+                cu_data, _cu_elapsed, _cu_fc = await _get_segment(decoded_url, hls)
+            if len(cu_data) < 1_000:
+                raise HTTPException(status_code=502, detail="Catchup segment empty")
+            return Response(
+                content=cu_data,
+                media_type="video/mp2t",
+                headers={
+                    "Content-Length": str(len(cu_data)),
+                    "Cache-Control": "no-cache, no-store",
+                    "X-Accel-Buffering": "no",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Catchup segment error: {e}")
             raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
