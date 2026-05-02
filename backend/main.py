@@ -112,7 +112,7 @@ async def _fetch_and_cache_epg():
             content = resp.text
         filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
         if filter_epg:
-            content = _filter_epg_xml(content, days_back=7)
+            content = _filter_epg_xml(content)
         now = int(time.time())
         _epg_cache = {"content": content, "fetched_at": now, "url": source_url}
         with open("/data/epg_cache.xml", "w", encoding="utf-8") as f:
@@ -877,7 +877,11 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-CATCHUP_TTL = 900  # seconds without segment request = catchup idle (längere Puffer-Pausen / langsame CDN)
+def get_catchup_ttl() -> int:
+    try:
+        return int(db.get_setting("catchup_ttl", "120"))
+    except Exception:
+        return 120
 
 _last_cleanup = 0.0
 
@@ -902,7 +906,7 @@ def _cleanup_sessions():
         except Exception:
             pass
     # Cleanup stale catchup sessions
-    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > CATCHUP_TTL]
+    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > get_catchup_ttl()]
     for k in stale_cu:
         s = _catchup_sessions.pop(k)
         try:
@@ -926,7 +930,7 @@ async def _catchup_epg_watchdog():
         try:
             now = time.time()
             for _ck, _cv in list(_catchup_sessions.items()):
-                if now - _cv["last_seen"] >= CATCHUP_TTL:
+                if now - _cv["last_seen"] >= get_catchup_ttl():
                     continue
                 try:
                     # Get current catchup_time and channel from DB
@@ -1346,7 +1350,7 @@ async def global_epg(force: str = None):
         # Filter EPG to only include channels we have in DB
         filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
         if filter_epg:
-            content_text = _filter_epg_xml(content_text, days_back=7)
+            content_text = _filter_epg_xml(content_text)
 
         _epg_cache = {"content": content_text, "fetched_at": now, "url": source_url}
         _epg_tree_cache["root"] = None  # invalidate parsed tree
@@ -2201,7 +2205,7 @@ def get_stats(_=Depends(check_admin)):
     active_catchup_out = []
     now_ts = time.time()
     for ck, cv in list(_catchup_sessions.items()):
-        if now_ts - cv["last_seen"] < CATCHUP_TTL:
+        if now_ts - cv["last_seen"] < get_catchup_ttl():
             # Get user name and epg title from DB log
             try:
                 with db.conn() as con:
@@ -2230,7 +2234,7 @@ def get_stats(_=Depends(check_admin)):
 
     return {
         "total_users": len(users),
-        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < CATCHUP_TTL]),
+        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < get_catchup_ttl()]),
         "active_sessions": sessions_out,
         "active_catchup": active_catchup_out,
         "recent_logs": logs_out,
@@ -2300,6 +2304,7 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
+        "catchup_ttl":          s.get("catchup_ttl", "120"),
     }
 
 @admin_app.post("/api/settings")
@@ -2308,7 +2313,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug"}
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "catchup_ttl"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
     try:
