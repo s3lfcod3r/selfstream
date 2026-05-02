@@ -649,7 +649,18 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
 
             # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
             rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, catchup=True)
-            dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            # Try to extract real catchup time from DVR segment URLs in the playlist
+            # e.g. dvr-2026/05/01/13/24/... → 2026-05-01 13:24:00
+            _dvr_dt_str = None
+            try:
+                import re as _re2
+                _m = _re2.search(r'dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', archive_content)
+                if _m:
+                    _y,_mo,_d,_h,_mi = _m.groups()
+                    _dvr_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}:00"
+            except Exception:
+                pass
+            dt_str = _dvr_dt_str or datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
             # Log catchup access (no session, just a single log entry)
             try:
