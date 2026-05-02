@@ -1933,9 +1933,12 @@ function renderTrafficSessions() {
   const page = _trafficSessionsData.slice(start, start + limit);
   list.innerHTML = page.map(s => `
     <div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
-      <div class="live-dot active" style="flex-shrink:0;"></div>
+      ${s.is_catchup
+        ? '<span style="flex-shrink:0;font-size:14px;" title="Catchup">📼</span>'
+        : '<div class="live-dot active" style="flex-shrink:0;"></div>'}
       <strong style="min-width:120px;color:var(--teal);">${esc(s.user)}</strong>
       <span style="flex:1;color:var(--text);">${esc(s.channel)}</span>
+      ${s.is_catchup ? '<span style="font-size:10px;color:var(--text2);background:var(--bg2);padding:1px 5px;border-radius:3px;">CATCHUP</span>' : ''}
       ${s.now_playing?.title ? `<span style="color:var(--text2);font-size:11px;">· ${esc(s.now_playing.title)}</span>` : ''}
       <span style="color:var(--text2);font-size:10px;font-family:var(--mono);">${esc(s.ip||'')}</span>
       <span style="color:var(--text2);font-size:10px;font-family:var(--mono);white-space:nowrap;">⏱ ${s._dur}</span>
@@ -3701,16 +3704,33 @@ async function updateTraffic() {
   document.getElementById('tr-today').textContent = s.watch_logs_today || 0;
   document.getElementById('tr-peak').textContent = _trafficPeak;
 
-  // Live sessions list — use pagination renderer
-  _trafficSessionsData = (s.active_sessions || []).map(sess => {
-    const np = sess.now_playing || {};
-    const startTs = sess.started_at ? Number(sess.started_at) : 0;
-    const dur = startTs ? Math.floor(Date.now()/1000 - startTs) : 0;
-    const durStr = dur > 3600 ? `${Math.floor(dur/3600)}h ${Math.floor((dur%3600)/60)}m`
-                 : dur > 60   ? `${Math.floor(dur/60)}m ${dur%60}s`
-                 : dur > 0    ? `${dur}s` : '—';
-    return {...sess, _dur: durStr, _np: np};
-  });
+  // Live sessions list — include catchup sessions with icon
+  const catchupSessions = (s.active_catchup || []).map(cu => ({
+    user: cu.user,
+    channel: cu.channel,
+    ip: cu.ip || '',
+    is_catchup: true,
+    now_playing: cu.epg_title ? { title: cu.epg_title } : null,
+    started_at: null,
+    _dur: (() => {
+      const dur = cu.duration || 0;
+      return dur > 3600 ? `${Math.floor(dur/3600)}h ${Math.floor((dur%3600)/60)}m`
+           : dur > 60   ? `${Math.floor(dur/60)}m ${dur%60}s`
+           : dur > 0    ? `${dur}s` : '—';
+    })(),
+  }));
+  _trafficSessionsData = [
+    ...(s.active_sessions || []).map(sess => {
+      const np = sess.now_playing || {};
+      const startTs = sess.started_at ? Number(sess.started_at) : 0;
+      const dur = startTs ? Math.floor(Date.now()/1000 - startTs) : 0;
+      const durStr = dur > 3600 ? `${Math.floor(dur/3600)}h ${Math.floor((dur%3600)/60)}m`
+                   : dur > 60   ? `${Math.floor(dur/60)}m ${dur%60}s`
+                   : dur > 0    ? `${dur}s` : '—';
+      return {...sess, _dur: durStr, _np: np};
+    }),
+    ...catchupSessions,
+  ];
   renderTrafficSessions();
 
   // History
