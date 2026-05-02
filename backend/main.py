@@ -16,7 +16,7 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Header
-from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import Database
@@ -327,13 +327,12 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
     base = original_url.rsplit("/", 1)[0] + "/"
     lines = content.splitlines()
     out = []
-    # Same heuristic as selfstream v1.0: DVR / nested index playlists keep #EXT-X-ENDLIST;
-    # live top-level strips ENDLIST so clients keep polling.
-    # For catchup with IPTV Pro/VLC we also strip ENDLIST, otherwise VLC can treat
-    # archive windows as finished and switch/stop too early (EOF behavior).
     is_dvr = "dvr" in original_url or "index-" in original_url
     for line in lines:
         stripped = line.strip()
+        # Keep EXT-X-ENDLIST only for true VOD playlists.
+        # For catchup we strip ENDLIST so IPTV Pro/VLC keeps polling instead
+        # of treating the archive window as finished too early.
         if stripped == "#EXT-X-ENDLIST" and (catchup or not is_dvr):
             continue
         if stripped.startswith("#"):
@@ -342,6 +341,7 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
         if not stripped:
             out.append(line)
             continue
+        # Resolve relative URLs against the playlist base directory
         if stripped.startswith("http"):
             abs_url = stripped
         elif stripped.startswith("//"):
@@ -351,10 +351,7 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
             abs_url = base + stripped
         encoded = urllib.parse.quote(abs_url, safe="")
         if catchup:
-            if sid:
-                out.append(f"{proxy_base}/iptv/{token}/segment?catchup=1&sid={sid}&url={encoded}")
-            else:
-                out.append(f"{proxy_base}/iptv/{token}/segment?catchup=1&url={encoded}")
+            out.append(f"{proxy_base}/iptv/{token}/segment?catchup=1&url={encoded}")
         elif sid:
             out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
         else:
@@ -565,10 +562,6 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     proxy_url = db.get_proxy_url()
     short_domain = db.get_setting("short_domain", "")
     public_url = short_domain.rstrip("/") if short_domain else proxy_url
-    _fwd_s = request.headers.get("x-forwarded-for","").split(",")[0].strip() if request else ""
-    _ip_s = _fwd_s or (request.client.host if request and request.client else "")
-    _ua_s = request.headers.get("user-agent","")[:60] if request else ""
-    sid = hashlib.md5(f"{token}::{_ip_s}::{_ua_s}".encode()).hexdigest()[:16]
 
     # Get friendly channel name from DB
     ch_record = db.get_channel_by_url(decoded_url)
@@ -580,8 +573,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     # Catchup requests bypass max-stream check – they don't hold a live session
     if utc:
         try:
-            # Build archive URL: same query contract as mono.m3u8, but index.m3u8 for DVR.
-            # IPTV apps send lutc (window/locale end); omitting it breaks playlists on many CDNs.
+            # Build archive URL from mono params and keep lutc if provided.
             base_cdn = decoded_url.rsplit("/mono.m3u8", 1)[0]
             mono_q = urllib.parse.parse_qs(urllib.parse.urlparse(decoded_url).query)
             arch_q = {k: v[0] for k, v in mono_q.items() if v}
@@ -600,7 +592,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 archive_content = resp.text
 
             # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
-            rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, sid=sid, catchup=True)
+            rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, catchup=True)
             dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
             # Log catchup access (no session, just a single log entry)
@@ -652,40 +644,10 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     is_catchup=1, catchup_time=dt_str, epg_title=_catchup_epg_title
                 )
                 # Don't end immediately – track duration via segment requests
-                # Only one catchup tracking entry per token: otherwise segment heartbeats
-                # update the wrong row (dict iteration + break) and IPTV apps can stall.
-                _now_cu_start = time.time()
-                # End live in-memory sessions for this token. Catchup segments do not bump
-                # live sid last_seen; after SESSION_MEM_TTL cleanup would call session_end(token)
-                # and wipe active_sessions while catchup is still playing (IPTV Pro often keeps a live sid).
-                for _sk in list(_sessions.keys()):
-                    _sv = _sessions.get(_sk)
-                    if _sv and _sv["token"] == token:
-                        try:
-                            epg_lv = _get_now_playing(_sv["channel"])
-                            epg_tl = _sv.get("epg_title") or (epg_lv.get("title") if epg_lv else None)
-                            db.end_watch_log(_sv["log_id"], int(_now_cu_start - _sv["start"]), epg_title=epg_tl)
-                        except Exception:
-                            pass
-                        _sessions.pop(_sk, None)
-                for _k_rm in list(_catchup_sessions.keys()):
-                    _v_rm = _catchup_sessions.get(_k_rm)
-                    if _v_rm and _v_rm["token"] == token:
-                        try:
-                            db.end_watch_log(_v_rm["log_id"], int(_now_cu_start - _v_rm["start"]))
-                        except Exception:
-                            pass
-                        _catchup_sessions.pop(_k_rm, None)
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 _catchup_sessions[_catchup_key] = {
-                    "log_id": log_id, "start": _now_cu_start, "last_seen": _now_cu_start,
+                    "log_id": log_id, "start": time.time(), "last_seen": time.time(),
                     "token": token, "ip": _catchup_ip
-                }
-                _catchup_sid_locks[f"{token}::sid::{sid}"] = {
-                    "source_url": decoded_url,
-                    "utc": str(utc).strip(),
-                    "lutc": str(lutc).strip() if lutc else "",
-                    "last_seen": _now_cu_start,
                 }
                 # Show catchup in live sessions view
                 db.session_start(token, channel_name, _catchup_ip)
@@ -702,38 +664,6 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             # Fall through to live
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
-    # IPTV Pro/VLC can briefly request live again while catchup is still active.
-    # Keep serving catchup for this sid to avoid unintended jumps to live channel.
-    _cleanup_sessions()
-    _sid_key = f"{token}::sid::{sid}"
-    _lock = _get_recent_catchup_lock(token, sid=sid)
-    if _lock:
-        try:
-            base_cdn = _lock["source_url"].rsplit("/mono.m3u8", 1)[0]
-            mono_q = urllib.parse.parse_qs(urllib.parse.urlparse(_lock["source_url"]).query)
-            arch_q = {k: v[0] for k, v in mono_q.items() if v}
-            arch_q["utc"] = _lock.get("utc", "")
-            if _lock.get("lutc"):
-                arch_q["lutc"] = _lock["lutc"]
-            archive_url = f"{base_cdn}/index.m3u8?{urllib.parse.urlencode(arch_q)}"
-            async with make_iptv_client(
-                timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
-                follow_redirects=True,
-                headers=make_headers(hls)
-            ) as client:
-                resp = await client.get(archive_url)
-                resp.raise_for_status()
-                archive_content = resp.text
-            rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, sid=sid, catchup=True)
-            logger.info(f"Catchup lock active: forcing archive for sid={sid[:8]} user={user['name']} token-lock")
-            return HTMLResponse(
-                content=rewritten,
-                media_type="application/vnd.apple.mpegurl",
-                headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"}
-            )
-        except Exception as _ce:
-            logger.warning(f"Catchup lock fallback failed: {_ce}")
-
     # Check max concurrent streams only for live mode
     max_s = user.get("max_streams", 1) or 0
     if max_s > 0:
@@ -817,14 +747,14 @@ _segment_in_progress: dict = {}  # {url: asyncio.Event} – deduplication lock
 SEGMENT_CACHE_TTL = 30  # seconds
 
 def _get_segment_cache_max() -> int:
-    """Dynamic cache size: base 20 + 5 per active stream.
-    Keeps memory usage reasonable."""
+    """Dynamic cache size: base 30 + 10 per active stream (prefetch 2 ahead each).
+    Ensures segments are never evicted while another user might need them."""
     active = len(_sessions)
     prefetch = get_prefetch_count()
-    return max(20, active * (prefetch + 2) + 5)
+    return max(30, active * (prefetch + 2) + 10)
 
 # Keep SEGMENT_CACHE_MAX as a fallback constant
-SEGMENT_CACHE_MAX = 20
+SEGMENT_CACHE_MAX = 30
 
 def get_prefetch_count() -> int:
     """How many segments to prefetch ahead. 0 = disabled."""
@@ -910,37 +840,13 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-CATCHUP_TTL_DEFAULT = 900  # seconds without segment = catchup done
-# Track catchup intent per device sid so player auto-fallbacks to live can be ignored.
-# {f"{token}::sid::{sid}": {"source_url": str, "utc": str, "lutc": str, "last_seen": float}}
-_catchup_sid_locks: dict = {}
-
-def _get_recent_catchup_lock(token: str, sid: str = None):
-    """Return most recent active catchup lock for token (prefer sid match)."""
-    now = time.time()
-    ttl = get_catchup_ttl()
-    best = None
-    best_ts = 0.0
-    for k, v in _catchup_sid_locks.items():
-        if not k.startswith(f"{token}::sid::"):
-            continue
-        last = float(v.get("last_seen", 0))
-        if now - last > ttl:
-            continue
-        if sid and k == f"{token}::sid::{sid}":
-            return v
-        if last > best_ts:
-            best = v
-            best_ts = last
-    return best
+CATCHUP_TTL = 300  # seconds without segment = catchup done (5 min, catchup segments can be large)
 
 def get_catchup_ttl() -> int:
-    """Catchup idle TTL in seconds, configurable via admin settings."""
     try:
-        v = int(db.get_setting("catchup_ttl", str(CATCHUP_TTL_DEFAULT)) or str(CATCHUP_TTL_DEFAULT))
+        v = int(db.get_setting("catchup_ttl", str(CATCHUP_TTL)) or str(CATCHUP_TTL))
     except Exception:
-        v = CATCHUP_TTL_DEFAULT
-    # Keep a sane range to avoid accidental instant-expiry or huge stale sessions.
+        v = CATCHUP_TTL
     return max(60, min(v, 7200))
 
 _last_cleanup = 0.0
@@ -958,13 +864,7 @@ def _cleanup_sessions():
     for k in stale:
         s = _sessions.pop(k)
         try:
-            tok = s["token"]
-            catchup_still = any(
-                v.get("token") == tok and (now - v.get("last_seen", 0)) <= catchup_ttl
-                for v in _catchup_sessions.values()
-            )
-            if not catchup_still:
-                db.session_end(tok)
+            db.session_end(s["token"])
             # Try EPG title at end - more reliable than at start
             epg_end = _get_now_playing(s["channel"])
             epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
@@ -982,9 +882,6 @@ def _cleanup_sessions():
             logger.info(f"Catchup session ended (TTL): {k} duration={duration}s")
         except Exception:
             pass
-    stale_sid = [k for k, v in _catchup_sid_locks.items() if now - v.get("last_seen", 0) > catchup_ttl]
-    for k in stale_sid:
-        _catchup_sid_locks.pop(k, None)
 
 def _user_stream_count(user_id: int) -> int:
     _cleanup_sessions()
@@ -1095,22 +992,14 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     # Catchup segments bypass session tracking
     if catchup == "1":
         _now_cu = time.time()
-        if sid:
-            _sid_key = f"{token}::sid::{sid}"
-            if _sid_key in _catchup_sid_locks:
-                _catchup_sid_locks[_sid_key]["last_seen"] = _now_cu
-        for _ck, _cv in list(_catchup_sessions.items()):
+        for _ck, _cv in _catchup_sessions.items():
             if _cv["token"] == token:
                 _catchup_sessions[_ck]["last_seen"] = _now_cu
-        try:
-            db.session_refresh(token)
-        except Exception:
-            pass
+                break
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
-            hdr = make_headers(hls)
-            if not is_ts:
-                async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=hdr) as client:
+            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
+                if not is_ts:
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token, catchup=True)
@@ -1170,23 +1059,23 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     except Exception: pass
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
-
-            # Use shared segment cache/dedupe for catchup TS too.
-            # This reduces jitter when the player re-requests same segment or opens
-            # parallel connections during buffering.
-            ts_body, _elapsed_cu, _from_cache_cu = await _get_segment(decoded_url, hls)
-            if not ts_body:
-                raise HTTPException(status_code=502, detail="Catchup TS empty")
-            return Response(
-                content=ts_body,
-                media_type="video/mp2t",
-                headers={
-                    "Cache-Control": "no-cache, no-store",
-                    "Access-Control-Allow-Origin": "*",
-                },
-            )
-        except HTTPException:
-            raise
+                else:
+                    async def stream_catchup_ts():
+                        try:
+                            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
+                                async with c2.stream("GET", decoded_url) as r2:
+                                    async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
+                                        yield chunk
+                        except Exception as e:
+                            logger.error(f"Catchup TS segment error: {e}")
+                    return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
+                                            headers={
+                                                "Cache-Control": "no-cache, no-store",
+                                                "X-Accel-Buffering": "no",
+                                                "Access-Control-Allow-Origin": "*",
+                                                "Connection": "keep-alive",
+                                                "X-Accel-Timeout": "0",
+                                            })
         except Exception as e:
             logger.error(f"Catchup segment error: {e}")
             raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
@@ -1209,8 +1098,6 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         ua_short = ua[:40].strip()
         if sid:
             session_key = f"{token}::sid::{sid}"
-            # Live segments indicate a real leave from catchup for this device.
-            _catchup_sid_locks.pop(session_key, None)
         else:
             session_key = f"{token}::{client_ip}::{ua_short}"
         user_id = user["id"]
@@ -2392,7 +2279,7 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
-        "catchup_ttl":          s.get("catchup_ttl", str(CATCHUP_TTL_DEFAULT)),
+        "catchup_ttl":          s.get("catchup_ttl", str(CATCHUP_TTL)),
     }
 
 @admin_app.post("/api/settings")
