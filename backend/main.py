@@ -979,14 +979,15 @@ async def _catchup_epg_watchdog():
                     except Exception:
                         pass
 
-                    # Update DB only if title changed
-                    if _new_epg and _new_epg != row["epg_title"]:
+                    # Update DB and in-memory session if title changed
+                    if _new_epg and _new_epg != (row["epg_title"] or ""):
                         try:
                             with db.conn() as con:
                                 con.execute(
                                     "UPDATE watch_logs SET epg_title=? WHERE id=?",
                                     (_new_epg, _cv["log_id"])
                                 )
+                            _cv["epg_title"] = _new_epg  # update live display immediately
                             logger.info(f"Catchup EPG updated: {row['channel']} → {_new_epg}")
                         except Exception:
                             pass
