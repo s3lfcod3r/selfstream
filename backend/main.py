@@ -1327,7 +1327,7 @@ async def global_epg(force: str = None):
 
 
 def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7) -> str:
-    """Filter EPG XML – channel whitelist + day range + sorted by channel order."""
+    """Filter EPG XML – channel whitelist + time window [now−days_back, now+days_forward] + channel order."""
     try:
         import xml.etree.ElementTree as ET
         from datetime import datetime, timezone, timedelta
@@ -1382,7 +1382,7 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
 
 @proxy_app.get("/iptv/epg-{days}d.xml")
 async def global_epg_days(days: int, force: str = None):
-    """EPG filtered to N days: /iptv/epg-1d.xml /iptv/epg-3d.xml /iptv/epg-7d.xml"""
+    """EPG filtered to N days back and N days forward from UTC now (symmetric window)."""
     global _epg_cache
     if days not in (1, 3, 7):
         raise HTTPException(status_code=400, detail="days must be 1, 3, or 7")
@@ -1414,7 +1414,8 @@ async def global_epg_days(days: int, force: str = None):
                 raise HTTPException(status_code=502, detail=str(e))
     else:
         raw = _epg_cache["content"]
-    filtered = _filter_epg_xml(raw, days_back=1, days_forward=days)
+    # „7d“ = gleiches Fenster nach hinten und vorn (Catchup braucht Historie; vorher war days_back=1 irreführend).
+    filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
     return HTMLResponse(content=filtered, media_type="application/xml",
                        headers={"Cache-Control": "max-age=3600"})
 
@@ -1930,9 +1931,12 @@ async def download_epg_xml(days: int = 0, _=Depends(check_admin)):
     else:
         raw = _epg_cache["content"]
 
-    days_forward = days if days in (1, 3, 7) else 7
-    filtered = _filter_epg_xml(raw, days_back=1, days_forward=days_forward)
-    fname = f"epg-{days}d.xml" if days in (1, 3, 7) else "epg.xml"
+    if days in (1, 3, 7):
+        filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
+        fname = f"epg-{days}d.xml"
+    else:
+        filtered = _filter_epg_xml(raw)
+        fname = "epg.xml"
 
     from fastapi.responses import Response
     return Response(
