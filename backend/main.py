@@ -1111,14 +1111,21 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                             _cu_size_kb = len(_cu_data) / 1024
                             _cu_speed = min((len(_cu_data) * 8) / (max(_cu_elapsed, 0.001) * 1_000_000), 10000.0)
                             _cu_seg = decoded_url.split("/")[-1].split("?")[0]
-                            # Find channel name from catchup session
+                            # Find channel name and user info from catchup session
                             _cu_ch = ""
-                            _cu_user = token[:8]
+                            _cu_user = user.get("name", token[:8])
                             for _ck, _cv in _catchup_sessions.items():
                                 if _cv.get("token") == token:
                                     _cu_ch = _ck.split("::")[-1] if "::" in _ck else ""
                                     break
+                            # Get provider_id from channel record
                             _cu_provider_id = user.get("provider_id")
+                            if not _cu_provider_id and _cu_ch:
+                                try:
+                                    _cu_ch_rec = db.get_channel_by_name(_cu_ch) or {}
+                                    _cu_provider_id = _cu_ch_rec.get("provider_id")
+                                except Exception:
+                                    pass
                             if _cu_elapsed > 2.0:
                                 logger.warning(f"⚠️ SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s")
                                 _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
