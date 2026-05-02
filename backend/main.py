@@ -358,8 +358,19 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
             out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
         else:
             out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
-    # Catchup: keep provider EXT-X-MEDIA-SEQUENCE. A wall-clock sequence broke spec
-    # alignment with the first segment URI and can stall picky IPTV players mid-DVR.
+    if catchup:
+        # Keep provider #EXT-X-MEDIA-SEQUENCE when present (required by HLS for first URI).
+        # If the CDN omits it, some IPTV apps refuse to start catchup — insert a safe default.
+        has_seq = any(l.strip().startswith("#EXT-X-MEDIA-SEQUENCE") for l in out)
+        if not has_seq:
+            insert_at = 1 if out and out[0].strip().startswith("#EXTM3U") else 0
+            for i, l in enumerate(out):
+                if l.strip().startswith("#EXT-X-TARGETDURATION"):
+                    insert_at = i + 1
+                    break
+                if l.strip().startswith("#EXT-X-VERSION"):
+                    insert_at = i + 1
+            out.insert(insert_at, "#EXT-X-MEDIA-SEQUENCE:0")
     return "\n".join(out)
 
 
