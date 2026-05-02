@@ -358,24 +358,8 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
             out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
         else:
             out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
-    # For catchup: inject dynamic EXT-X-MEDIA-SEQUENCE so player keeps polling
-    if catchup:
-        import time as _t
-        seq = int(_t.time()) // 5
-        updated = []
-        found_seq = False
-        for l in out:
-            if l.strip().startswith("#EXT-X-MEDIA-SEQUENCE"):
-                updated.append(f"#EXT-X-MEDIA-SEQUENCE:{seq}")
-                found_seq = True
-            else:
-                updated.append(l)
-        if not found_seq:
-            for i, l in enumerate(updated):
-                if l.strip().startswith(("#EXT-X-VERSION", "#EXT-X-TARGETDURATION")):
-                    updated.insert(i + 1, f"#EXT-X-MEDIA-SEQUENCE:{seq}")
-                    break
-        out = updated
+    # Catchup: keep provider EXT-X-MEDIA-SEQUENCE. A wall-clock sequence broke spec
+    # alignment with the first segment URI and can stall picky IPTV players mid-DVR.
     return "\n".join(out)
 
 
@@ -660,9 +644,20 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     is_catchup=1, catchup_time=dt_str, epg_title=_catchup_epg_title
                 )
                 # Don't end immediately – track duration via segment requests
+                # Only one catchup tracking entry per token: otherwise segment heartbeats
+                # update the wrong row (dict iteration + break) and IPTV apps can stall.
+                _now_cu_start = time.time()
+                for _k_rm in list(_catchup_sessions.keys()):
+                    _v_rm = _catchup_sessions.get(_k_rm)
+                    if _v_rm and _v_rm["token"] == token:
+                        try:
+                            db.end_watch_log(_v_rm["log_id"], int(_now_cu_start - _v_rm["start"]))
+                        except Exception:
+                            pass
+                        _catchup_sessions.pop(_k_rm, None)
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 _catchup_sessions[_catchup_key] = {
-                    "log_id": log_id, "start": time.time(), "last_seen": time.time(),
+                    "log_id": log_id, "start": _now_cu_start, "last_seen": _now_cu_start,
                     "token": token, "ip": _catchup_ip
                 }
                 # Show catchup in live sessions view
@@ -999,10 +994,13 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     # Catchup segments bypass session tracking
     if catchup == "1":
         _now_cu = time.time()
-        for _ck, _cv in _catchup_sessions.items():
+        for _ck, _cv in list(_catchup_sessions.items()):
             if _cv["token"] == token:
                 _catchup_sessions[_ck]["last_seen"] = _now_cu
-                break
+        try:
+            db.session_refresh(token)
+        except Exception:
+            pass
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
