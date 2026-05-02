@@ -34,67 +34,6 @@ for a in (proxy_app, admin_app):
 
 db = Database()
 
-
-def _parse_xmltv_datetime(value: str):
-    """Parse XMLTV programme start/stop. Supports 'YYYYMMDDHHMMSS +ZZZZ' and 'YYYYMMDDHHMMSSZZZZ'."""
-    if not value or not str(value).strip():
-        return None
-    s = str(value).strip()
-    for fmt in ("%Y%m%d%H%M%S %z", "%Y%m%d%H%M%S%z"):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            continue
-    return None
-
-
-def _parse_catchup_wall_time(value: str):
-    """Parse catchup_time from DB: 'YYYY-MM-DD HH:MM:SS' (preferred) or legacy 'YYYY-MM-DD HH:MM' (UTC)."""
-    if not value or not str(value).strip():
-        return None
-    s = str(value).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return None
-
-
-def _epg_programme_contains_instant(ps: datetime, pe: datetime, ct: datetime) -> bool:
-    """True if instant ct falls in the programme window (inclusive both ends — matches v1.0 / many provider EPGs)."""
-    if ps is None or pe is None or ct is None:
-        return False
-    return ps <= ct <= pe
-
-
-def _epg_title_at_time(channel_name: str, catchup_time_str: str, root) -> str:
-    """Resolve programme title for channel at catchup wall time (UTC)."""
-    if not root or not channel_name or not catchup_time_str:
-        return ""
-    ct = _parse_catchup_wall_time(catchup_time_str)
-    if not ct:
-        return ""
-    ch_rec = db.get_channel_by_name(channel_name) or {}
-    tvg_id = ch_rec.get("tvg_id", "").strip()
-    if not tvg_id:
-        for ch_el in root.findall("channel"):
-            disp = ch_el.findtext("display-name") or ""
-            if channel_name.lower() in disp.lower() or disp.lower() in channel_name.lower():
-                tvg_id = ch_el.get("id", "")
-                break
-    if not tvg_id:
-        return ""
-    for prog in root.findall("programme"):
-        if prog.get("channel", "") != tvg_id:
-            continue
-        ps = _parse_xmltv_datetime(prog.get("start", ""))
-        pe = _parse_xmltv_datetime(prog.get("stop", ""))
-        if _epg_programme_contains_instant(ps, pe, ct):
-            return (prog.findtext("title") or "").strip()
-    return ""
-
-
 # Segment timing events for buffering diagnosis
 _segment_events: list = []
 
@@ -364,10 +303,9 @@ def _vpn_wait_for_tun(timeout: int = 30):
 
 
 def get_hls_settings() -> dict:
-    # Defaults tuned for slow CDN / Catchup (vgl. Browser hls.js längere fragLoadingTimeOut).
     return {
-        "hls_timeout":        int(db.get_setting("hls_timeout", "15")),
-        "hls_read_timeout":   int(db.get_setting("hls_read_timeout", "60")),
+        "hls_timeout":        int(db.get_setting("hls_timeout", "10")),
+        "hls_read_timeout":   int(db.get_setting("hls_read_timeout", "30")),
         "hls_chunk_size":     int(db.get_setting("hls_chunk_size", "65536")),
         "hls_user_agent":     db.get_setting("hls_user_agent", "VLC/3.0 LibVLC/3.0"),
         "hls_referer":        db.get_setting("hls_referer", ""),
@@ -649,13 +587,14 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
 
             # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
             rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, catchup=True)
-            dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            dt_str = datetime.fromtimestamp(int(utc), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
             logger.info(f"Catchup playlist: {user['name']} → {channel_name} @ {dt_str}")
             # Log catchup access (no session, just a single log entry)
             try:
                 # Look up EPG title for this catchup timestamp
                 _catchup_epg_title = None
                 try:
+                    import xml.etree.ElementTree as _ET
                     _epg_content = _epg_cache.get("content")
                     if not _epg_content:
                         try:
@@ -664,9 +603,29 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                         except Exception:
                             pass
                     if _epg_content:
-                        _root = ET.fromstring(_epg_content)
-                        _t = _epg_title_at_time(channel_name, dt_str, _root)
-                        _catchup_epg_title = _t if _t else None
+                        _root = _ET.fromstring(_epg_content)
+                        _ch_rec = db.get_channel_by_name(channel_name) or {}
+                        _tvg_id = _ch_rec.get("tvg_id","").strip()
+                        if not _tvg_id:
+                            for _cel in _root.findall("channel"):
+                                _dn = _cel.findtext("display-name") or ""
+                                if channel_name.lower() in _dn.lower() or _dn.lower() in channel_name.lower():
+                                    _tvg_id = _cel.get("id","")
+                                    break
+                        if _tvg_id:
+                            _ct = datetime.strptime(dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                            _fmt = "%Y%m%d%H%M%S %z"
+                            for _prog in _root.findall("programme"):
+                                if _prog.get("channel","") != _tvg_id:
+                                    continue
+                                try:
+                                    _ps = datetime.strptime(_prog.get("start",""), _fmt)
+                                    _pe = datetime.strptime(_prog.get("stop",""),  _fmt)
+                                    if _ps <= _ct <= _pe:
+                                        _catchup_epg_title = _prog.findtext("title") or None
+                                        break
+                                except Exception:
+                                    continue
                 except Exception:
                     pass
                 _catchup_ip = ""
@@ -875,7 +834,7 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-CATCHUP_TTL = 900  # seconds without segment request = catchup idle (längere Puffer-Pausen / langsame CDN)
+CATCHUP_TTL = 300  # seconds without segment = catchup done (5 min, catchup segments can be large)
 
 _last_cleanup = 0.0
 
@@ -938,10 +897,9 @@ async def _catchup_epg_watchdog():
 
                     # Calculate how much time has elapsed since catchup started
                     elapsed_since_start = now - _cv["start"]
-                    _base_dt = _parse_catchup_wall_time(row["catchup_time"])
-                    if not _base_dt:
-                        continue
+                    # Parse original catchup_time and add elapsed time
                     try:
+                        _base_dt = datetime.strptime(row["catchup_time"], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
                         _current_dt = _base_dt + __import__("datetime").timedelta(seconds=elapsed_since_start)
                     except Exception:
                         continue
@@ -965,11 +923,14 @@ async def _catchup_epg_watchdog():
                                 for _prog3 in _root3.findall("programme"):
                                     if _prog3.get("channel", "") != _tvg3:
                                         continue
-                                    _ps3 = _parse_xmltv_datetime(_prog3.get("start", ""))
-                                    _pe3 = _parse_xmltv_datetime(_prog3.get("stop", ""))
-                                    if _epg_programme_contains_instant(_ps3, _pe3, _current_dt):
-                                        _new_epg = _prog3.findtext("title") or None
-                                        break
+                                    try:
+                                        _ps3 = datetime.strptime(_prog3.get("start", ""), "%Y%m%d%H%M%S %z")
+                                        _pe3 = datetime.strptime(_prog3.get("stop", ""),  "%Y%m%d%H%M%S %z")
+                                        if _ps3 <= _current_dt <= _pe3:
+                                            _new_epg = _prog3.findtext("title") or None
+                                            break
+                                    except Exception:
+                                        continue
                     except Exception:
                         pass
 
@@ -1033,7 +994,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         _ts_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', decoded_url)
                         if _ts_match:
                             _y,_mo,_d,_h,_mi = _ts_match.groups()
-                            _new_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}:00"
+                            _new_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}"
                             # Find this catchup session
                             for _ck2, _cv2 in _catchup_sessions.items():
                                 if _cv2["token"] == token:
@@ -1059,15 +1020,16 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                 _ch_rec2 = db.get_channel_by_name(_ch_name2) or {}
                                                 _tvg2 = _ch_rec2.get("tvg_id","").strip()
                                                 if _tvg2:
-                                                    _ct2 = _parse_catchup_wall_time(_new_dt_str)
-                                                    if _ct2:
-                                                        for _prog2 in _root2.findall("programme"):
-                                                            if _prog2.get("channel","") != _tvg2: continue
-                                                            _ps2 = _parse_xmltv_datetime(_prog2.get("start", ""))
-                                                            _pe2 = _parse_xmltv_datetime(_prog2.get("stop", ""))
-                                                            if _epg_programme_contains_instant(_ps2, _pe2, _ct2):
+                                                    _ct2 = datetime.strptime(_new_dt_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                                                    for _prog2 in _root2.findall("programme"):
+                                                        if _prog2.get("channel","") != _tvg2: continue
+                                                        try:
+                                                            _ps2 = datetime.strptime(_prog2.get("start",""), "%Y%m%d%H%M%S %z")
+                                                            _pe2 = datetime.strptime(_prog2.get("stop",""),  "%Y%m%d%H%M%S %z")
+                                                            if _ps2 <= _ct2 <= _pe2:
                                                                 _new_epg = _prog2.findtext("title") or None
                                                                 break
+                                                        except Exception: continue
                                     except Exception: pass
                                     # Update DB log with new catchup_time and epg_title
                                     if _new_epg is not None:
@@ -1365,7 +1327,7 @@ async def global_epg(force: str = None):
 
 
 def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7) -> str:
-    """Filter EPG XML – channel whitelist + time window [now−days_back, now+days_forward] + channel order."""
+    """Filter EPG XML – channel whitelist + day range + sorted by channel order."""
     try:
         import xml.etree.ElementTree as ET
         from datetime import datetime, timezone, timedelta
@@ -1397,11 +1359,19 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
             ch_id = prog.get("channel", "")
             if known_ids and ch_id not in known_ids:
                 continue
-            start_str = prog.get("start", "")
-            if start_str:
-                dt = _parse_xmltv_datetime(start_str)
-                if dt is not None and not (t_from <= dt <= t_to):
-                    continue
+            try:
+                start_str = prog.get("start", "")
+                if start_str:
+                    dt = datetime.strptime(start_str[:14], "%Y%m%d%H%M%S")
+                    tz_str = start_str[15:] if len(start_str) > 15 else "+0000"
+                    sign = 1 if tz_str[0] == "+" else -1
+                    tz_h, tz_m = int(tz_str[1:3]), int(tz_str[3:5])
+                    tz_offset = timezone(timedelta(hours=sign*tz_h, minutes=sign*tz_m))
+                    dt = dt.replace(tzinfo=tz_offset)
+                    if not (t_from <= dt <= t_to):
+                        continue
+            except Exception:
+                pass
             new_root.append(prog)
 
         return ET.tostring(new_root, encoding="unicode", xml_declaration=True)
@@ -1412,7 +1382,7 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
 
 @proxy_app.get("/iptv/epg-{days}d.xml")
 async def global_epg_days(days: int, force: str = None):
-    """EPG filtered to N days back and N days forward from UTC now (symmetric window)."""
+    """EPG filtered to N days: /iptv/epg-1d.xml /iptv/epg-3d.xml /iptv/epg-7d.xml"""
     global _epg_cache
     if days not in (1, 3, 7):
         raise HTTPException(status_code=400, detail="days must be 1, 3, or 7")
@@ -1444,8 +1414,7 @@ async def global_epg_days(days: int, force: str = None):
                 raise HTTPException(status_code=502, detail=str(e))
     else:
         raw = _epg_cache["content"]
-    # „7d“ = gleiches Fenster nach hinten und vorn (Catchup braucht Historie; vorher war days_back=1 irreführend).
-    filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
+    filtered = _filter_epg_xml(raw, days_back=1, days_forward=days)
     return HTMLResponse(content=filtered, media_type="application/xml",
                        headers={"Cache-Control": "max-age=3600"})
 
@@ -1961,12 +1930,9 @@ async def download_epg_xml(days: int = 0, _=Depends(check_admin)):
     else:
         raw = _epg_cache["content"]
 
-    if days in (1, 3, 7):
-        filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
-        fname = f"epg-{days}d.xml"
-    else:
-        filtered = _filter_epg_xml(raw)
-        fname = "epg.xml"
+    days_forward = days if days in (1, 3, 7) else 7
+    filtered = _filter_epg_xml(raw, days_back=1, days_forward=days_forward)
+    fname = f"epg-{days}d.xml" if days in (1, 3, 7) else "epg.xml"
 
     from fastapi.responses import Response
     return Response(
@@ -2074,8 +2040,7 @@ def _get_epg_root():
             return None
     if not content:
         return None
-    # Must reflect content bytes, not only length (same-size EPG updates used to leave a stale tree).
-    content_hash = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
+    content_hash = str(len(content))  # fast size-based hash
     if _epg_tree_cache["root"] is not None and _epg_tree_cache["content_hash"] == content_hash:
         return _epg_tree_cache["root"]
     try:
@@ -2116,20 +2081,22 @@ def _get_now_playing(channel_name: str) -> dict:
             return {}
 
         # Find currently running programme
+        fmt = "%Y%m%d%H%M%S %z"
         for programme in root.findall("programme"):
             if programme.get("channel", "") != tvg_id:
                 continue
-            start = _parse_xmltv_datetime(programme.get("start", ""))
-            stop = _parse_xmltv_datetime(programme.get("stop", ""))
-            if start is None or stop is None:
+            try:
+                start = datetime.strptime(programme.get("start", ""), fmt)
+                stop  = datetime.strptime(programme.get("stop",  ""), fmt)
+                if start <= now <= stop:
+                    return {
+                        "title": programme.findtext("title") or "",
+                        "desc":  (programme.findtext("desc") or "")[:120],
+                        "start": start.strftime("%H:%M"),
+                        "stop":  stop.strftime("%H:%M"),
+                    }
+            except Exception:
                 continue
-            if start <= now <= stop:
-                return {
-                    "title": programme.findtext("title") or "",
-                    "desc":  (programme.findtext("desc") or "")[:120],
-                    "start": start.strftime("%H:%M"),
-                    "stop":  stop.strftime("%H:%M"),
-                }
         return {}
     except Exception as e:
         logger.debug(f"EPG now_playing error for '{channel_name}': {e}")
@@ -2143,7 +2110,6 @@ def get_stats(_=Depends(check_admin)):
     active_sessions = db.get_active_sessions()
     ch_stats = db.get_channels_count()
     recent_logs = db.get_all_logs(limit=20)
-    epg_root_for_logs = _get_epg_root()
     sessions_out = []
     for s in active_sessions:
         now_playing = _get_now_playing(s["channel"])
@@ -2156,30 +2122,37 @@ def get_stats(_=Depends(check_admin)):
         })
     logs_out = []
     for l in recent_logs:
-        epg_title = (l.get("epg_title") or "").strip()
+        epg_title = ""
         if l.get("is_catchup") and l.get("catchup_time"):
-            # For catchup: look up what was on at that time (reuse parsed EPG — not ET.fromstring per row).
+            # For catchup: look up what was on at that time
             try:
-                if epg_root_for_logs is not None:
+                import xml.etree.ElementTree as ET
+                content = _epg_cache.get("content")
+                if content:
+                    root_el = ET.fromstring(content)
                     ch_rec = db.get_channel_by_name(l["channel"]) or {}
-                    tvg_id = ch_rec.get("tvg_id", "").strip()
+                    tvg_id = ch_rec.get("tvg_id","").strip()
                     if not tvg_id:
-                        for ch_el in epg_root_for_logs.findall("channel"):
+                        for ch_el in root_el.findall("channel"):
                             disp = ch_el.findtext("display-name") or ""
                             if l["channel"].lower() in disp.lower() or disp.lower() in l["channel"].lower():
-                                tvg_id = ch_el.get("id", "")
+                                tvg_id = ch_el.get("id","")
                                 break
                     if tvg_id:
-                        ct = _parse_catchup_wall_time(l["catchup_time"])
-                        if ct:
-                            for prog in epg_root_for_logs.findall("programme"):
-                                if prog.get("channel", "") != tvg_id:
-                                    continue
-                                ps = _parse_xmltv_datetime(prog.get("start", ""))
-                                pe = _parse_xmltv_datetime(prog.get("stop", ""))
-                                if _epg_programme_contains_instant(ps, pe, ct):
-                                    epg_title = prog.findtext("title") or epg_title
+                        # catchup_time is "YYYY-MM-DD HH:MM"
+                        ct = datetime.strptime(l["catchup_time"], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                        fmt = "%Y%m%d%H%M%S %z"
+                        for prog in root_el.findall("programme"):
+                            if prog.get("channel","") != tvg_id:
+                                continue
+                            try:
+                                ps = datetime.strptime(prog.get("start",""), fmt)
+                                pe = datetime.strptime(prog.get("stop",""),  fmt)
+                                if ps <= ct <= pe:
+                                    epg_title = prog.findtext("title") or ""
                                     break
+                            except Exception:
+                                continue
             except Exception:
                 pass
         logs_out.append({
@@ -2207,13 +2180,10 @@ def get_stats(_=Depends(check_admin)):
                         "WHERE wl.id = ?", (cv["log_id"],)
                     ).fetchone()
                 if row:
-                    _cu_title = (row["epg_title"] or "").strip()
-                    if not _cu_title and epg_root_for_logs is not None and row["catchup_time"]:
-                        _cu_title = _epg_title_at_time(row["channel"], row["catchup_time"], epg_root_for_logs)
                     active_catchup_out.append({
                         "user": row["user_name"],
                         "channel": row["channel"],
-                        "epg_title": _cu_title,
+                        "epg_title": row["epg_title"] or "",
                         "catchup_time": row["catchup_time"] or "",
                         "duration": int(now_ts - cv["start"]),
                         "ip": cv.get("ip", ""),
