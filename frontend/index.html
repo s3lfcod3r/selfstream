@@ -557,13 +557,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 16px;margin-bottom:14px;">
           <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
             <div style="display:flex;align-items:center;gap:8px;">
-              <label class="form-label" style="margin:0;white-space:nowrap;">⚙️ Cache-Dauer:</label>
+              <label class="form-label" style="margin:0;white-space:nowrap;">🔄 Auto-Fetch Intervall:</label>
               <select class="form-select" id="epg-refresh" style="width:160px;">
                 <option value="1">Jede Stunde</option>
                 <option value="3">Alle 3 Stunden</option>
-                <option value="6" selected>Alle 6 Stunden</option>
+                <option value="6">Alle 6 Stunden</option>
                 <option value="12">Alle 12 Stunden</option>
-                <option value="24">Einmal täglich</option>
+                <option value="24" selected>Einmal täglich (Standard)</option>
                 <option value="72">Alle 3 Tage</option>
                 <option value="168">Alle 7 Tage</option>
               </select>
@@ -578,6 +578,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
           </div>
           <div id="epg-cache-status" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text2);"></div>
+          <div id="epg-last-fetch" style="margin-top:4px;font-size:11px;color:var(--text2);"></div>
         </div>
 
         <!-- Quellen-Tabelle -->
@@ -748,6 +749,17 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="3">3 – 3 Segmente voraus</option>
               </select>
               <div class="form-hint">Wie viele Segmente selfstream im Voraus lädt. Mehr = flüssiger aber mehr RAM/CPU. Bei Lag: auf 0 oder 1 reduzieren.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">⏱️ Catchup Timeout</label>
+              <select class="form-select" id="cfg-catchup-ttl">
+                <option value="30">30s – Sofort weg</option>
+                <option value="60">60s – 1 Minute</option>
+                <option value="120" selected>2 Minuten (Standard)</option>
+                <option value="300">5 Minuten</option>
+                <option value="900">15 Minuten</option>
+              </select>
+              <div class="form-hint">Wie lange ein Catchup noch als aktiv gilt nachdem kein Segment mehr angefragt wurde.</div>
             </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
@@ -2796,6 +2808,17 @@ async function loadEpg() {
   const filterCb = document.getElementById('epg-filter');
   if (refreshSel && settings.epg_refresh_hours) refreshSel.value = settings.epg_refresh_hours;
   if (filterCb) filterCb.checked = settings.epg_filter_channels === '1';
+  try {
+    const epgStatus = await api('GET', '/api/epg/status');
+    const lastFetchEl = document.getElementById('epg-last-fetch');
+    if (lastFetchEl && epgStatus.fetched_at) {
+      const d = new Date(epgStatus.fetched_at * 1000);
+      const diffMin = Math.round((Date.now() - d) / 60000);
+      const timeStr = d.toLocaleString('de-DE', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      const agoStr = diffMin < 60 ? `vor ${diffMin} Min.` : diffMin < 1440 ? `vor ${Math.round(diffMin/60)} Std.` : `vor ${Math.round(diffMin/1440)} Tag(en)`;
+      lastFetchEl.innerHTML = `📅 Zuletzt geladen: <strong>${timeStr}</strong> (${agoStr}) · ${epgStatus.size_kb} KB`;
+    }
+  } catch(e) {}
 
   const tbody=document.getElementById('epg-tbody');
   if(!sources.length){
@@ -3004,6 +3027,7 @@ async function loadSettings() {
   document.getElementById('cfg-timeout').value=s.hls_timeout||'10';
   document.getElementById('cfg-rtimeout').value=s.hls_read_timeout||'30';
   document.getElementById('cfg-prefetch').value=s.prefetch_segments||'2';
+  if(document.getElementById('cfg-catchup-ttl')) document.getElementById('cfg-catchup-ttl').value=s.catchup_ttl||'120';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
   if (retEl) retEl.value = currentLogRetention;
@@ -3080,7 +3104,8 @@ async function saveHls() {
     hls_referer:document.getElementById('cfg-ref').value.trim(),
     hls_timeout:document.getElementById('cfg-timeout').value,
     hls_read_timeout:document.getElementById('cfg-rtimeout').value,
-    prefetch_segments:document.getElementById('cfg-prefetch').value
+    prefetch_segments:document.getElementById('cfg-prefetch').value,
+    catchup_ttl:(document.getElementById('cfg-catchup-ttl')||{}).value||'120'
   });
   showToast('HLS-Einstellungen gespeichert');
 }
