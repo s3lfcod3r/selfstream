@@ -1171,12 +1171,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
 
-            # Buffer full TS so the client gets Content-Length (not chunked). IPTV Pro/VLC
-            # showed fewer demux/surface issues when the segment arrives as one piece.
-            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=hdr) as c2:
-                ts_resp = await c2.get(decoded_url)
-                ts_resp.raise_for_status()
-                ts_body = ts_resp.content
+            # Use shared segment cache/dedupe for catchup TS too.
+            # This reduces jitter when the player re-requests same segment or opens
+            # parallel connections during buffering.
+            ts_body, _elapsed_cu, _from_cache_cu = await _get_segment(decoded_url, hls)
+            if not ts_body:
+                raise HTTPException(status_code=502, detail="Catchup TS empty")
             return Response(
                 content=ts_body,
                 media_type="video/mp2t",
