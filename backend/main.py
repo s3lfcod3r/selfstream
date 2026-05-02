@@ -646,6 +646,19 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 # Only one catchup tracking entry per token: otherwise segment heartbeats
                 # update the wrong row (dict iteration + break) and IPTV apps can stall.
                 _now_cu_start = time.time()
+                # End live in-memory sessions for this token. Catchup segments do not bump
+                # live sid last_seen; after SESSION_MEM_TTL cleanup would call session_end(token)
+                # and wipe active_sessions while catchup is still playing (IPTV Pro often keeps a live sid).
+                for _sk in list(_sessions.keys()):
+                    _sv = _sessions.get(_sk)
+                    if _sv and _sv["token"] == token:
+                        try:
+                            epg_lv = _get_now_playing(_sv["channel"])
+                            epg_tl = _sv.get("epg_title") or (epg_lv.get("title") if epg_lv else None)
+                            db.end_watch_log(_sv["log_id"], int(_now_cu_start - _sv["start"]), epg_title=epg_tl)
+                        except Exception:
+                            pass
+                        _sessions.pop(_sk, None)
                 for _k_rm in list(_catchup_sessions.keys()):
                     _v_rm = _catchup_sessions.get(_k_rm)
                     if _v_rm and _v_rm["token"] == token:
@@ -850,7 +863,7 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-CATCHUP_TTL = 300  # seconds without segment = catchup done (5 min, catchup segments can be large)
+CATCHUP_TTL = 900  # seconds without segment = catchup done (pause/buffering; was 300)
 
 _last_cleanup = 0.0
 
@@ -866,7 +879,13 @@ def _cleanup_sessions():
     for k in stale:
         s = _sessions.pop(k)
         try:
-            db.session_end(s["token"])
+            tok = s["token"]
+            catchup_still = any(
+                v.get("token") == tok and (now - v.get("last_seen", 0)) <= CATCHUP_TTL
+                for v in _catchup_sessions.values()
+            )
+            if not catchup_still:
+                db.session_end(tok)
             # Try EPG title at end - more reliable than at start
             epg_end = _get_now_playing(s["channel"])
             epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
@@ -1065,24 +1084,18 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
 
-            async def stream_catchup_ts():
-                try:
-                    async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=hdr) as c2:
-                        async with c2.stream("GET", decoded_url) as r2:
-                            async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
-                                yield chunk
-                except Exception as e:
-                    logger.error(f"Catchup TS segment error: {e}")
-
-            return StreamingResponse(
-                stream_catchup_ts(),
+            # Buffer full TS so the client gets Content-Length (not chunked). IPTV Pro/VLC
+            # showed fewer demux/surface issues when the segment arrives as one piece.
+            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=hdr) as c2:
+                ts_resp = await c2.get(decoded_url)
+                ts_resp.raise_for_status()
+                ts_body = ts_resp.content
+            return Response(
+                content=ts_body,
                 media_type="video/mp2t",
                 headers={
                     "Cache-Control": "no-cache, no-store",
-                    "X-Accel-Buffering": "no",
                     "Access-Control-Allow-Origin": "*",
-                    "Connection": "keep-alive",
-                    "X-Accel-Timeout": "0",
                 },
             )
         except HTTPException:
