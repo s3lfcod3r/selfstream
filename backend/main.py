@@ -338,13 +338,22 @@ def _dvr_ts_tuple_from_catchup_proxy_line(line: str) -> tuple:
     return tuple(int(x) for x in m.groups())
 
 
-def _reorder_catchup_dvr_segment_pairs(out: list) -> tuple:
+def _trim_leading_dvr_segments_after_utc(out: list, original_url: str) -> tuple:
     """
-    Some DVR playlists list segments newest-first. Players fetch the first TS (wrong PCR),
-    then jump backward — endless buffering through Selfstream/Zoraxy. Sort EXTINF+segment pairs
-    chronologically when paths look like …/dvr-…/….ts.
-    Returns (new_out_list, did_reorder).
+    Some DVR playlists put one newest TS first (e.g. 15:04) before the real arc near utc (12:05).
+    Full-list reordering can drop non-segment lines (#EXT-X-DISCONTINUITY, KEY, gaps) and break playback.
+    Safe fix: drop only leading EXTINF+URL pairs whose dvr-path time is strictly after catchup utc.
+    Returns (new_out, did_trim).
     """
+    try:
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(original_url).query)
+        if not qs.get("utc"):
+            return out, False
+        goal = datetime.fromtimestamp(int(qs["utc"][0]), tz=timezone.utc)
+        goal_t = (goal.year, goal.month, goal.day, goal.hour, goal.minute, goal.second)
+    except Exception:
+        return out, False
+
     n = len(out)
     pairs = []
     i = 0
@@ -354,20 +363,22 @@ def _reorder_catchup_dvr_segment_pairs(out: list) -> tuple:
             i += 2
             continue
         i += 1
-    if len(pairs) < 2:
+    if not pairs:
         return out, False
-    keys = [p[0] for p in pairs]
-    if keys == sorted(keys):
+
+    trim = 0
+    while trim < len(pairs) and pairs[trim][0] > goal_t:
+        trim += 1
+    if trim == 0:
         return out, False
-    lo = min(p[1] for p in pairs)
-    hi = max(p[2] for p in pairs)
-    prefix = out[:lo]
-    suffix = out[hi:]
-    pairs.sort(key=lambda p: p[0])
-    middle = []
-    for _k, s, e in pairs:
-        middle.extend(out[s:e])
-    return prefix + middle + suffix, True
+    if trim >= len(pairs):
+        return out, False
+
+    drop = set()
+    for j in range(trim):
+        for idx in range(pairs[j][1], pairs[j][2]):
+            drop.add(idx)
+    return [out[k] for k in range(len(out)) if k not in drop], True
 
 
 def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str, sid: str = None, catchup: bool = False) -> str:
@@ -409,9 +420,8 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
         else:
             out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
     if catchup:
-        out, _cu_reordered = _reorder_catchup_dvr_segment_pairs(out)
-        if _cu_reordered:
-            # First playlist segment must match MEDIA-SEQUENCE after reorder.
+        out, _cu_trimmed = _trim_leading_dvr_segments_after_utc(out, original_url)
+        if _cu_trimmed:
             out = [
                 "#EXT-X-MEDIA-SEQUENCE:0" if l.strip().startswith("#EXT-X-MEDIA-SEQUENCE") else l
                 for l in out
