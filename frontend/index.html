@@ -749,6 +749,17 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </select>
               <div class="form-hint">Wie viele Segmente selfstream im Voraus lädt. Mehr = flüssiger aber mehr RAM/CPU. Bei Lag: auf 0 oder 1 reduzieren.</div>
             </div>
+            <div class="form-group">
+              <label class="form-label">⏱️ Catchup Timeout (s)</label>
+              <select class="form-select" id="cfg-catchup-ttl">
+                <option value="30">30s – Sofort weg</option>
+                <option value="60">60s – 1 Minute</option>
+                <option value="120" selected>120s – 2 Minuten (Standard)</option>
+                <option value="300">300s – 5 Minuten</option>
+                <option value="900">900s – 15 Minuten</option>
+              </select>
+              <div class="form-hint">Wie lange ein Catchup-Stream noch als aktiv gilt nachdem kein Segment mehr angefragt wurde.</div>
+            </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
@@ -3004,6 +3015,7 @@ async function loadSettings() {
   document.getElementById('cfg-timeout').value=s.hls_timeout||'10';
   document.getElementById('cfg-rtimeout').value=s.hls_read_timeout||'30';
   document.getElementById('cfg-prefetch').value=s.prefetch_segments||'2';
+  document.getElementById('cfg-catchup-ttl').value=s.catchup_ttl||'120';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
   if (retEl) retEl.value = currentLogRetention;
@@ -3080,7 +3092,8 @@ async function saveHls() {
     hls_referer:document.getElementById('cfg-ref').value.trim(),
     hls_timeout:document.getElementById('cfg-timeout').value,
     hls_read_timeout:document.getElementById('cfg-rtimeout').value,
-    prefetch_segments:document.getElementById('cfg-prefetch').value
+    prefetch_segments:document.getElementById('cfg-prefetch').value,
+    catchup_ttl:document.getElementById('cfg-catchup-ttl').value
   });
   showToast('HLS-Einstellungen gespeichert');
 }
