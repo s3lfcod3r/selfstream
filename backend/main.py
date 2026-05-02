@@ -303,9 +303,10 @@ def _vpn_wait_for_tun(timeout: int = 30):
 
 
 def get_hls_settings() -> dict:
+    # Defaults tuned for slow CDN / Catchup (vgl. Browser hls.js längere fragLoadingTimeOut).
     return {
-        "hls_timeout":        int(db.get_setting("hls_timeout", "10")),
-        "hls_read_timeout":   int(db.get_setting("hls_read_timeout", "30")),
+        "hls_timeout":        int(db.get_setting("hls_timeout", "15")),
+        "hls_read_timeout":   int(db.get_setting("hls_read_timeout", "60")),
         "hls_chunk_size":     int(db.get_setting("hls_chunk_size", "65536")),
         "hls_user_agent":     db.get_setting("hls_user_agent", "VLC/3.0 LibVLC/3.0"),
         "hls_referer":        db.get_setting("hls_referer", ""),
@@ -834,7 +835,7 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-CATCHUP_TTL = 300  # seconds without segment = catchup done (5 min, catchup segments can be large)
+CATCHUP_TTL = 900  # seconds without segment request = catchup idle (längere Puffer-Pausen / langsame CDN)
 
 _last_cleanup = 0.0
 
