@@ -863,7 +863,16 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-CATCHUP_TTL = 900  # seconds without segment = catchup done (pause/buffering; was 300)
+CATCHUP_TTL_DEFAULT = 900  # seconds without segment = catchup done
+
+def get_catchup_ttl() -> int:
+    """Catchup idle TTL in seconds, configurable via admin settings."""
+    try:
+        v = int(db.get_setting("catchup_ttl", str(CATCHUP_TTL_DEFAULT)) or str(CATCHUP_TTL_DEFAULT))
+    except Exception:
+        v = CATCHUP_TTL_DEFAULT
+    # Keep a sane range to avoid accidental instant-expiry or huge stale sessions.
+    return max(60, min(v, 7200))
 
 _last_cleanup = 0.0
 
@@ -875,13 +884,14 @@ def _cleanup_sessions():
     if now - _last_cleanup < 10:
         return
     _last_cleanup = now
+    catchup_ttl = get_catchup_ttl()
     stale = [k for k, v in _sessions.items() if now - v["last_seen"] > SESSION_MEM_TTL]
     for k in stale:
         s = _sessions.pop(k)
         try:
             tok = s["token"]
             catchup_still = any(
-                v.get("token") == tok and (now - v.get("last_seen", 0)) <= CATCHUP_TTL
+                v.get("token") == tok and (now - v.get("last_seen", 0)) <= catchup_ttl
                 for v in _catchup_sessions.values()
             )
             if not catchup_still:
@@ -894,7 +904,7 @@ def _cleanup_sessions():
         except Exception:
             pass
     # Cleanup stale catchup sessions
-    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > CATCHUP_TTL]
+    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > catchup_ttl]
     for k in stale_cu:
         s = _catchup_sessions.pop(k)
         try:
@@ -917,8 +927,9 @@ async def _catchup_epg_watchdog():
     while True:
         try:
             now = time.time()
+            catchup_ttl = get_catchup_ttl()
             for _ck, _cv in list(_catchup_sessions.items()):
-                if now - _cv["last_seen"] >= CATCHUP_TTL:
+                if now - _cv["last_seen"] >= catchup_ttl:
                     continue
                 try:
                     # Get current catchup_time and channel from DB
@@ -2208,8 +2219,9 @@ def get_stats(_=Depends(check_admin)):
     _cleanup_sessions()
     active_catchup_out = []
     now_ts = time.time()
+    catchup_ttl = get_catchup_ttl()
     for ck, cv in list(_catchup_sessions.items()):
-        if now_ts - cv["last_seen"] < CATCHUP_TTL:
+        if now_ts - cv["last_seen"] < catchup_ttl:
             # Get user name and epg title from DB log
             try:
                 with db.conn() as con:
@@ -2232,7 +2244,7 @@ def get_stats(_=Depends(check_admin)):
 
     return {
         "total_users": len(users),
-        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < CATCHUP_TTL]),
+        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < catchup_ttl]),
         "active_sessions": sessions_out,
         "active_catchup": active_catchup_out,
         "recent_logs": logs_out,
@@ -2302,6 +2314,7 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
+        "catchup_ttl":          s.get("catchup_ttl", str(CATCHUP_TTL_DEFAULT)),
     }
 
 @admin_app.post("/api/settings")
@@ -2310,7 +2323,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug"}
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "catchup_ttl"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
     try:
