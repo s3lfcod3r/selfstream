@@ -647,7 +647,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 _catchup_sessions[_catchup_key] = {
                     "log_id": log_id, "start": time.time(), "last_seen": time.time(),
-                    "token": token, "ip": _catchup_ip
+                    "token": token, "ip": _catchup_ip,
+                    "source_url": decoded_url, "utc": str(utc).strip(), "lutc": str(lutc).strip() if lutc else ""
                 }
                 # Show catchup in live sessions view
                 db.session_start(token, channel_name, _catchup_ip)
@@ -664,6 +665,14 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             # Fall through to live
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
+    # Hard guard: if token has active catchup, block any live fallback request
+    # (request without utc) to prevent client-driven channel switches/aborts.
+    _cleanup_sessions()
+    _cu = _get_active_catchup_for_token(token)
+    if _cu:
+        logger.warning(f"Catchup guard active: blocking live fallback for {user['name']}")
+        raise HTTPException(status_code=409, detail="Catchup active")
+
     # Check max concurrent streams only for live mode
     max_s = user.get("max_streams", 1) or 0
     if max_s > 0:
@@ -848,6 +857,23 @@ def get_catchup_ttl() -> int:
     except Exception:
         v = CATCHUP_TTL
     return max(60, min(v, 7200))
+
+def _get_active_catchup_for_token(token: str):
+    """Return most recent active catchup session for token, else None."""
+    now = time.time()
+    ttl = get_catchup_ttl()
+    best = None
+    best_ts = 0.0
+    for _k, _v in _catchup_sessions.items():
+        if _v.get("token") != token:
+            continue
+        last = float(_v.get("last_seen", 0))
+        if now - last > ttl:
+            continue
+        if last > best_ts:
+            best = _v
+            best_ts = last
+    return best
 
 _last_cleanup = 0.0
 
