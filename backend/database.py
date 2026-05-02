@@ -10,7 +10,6 @@ DB_PATH = os.getenv("DB_PATH", "/data/selfstream.db")
 class Database:
     def __init__(self):
         self.db_path = DB_PATH
-        self._settings_cache: dict = {}
 
     @contextmanager
     def conn(self):
@@ -307,14 +306,9 @@ class Database:
             )
 
     def get_setting(self, key: str, default: str = None) -> Optional[str]:
-        if key in self._settings_cache:
-            val = self._settings_cache[key]
-            return val if val is not None else default
         with self.conn() as con:
             row = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-            val = row["value"] if row else None
-            self._settings_cache[key] = val
-            return val if val is not None else default
+            return row["value"] if row else default
 
     def set_setting(self, key: str, value: str):
         with self.conn() as con:
@@ -323,7 +317,6 @@ class Database:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, value)
             )
-        self._settings_cache[key] = value
 
     def get_all_settings(self) -> Dict:
         with self.conn() as con:

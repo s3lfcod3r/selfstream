@@ -682,9 +682,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 _catchup_sessions[_catchup_key] = {
                     "log_id": log_id, "start": time.time(), "last_seen": time.time(),
-                    "token": token, "ip": _catchup_ip,
-                    "epg_title": _catchup_epg_title or "",
-                    "catchup_time": dt_str,
+                    "token": token, "ip": _catchup_ip
                 }
                 # Show catchup in live sessions view
                 db.session_start(token, channel_name, _catchup_ip)
@@ -877,11 +875,7 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
-def get_catchup_ttl() -> int:
-    try:
-        return int(db.get_setting("catchup_ttl", "120"))
-    except Exception:
-        return 120
+CATCHUP_TTL = 900  # seconds without segment request = catchup idle (längere Puffer-Pausen / langsame CDN)
 
 _last_cleanup = 0.0
 
@@ -906,7 +900,7 @@ def _cleanup_sessions():
         except Exception:
             pass
     # Cleanup stale catchup sessions
-    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > get_catchup_ttl()]
+    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > CATCHUP_TTL]
     for k in stale_cu:
         s = _catchup_sessions.pop(k)
         try:
@@ -930,7 +924,7 @@ async def _catchup_epg_watchdog():
         try:
             now = time.time()
             for _ck, _cv in list(_catchup_sessions.items()):
-                if now - _cv["last_seen"] >= get_catchup_ttl():
+                if now - _cv["last_seen"] >= CATCHUP_TTL:
                     continue
                 try:
                     # Get current catchup_time and channel from DB
@@ -979,15 +973,14 @@ async def _catchup_epg_watchdog():
                     except Exception:
                         pass
 
-                    # Update DB and in-memory session if title changed
-                    if _new_epg and _new_epg != (row["epg_title"] or ""):
+                    # Update DB only if title changed
+                    if _new_epg and _new_epg != row["epg_title"]:
                         try:
                             with db.conn() as con:
                                 con.execute(
                                     "UPDATE watch_logs SET epg_title=? WHERE id=?",
                                     (_new_epg, _cv["log_id"])
                                 )
-                            _cv["epg_title"] = _new_epg  # update live display immediately
                             logger.info(f"Catchup EPG updated: {row['channel']} → {_new_epg}")
                         except Exception:
                             pass
@@ -1034,14 +1027,10 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token, catchup=True)
-                    # Try to extract new timestamp from playlist content (DVR segment URLs)
+                    # Try to extract new timestamp from URL and update EPG title
                     try:
                         import re as _re
-                        # First try playlist content (dvr-2026/05/01/13/24/...)
-                        _ts_match = _re.search(r'dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', resp.text)
-                        # Fallback: try URL path
-                        if not _ts_match:
-                            _ts_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', decoded_url)
+                        _ts_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', decoded_url)
                         if _ts_match:
                             _y,_mo,_d,_h,_mi = _ts_match.groups()
                             _new_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}:00"
@@ -1080,7 +1069,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                                 _new_epg = _prog2.findtext("title") or None
                                                                 break
                                     except Exception: pass
-                                    # Update DB log and in-memory session with new catchup_time and epg_title
+                                    # Update DB log with new catchup_time and epg_title
                                     if _new_epg is not None:
                                         try:
                                             with db.conn() as _cu:
@@ -1089,8 +1078,6 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                     (_new_dt_str, _new_epg, _cv2["log_id"])
                                                 )
                                         except Exception: pass
-                                        _cv2["epg_title"] = _new_epg  # update live display
-                                        _cv2["catchup_time"] = _new_dt_str
                                     break
                     except Exception: pass
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
@@ -2054,17 +2041,6 @@ async def scan_epg_channels(_=Depends(check_admin)):
 def list_epg(_=Depends(check_admin)):
     return db.get_epg_sources()
 
-@admin_app.get("/api/epg/status")
-def epg_status(_=Depends(check_admin)):
-    fetched_at = _epg_cache.get("fetched_at", 0)
-    content = _epg_cache.get("content", "")
-    size_kb = len(content) // 1024 if content else 0
-    return {
-        "fetched_at": fetched_at,
-        "size_kb": size_kb,
-        "source_url": _epg_cache.get("url", ""),
-    }
-
 @admin_app.post("/api/epg")
 def add_epg(body: dict, _=Depends(check_admin)):
     name = body.get("name", "").strip()
@@ -2221,7 +2197,7 @@ def get_stats(_=Depends(check_admin)):
     active_catchup_out = []
     now_ts = time.time()
     for ck, cv in list(_catchup_sessions.items()):
-        if now_ts - cv["last_seen"] < get_catchup_ttl():
+        if now_ts - cv["last_seen"] < CATCHUP_TTL:
             # Get user name and epg title from DB log
             try:
                 with db.conn() as con:
@@ -2231,17 +2207,14 @@ def get_stats(_=Depends(check_admin)):
                         "WHERE wl.id = ?", (cv["log_id"],)
                     ).fetchone()
                 if row:
-                    # Prefer cached title from session, fallback to DB, then EPG lookup
-                    _cu_title = (cv.get("epg_title") or row["epg_title"] or "").strip()
+                    _cu_title = (row["epg_title"] or "").strip()
                     if not _cu_title and epg_root_for_logs is not None and row["catchup_time"]:
                         _cu_title = _epg_title_at_time(row["channel"], row["catchup_time"], epg_root_for_logs)
-                        if _cu_title:
-                            _catchup_sessions[ck]["epg_title"] = _cu_title  # cache it
                     active_catchup_out.append({
                         "user": row["user_name"],
                         "channel": row["channel"],
                         "epg_title": _cu_title,
-                        "catchup_time": cv.get("catchup_time") or row["catchup_time"] or "",
+                        "catchup_time": row["catchup_time"] or "",
                         "duration": int(now_ts - cv["start"]),
                         "ip": cv.get("ip", ""),
                     })
@@ -2250,7 +2223,7 @@ def get_stats(_=Depends(check_admin)):
 
     return {
         "total_users": len(users),
-        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < get_catchup_ttl()]),
+        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < CATCHUP_TTL]),
         "active_sessions": sessions_out,
         "active_catchup": active_catchup_out,
         "recent_logs": logs_out,
@@ -2320,7 +2293,6 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
-        "catchup_ttl":          s.get("catchup_ttl", "120"),
     }
 
 @admin_app.post("/api/settings")
@@ -2329,7 +2301,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "catchup_ttl"}
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
     try:
