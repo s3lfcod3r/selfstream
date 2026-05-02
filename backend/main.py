@@ -588,10 +588,15 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     # Catchup requests bypass max-stream check – they don't hold a live session
     if utc:
         try:
-            # Build archive URL: replace mono.m3u8 with index.m3u8 + utc param
+            # Build archive URL: same query contract as mono.m3u8, but index.m3u8 for DVR.
+            # IPTV apps send lutc (window/locale end); omitting it breaks playlists on many CDNs.
             base_cdn = decoded_url.rsplit("/mono.m3u8", 1)[0]
-            ch_token = decoded_url.split("token=")[-1] if "token=" in decoded_url else ""
-            archive_url = f"{base_cdn}/index.m3u8?token={ch_token}&utc={utc}"
+            mono_q = urllib.parse.parse_qs(urllib.parse.urlparse(decoded_url).query)
+            arch_q = {k: v[0] for k, v in mono_q.items() if v}
+            arch_q["utc"] = str(utc).strip()
+            if lutc:
+                arch_q["lutc"] = str(lutc).strip()
+            archive_url = f"{base_cdn}/index.m3u8?{urllib.parse.urlencode(arch_q)}"
 
             async with make_iptv_client(
                 timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
