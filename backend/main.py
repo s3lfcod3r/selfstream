@@ -1010,6 +1010,20 @@ def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, sou
     cv = _catchup_sessions[ck]
     if cv.get("last_dvr_dt_str") == new_dt_str:
         return True
+    # CDN paths sometimes oscillate ±1 min — never move catchup_time backwards.
+    new_parsed = _parse_catchup_wall_time(new_dt_str)
+    cur_wall = (cv.get("catchup_time") or "").strip()
+    cur_parsed = _parse_catchup_wall_time(cur_wall) if cur_wall else None
+    if new_parsed and cur_parsed and new_parsed < cur_parsed:
+        _now = time.time()
+        if _now - float(cv.get("_dvr_skip_back_ts", 0)) >= 60:
+            cv["_dvr_skip_back_ts"] = _now
+            diag_log(
+                "INFO",
+                "catchup",
+                f"DVR-Pfad älter als aktuelle Position — ignoriert: {new_dt_str} < {cur_wall}",
+            )
+        return True
     ch_name = ck.split("::")[-1] if "::" in ck else ""
     if not ch_name:
         try:
@@ -1059,6 +1073,10 @@ def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, sou
 
 def _catchup_warn_if_no_dvr_in_url(token: str, decoded_url: str) -> None:
     if _dvr_wall_time_from_url(decoded_url):
+        return
+    low = decoded_url.lower()
+    if "utc=" in low or "lutc=" in low:
+        # Fenster-/Master-Playlist: Position steckt in utc=, nicht im Pfad — kein False Positive.
         return
     ck = _resolve_catchup_session_key(token, decoded_url)
     if not ck or ck not in _catchup_sessions:
