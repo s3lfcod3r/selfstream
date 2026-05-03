@@ -707,6 +707,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <option value="WARNING">WARNING</option>
               <option value="INFO">INFO</option>
             </select>
+            <select id="diag-source" class="form-select" style="width:auto;padding:5px 8px;font-size:11px;" onchange="loadDiagnosticLogs(1)" title="Nach Quelle filtern">
+              <option value="">Alle Quellen</option>
+              <option value="catchup">catchup</option>
+              <option value="segment">segment</option>
+              <option value="session">session</option>
+              <option value="stream">stream</option>
+              <option value="epg">epg</option>
+              <option value="m3u">m3u</option>
+            </select>
             <select id="diag-page-size" class="form-select" style="width:auto;padding:5px 8px;font-size:11px;" onchange="loadDiagnosticLogs(1)">
               <option value="50">50 / Seite</option>
               <option value="100" selected>100 / Seite</option>
@@ -718,8 +727,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
         <p class="form-hint" style="margin-bottom:10px;">
           Server-Ereignisse (Catchup, Streams, M3U, EPG, VPN, Segmente). Aufbewahrung max. ca. 30 Tage; beim Start werden ältere Einträge bereinigt.<br>
-          <strong>Erste Spalte</strong> = Zeitpunkt des Eintrags (intern UTC); die Umrechnung erfolgt nach der Zeitzone unter <strong>Einstellungen → Diagnose</strong>. <strong>Catchup-Sendezeit</strong> nach <code>@</code> kommt vom Anbieter/App und kann davon abweichen.
-          Kein neuer Eintrag heißt meist: Es trat kein protokollierter Fehler auf und die Catchup-Session wurde nur regulär beendet — dann siehst du z.&nbsp;B. „Catchup session ended (TTL)“ oder Einträge unter Traffic → Buffering.
+          <strong>Erste Spalte</strong> = Zeitpunkt des Eintrags (intern UTC); die Umrechnung erfolgt nach der Zeitzone unter <strong>Einstellungen → Diagnose</strong>. <strong>Catchup-Sendezeit</strong> nach <code>@</code> kommt vom Anbieter/App und kann davon abweichen.<br>
+          Einträge mit <strong>Ursache:</strong> erklären absichtlich den Kontext (DVR-Pfad vs. EPG-Slot, sticky, Watchdog). Mit <strong>Quelle → catchup</strong> siehst du nur Catchup-Zeilen — „Warum ist nichts da?“ heißt meist: es gab keinen neuen Catchup-DVR-Sync in diesem Zeitraum (normales Abspielen ohne Minutenwechsel protokolliert nicht jedes Segment).
         </p>
         <div id="diag-meta" class="form-hint" style="margin-bottom:10px;">Lädt…</div>
         <div class="table-wrap">
@@ -3174,12 +3183,14 @@ async function loadDiagnosticLogs(pageArg) {
   const days = parseInt(document.getElementById('diag-days')?.value || '30', 10);
   const pageSize = parseInt(document.getElementById('diag-page-size')?.value || '100', 10);
   const level = (document.getElementById('diag-level')?.value || '').trim();
+  const source = (document.getElementById('diag-source')?.value || '').trim();
   const page = Math.max(1, parseInt(pageArg || diagnosePage || 1, 10));
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
     days: String(days),
-    level
+    level,
+    source
   });
   const tbody = document.getElementById('diag-tbody');
   const meta = document.getElementById('diag-meta');
@@ -3219,7 +3230,7 @@ async function loadDiagnosticLogs(pageArg) {
           <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--text2);">${t}</td>
           <td style="font-family:var(--mono);font-size:10px;font-weight:600;color:${levelColor(row.level)};">${lv}</td>
           <td style="font-family:var(--mono);font-size:10px;">${src}</td>
-          <td style="font-size:11px;word-break:break-word;max-width:560px;">${msg}</td>
+          <td style="font-size:11px;word-break:break-word;max-width:min(720px,92vw);white-space:pre-wrap;">${msg}</td>
         </tr>`;
       }).join('');
     }
