@@ -6,6 +6,7 @@ import hashlib
 import sqlite3
 import httpx
 import asyncio
+import math
 import logging
 import threading
 import subprocess
@@ -33,6 +34,14 @@ for a in (proxy_app, admin_app):
                      allow_methods=["*"], allow_headers=["*"])
 
 db = Database()
+
+
+def diag_log(level: str, source: str, message: str):
+    """Persist server diagnostics for the admin UI (~30 days). Must never affect requests."""
+    try:
+        db.add_diagnostic_log(level, source, message)
+    except Exception:
+        pass
 
 
 def _parse_xmltv_datetime(value: str):
@@ -121,6 +130,7 @@ async def _fetch_and_cache_epg():
         return True
     except Exception as e:
         logger.warning(f"EPG auto-fetch failed: {e}")
+        diag_log("WARNING", "epg", f"EPG auto-fetch failed: {e}")
         return False
 
 
@@ -158,6 +168,7 @@ async def _epg_watchdog():
 
         except Exception as e:
             logger.warning(f"EPG watchdog error: {e}")
+            diag_log("WARNING", "epg", f"EPG watchdog error: {e}")
 
         await asyncio.sleep(300)  # check every 5 minutes
 
@@ -182,6 +193,7 @@ async def _m3u_watchdog():
                         logger.info(f"M3U global auto-refresh: {len(channels)} channels updated")
                     except Exception as e:
                         logger.warning(f"M3U global auto-refresh failed: {e}")
+                        diag_log("WARNING", "m3u", f"M3U global auto-refresh failed: {e}")
             # Per-provider refresh
             due_providers = db.get_providers_due_refresh()
             for p in due_providers:
@@ -199,8 +211,10 @@ async def _m3u_watchdog():
                     logger.info(f"M3U provider auto-refresh OK: {p['name']} → {len(channels)} channels")
                 except Exception as e:
                     logger.warning(f"M3U provider auto-refresh failed ({p['name']}): {e}")
+                    diag_log("WARNING", "m3u", f"M3U provider auto-refresh failed ({p.get('name')}): {e}")
         except Exception as e:
             logger.warning(f"M3U watchdog error: {e}")
+            diag_log("WARNING", "m3u", f"M3U watchdog error: {e}")
         await asyncio.sleep(300)  # check every 5 minutes
 
 
@@ -209,6 +223,10 @@ async def _m3u_watchdog():
 async def startup():
     db.init()
     db.migrate_watch_logs()
+    try:
+        db.purge_diagnostic_logs(30)
+    except Exception:
+        pass
     _generate_error_video()
     asyncio.create_task(_epg_watchdog())
     asyncio.create_task(_m3u_watchdog())
@@ -220,6 +238,7 @@ async def startup():
             logger.info("VPN auto-start: OK")
         else:
             logger.warning(f"VPN auto-start failed: {result.get('error')}")
+            diag_log("WARNING", "vpn", f"VPN auto-start failed: {result.get('error')}")
     logger.info("selfstream started")
 
 
@@ -303,6 +322,7 @@ def vpn_make_transport() -> Optional[httpx.AsyncHTTPTransport]:
         return httpx.AsyncHTTPTransport(local_address=tun_ip)
     except Exception as e:
         logger.warning(f"VPN transport error: {e}")
+        diag_log("WARNING", "vpn", f"VPN transport error: {e}")
         return None
 
 
@@ -450,6 +470,7 @@ async def serve_playlist(token: str, local: str = None):
                 channels_raw = parse_m3u(resp.text)
         except Exception as e:
             logger.error(f"Failed to fetch m3u for {user['name']}: {e}")
+            diag_log("ERROR", "m3u", f"Failed to fetch m3u for {user['name']}: {e}")
             raise HTTPException(status_code=502, detail="Failed to fetch source playlist")
         channels = [{"name": c["name"], "raw_extinf": c["raw_extinf"],
                      "stream_url": c["url"], "tvg_id": c["tvg_id"],
@@ -695,9 +716,12 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 }
                 # Show catchup in live sessions view
                 db.session_start(token, channel_name, _catchup_ip)
-                logger.info(f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})")
+                _cu_msg = f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})"
+                logger.info(_cu_msg)
+                diag_log("INFO", "catchup", _cu_msg)
             except Exception as _ce:
                 logger.warning(f"Catchup log failed: {_ce}")
+                diag_log("WARNING", "catchup", f"Catchup log failed: {_ce}")
             return HTMLResponse(
                 content=rewritten,
                 media_type="application/vnd.apple.mpegurl",
@@ -705,6 +729,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             )
         except Exception as e:
             logger.error(f"Catchup error: {e}")
+            diag_log("ERROR", "catchup", f"Catchup error: {e}")
             # Fall through to live
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
@@ -722,6 +747,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                  if s["user_id"] == uid and s.get("session_key") != _this_key]
         if len(other) >= max_s:
             logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
+            diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
             raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
 
     try:
@@ -775,6 +801,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         )
     except Exception as e:
         logger.error(f"Failed to fetch stream for {user['name']}: {e}")
+        diag_log("ERROR", "stream", f"Failed to fetch stream for {user['name']}: {e}")
         raise HTTPException(status_code=502, detail=f"Stream fetch failed: {e}")
 
 
@@ -910,6 +937,7 @@ def _cleanup_sessions():
             epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
             db.end_watch_log(s["log_id"], int(now - s["start"]), epg_title=epg_title_end)
             logger.info(f"Session expired (TTL): {k} epg={epg_title_end}")
+            diag_log("INFO", "session", f"Session expired (TTL): {k} epg={epg_title_end}")
         except Exception:
             pass
     # Cleanup stale catchup sessions
@@ -920,6 +948,7 @@ def _cleanup_sessions():
             duration = int(now - s["start"])
             db.end_watch_log(s["log_id"], duration)
             logger.info(f"Catchup session ended (TTL): {k} duration={duration}s")
+            diag_log("INFO", "catchup", f"Catchup session ended (TTL): {k} duration={duration}s")
         except Exception:
             pass
 
@@ -1128,6 +1157,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                     pass
                             if _cu_elapsed > 2.0:
                                 logger.warning(f"⚠️ SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s")
+                                diag_log(
+                                    "WARNING",
+                                    "segment",
+                                    f"SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s",
+                                )
                                 _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
                                           "type": "slow", "elapsed": round(_cu_elapsed, 2),
                                           "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
@@ -1156,6 +1190,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                 except Exception: pass
                         except Exception as e:
                             logger.error(f"Catchup TS segment error: {e}")
+                            diag_log("ERROR", "catchup", f"Catchup TS segment error: {e}")
                     return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
                                             headers={
                                                 "Cache-Control": "no-cache, no-store",
@@ -1166,6 +1201,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                             })
         except Exception as e:
             logger.error(f"Catchup segment error: {e}")
+            diag_log("ERROR", "catchup", f"Catchup segment error: {e}")
             raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
 
     if is_ts:
@@ -1210,6 +1246,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 active_count = _user_stream_count(user_id)
                 if active_count >= max_s:
                     logger.warning(f"Max streams blocked: {user['name']} {active_count}/{max_s} from {client_ip}")
+                    diag_log(
+                        "WARNING",
+                        "stream",
+                        f"Max streams blocked: {user['name']} {active_count}/{max_s} from {client_ip}",
+                    )
                     raise HTTPException(status_code=429, detail=f"Max. {max_s} Stream(s) erlaubt")
             db.session_start(token, channel_name, ip_address=client_ip)
             epg_now = _get_now_playing(channel_name)
@@ -1247,6 +1288,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                             user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
                             channel_name_log = _sessions.get(session_key, {}).get("channel", "")
                             logger.warning(f"⚠️ EMPTY SEGMENT [{user_name}] {seg_name}: {total} bytes")
+                            diag_log(
+                                "WARNING",
+                                "segment",
+                                f"EMPTY SEGMENT [{user_name}] {channel_name_log} {seg_name}: {total} bytes",
+                            )
                             _ev0 = {
                                 "time": time.time(), "user": user_name, "channel": channel_name_log,
                                 "type": "slow", "elapsed": round(elapsed, 2),
@@ -1282,6 +1328,11 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                 except Exception: pass
                         elif elapsed > 2.0:
                             logger.warning(f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s")
+                            diag_log(
+                                "WARNING",
+                                "segment",
+                                f"SLOW SEGMENT [{user_name}] {channel_name_log} {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s",
+                            )
                             _ev1 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
                                     "type": "slow", "elapsed": round(elapsed, 2),
                                     "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
@@ -1316,6 +1367,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             pass
         except Exception as e:
             logger.error(f"Segment error: {e}")
+            diag_log("ERROR", "segment", f"Segment error: {e}")
             if session_key in _sessions:
                 s = _sessions.pop(session_key)
                 db.session_end(token)
@@ -1419,11 +1471,13 @@ async def global_epg(force: str = None):
                 _f.write(content_text)
         except Exception as _e:
             logger.warning(f"EPG disk cache write failed: {_e}")
+            diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
         return HTMLResponse(content=content_text, media_type="application/xml",
                            headers={"X-EPG-Cache": "MISS"})
     except Exception as e:
         if _epg_cache["content"]:
             logger.warning(f"EPG fetch failed, serving stale cache: {e}")
+            diag_log("WARNING", "epg", f"EPG fetch failed, serving stale cache: {e}")
             return HTMLResponse(content=_epg_cache["content"], media_type="application/xml",
                                headers={"X-EPG-Cache": "STALE"})
         raise HTTPException(status_code=502, detail=f"EPG fetch failed: {e}")
@@ -1472,6 +1526,7 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
         return ET.tostring(new_root, encoding="unicode", xml_declaration=True)
     except Exception as e:
         logger.error(f"EPG filter failed: {e}")
+        diag_log("ERROR", "epg", f"EPG filter failed: {e}")
         return xml_content
 
 
@@ -1503,6 +1558,7 @@ async def global_epg_days(days: int, force: str = None):
                     _f.write(raw)
             except Exception as _e:
                 logger.warning(f"EPG disk cache write failed: {_e}")
+                diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
         except Exception as e:
             raw = _epg_cache.get("content") or ""
             if not raw:
@@ -1573,6 +1629,7 @@ def check_admin(x_admin_token: str = Header(...), request: Request = None):
         if attempt["count"] >= MAX_ATTEMPTS:
             attempt["blocked_until"] = now + BLOCK_SECONDS
             logger.warning(f"Admin login blocked for {ip} after {MAX_ATTEMPTS} failed attempts")
+            diag_log("WARNING", "admin", f"Admin login blocked for {ip} after {MAX_ATTEMPTS} failed attempts")
         _failed_attempts[ip] = attempt
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -1773,6 +1830,7 @@ def create_user_group(body: dict, _=Depends(check_admin)):
         if "UNIQUE" in err or "already exists" in err.lower():
             raise HTTPException(status_code=409, detail="Gruppe bereits vorhanden")
         logger.error(f"create_user_group error: {e}")
+        diag_log("ERROR", "admin", f"create_user_group error: {e}")
         raise HTTPException(status_code=500, detail=f"Fehler: {err}")
 
 @admin_app.put("/api/user-groups/{group_id}/rename")
@@ -2021,6 +2079,7 @@ async def download_epg_xml(days: int = 0, _=Depends(check_admin)):
                     _f.write(raw)
             except Exception as _e:
                 logger.warning(f"EPG disk cache write failed: {_e}")
+                diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"EPG fetch failed: {e}")
     else:
@@ -2750,6 +2809,7 @@ async def vpn_upload_ovpn(request: Request, _=Depends(check_admin)):
         raise
     except Exception as e:
         logger.error(f"VPN upload error: {e}")
+        diag_log("ERROR", "vpn", f"VPN upload error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2805,6 +2865,38 @@ def clear_segment_events(_=Depends(check_admin)):
     _segment_events.clear()
     try: db.clear_segment_events()
     except Exception: pass
+    return {"ok": True}
+
+
+@admin_app.get("/api/diagnostic-logs")
+def get_diagnostic_logs_api(
+    page: int = 1,
+    page_size: int = 100,
+    days: int = 30,
+    level: str = "",
+    _=Depends(check_admin),
+):
+    page = max(1, int(page))
+    page_size = max(1, min(int(page_size), 500))
+    days = max(1, min(int(days), 366))
+    offset = (page - 1) * page_size
+    lvl = level.strip() or None
+    result = db.get_diagnostic_logs(days=days, limit=page_size, offset=offset, level=lvl)
+    total = int(result.get("total", 0))
+    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+    return {
+        "items": result.get("items", []),
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "days": days,
+    }
+
+
+@admin_app.delete("/api/diagnostic-logs")
+def clear_diagnostic_logs_api(_=Depends(check_admin)):
+    db.clear_diagnostic_logs()
     return {"ok": True}
 
 

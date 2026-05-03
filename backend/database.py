@@ -119,6 +119,15 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_seg_events_ts ON segment_events(ts);
 
+                CREATE TABLE IF NOT EXISTS diagnostic_logs (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    level      TEXT NOT NULL,
+                    source     TEXT NOT NULL,
+                    message    TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_diag_logs_created ON diagnostic_logs(created_at);
+
                 -- EPG channel whitelist (which channels to include in filtered EPG)
                 CREATE TABLE IF NOT EXISTS epg_channel_filter (
                     tvg_id     TEXT PRIMARY KEY,
@@ -577,6 +586,57 @@ class Database:
         with self.conn() as con:
             con.execute("DELETE FROM segment_events")
 
+    def add_diagnostic_log(self, level: str, source: str, message: str):
+        lv = (level or "INFO").strip().upper()[:16] or "INFO"
+        if lv not in ("DEBUG", "INFO", "WARNING", "ERROR"):
+            lv = "INFO"
+        src = (source or "").strip()[:80]
+        msg = (message or "").strip()[:8192]
+        with self.conn() as con:
+            con.execute(
+                "INSERT INTO diagnostic_logs (level, source, message) VALUES (?, ?, ?)",
+                (lv, src, msg),
+            )
+
+    def purge_diagnostic_logs(self, retention_days: int = 30):
+        d = max(1, min(int(retention_days), 366))
+        with self.conn() as con:
+            con.execute(
+                f"DELETE FROM diagnostic_logs WHERE datetime(created_at) < datetime('now', '-{d} days')"
+            )
+
+    def clear_diagnostic_logs(self):
+        with self.conn() as con:
+            con.execute("DELETE FROM diagnostic_logs")
+
+    def get_diagnostic_logs(
+        self, days: int = 30, limit: int = 100, offset: int = 0, level: Optional[str] = None
+    ) -> Dict[str, Any]:
+        days = max(1, min(int(days), 366))
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+        where = f"WHERE datetime(created_at) >= datetime('now', '-{days} days')"
+        params: List[Any] = []
+        lvl = (level or "").strip()
+        if lvl:
+            where += " AND UPPER(level) = UPPER(?)"
+            params.append(lvl[:16])
+        with self.conn() as con:
+            total_row = con.execute(
+                f"SELECT COUNT(*) as cnt FROM diagnostic_logs {where}", tuple(params)
+            ).fetchone()
+            total = int(total_row["cnt"] if total_row else 0)
+            rows = con.execute(
+                f"""
+                SELECT id, level, source, message, created_at
+                FROM diagnostic_logs {where}
+                ORDER BY datetime(created_at) DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                tuple(params + [limit, offset]),
+            ).fetchall()
+        return {"items": [dict(r) for r in rows], "total": total}
+
     def get_m3u_providers(self) -> List[Dict]:
         with self.conn() as con:
             rows = con.execute("SELECT * FROM m3u_providers ORDER BY name").fetchall()
@@ -1027,6 +1087,18 @@ class Database:
                         sort_order INTEGER DEFAULT 0
                     )
                 """)
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS diagnostic_logs (
+                        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                        level      TEXT NOT NULL,
+                        source     TEXT NOT NULL,
+                        message    TEXT NOT NULL,
+                        created_at TEXT DEFAULT (datetime('now'))
+                    )
+                """)
+                con.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_diag_logs_created ON diagnostic_logs(created_at)"
+                )
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"migrate: {e}")
