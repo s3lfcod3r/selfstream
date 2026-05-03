@@ -827,7 +827,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="60">60s</option>
                 <option value="120">120s</option>
               </select>
-              <div class="form-hint">Sobald die Anbieter-Playlist <code>#EXT-X-ENDLIST</code> enthält (Archiv zu Ende), gilt dieser <strong>kürzere</strong> Idle-Timer — Catchup verschwindet schneller aus der Übersicht. Sehr kurze Archiv-Fenster beim Anbieter beenden die Playlist selbst; das ist kein selfstream-Fehler.</div>
+              <div class="form-hint">Gilt nur, wenn beim Catchup-<strong>Start</strong> die Master-<code>index.m3u8</code> schon <code>#EXT-X-ENDLIST</code> enthält (dann oft echtes Kurz-Archiv). Unter-Playlisten mit ENDLIST (Sliding Window) lösen diesen Timer <strong>nicht</strong> mehr aus — damit verhält sich die Idle-Zählung näher an einer direkten Anbieter-M3U.</div>
             </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
