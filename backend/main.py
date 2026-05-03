@@ -44,6 +44,18 @@ def diag_log(level: str, source: str, message: str):
         pass
 
 
+def _sanitize_diagnostic_timezone(val) -> str:
+    """IANA zone for UI, or 'browser' for client-local formatting."""
+    v = str(val or "").strip()
+    if not v or v.lower() == "browser":
+        return "browser"
+    if len(v) > 80:
+        v = v[:80]
+    if not re.match(r"^[A-Za-z0-9_/+\-]+$", v):
+        return "Europe/Berlin"
+    return v
+
+
 def _parse_xmltv_datetime(value: str):
     """Parse XMLTV programme start/stop. Supports 'YYYYMMDDHHMMSS +ZZZZ' and 'YYYYMMDDHHMMSSZZZZ'."""
     if not value or not str(value).strip():
@@ -2436,6 +2448,7 @@ def get_settings(_=Depends(check_admin)):
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
         "catchup_ttl":          s.get("catchup_ttl", "120"),
+        "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
 @admin_app.post("/api/settings")
@@ -2444,7 +2457,8 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "catchup_ttl"}
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "catchup_ttl",
+               "diagnostic_timezone"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
     try:
@@ -2460,6 +2474,8 @@ def update_settings(body: dict, _=Depends(check_admin)):
 
     for key, val in body.items():
         if key in allowed:
+            if key == "diagnostic_timezone":
+                val = _sanitize_diagnostic_timezone(val)
             db.set_setting(key, str(val))
 
     # Apply retention immediately when tightened.
