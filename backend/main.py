@@ -928,6 +928,30 @@ async def _prefetch_segment(url: str, hls: dict):
         pass
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
+
+
+def _resolve_catchup_session_key(token: str, decoded_url: str) -> Optional[str]:
+    """Pick which catchup::* session a segment URL belongs to (same token can have multiple channels)."""
+    keys = [_ck for _ck, _cv in _catchup_sessions.items() if _cv.get("token") == token]
+    if not keys:
+        return None
+    if len(keys) == 1:
+        return keys[0]
+    ch_rec = db.get_channel_by_url_fragment(decoded_url)
+    if ch_rec:
+        ck = f"catchup::{token}::{ch_rec['name']}"
+        if ck in _catchup_sessions:
+            return ck
+    # Newest session wins if URL does not contain /chNNN/ (avoids starving active catchup).
+    return max(keys, key=lambda k: float(_catchup_sessions[k].get("start", 0)))
+
+
+def _touch_catchup_last_seen(token: str, decoded_url: str) -> None:
+    ck = _resolve_catchup_session_key(token, decoded_url)
+    if ck and ck in _catchup_sessions:
+        _catchup_sessions[ck]["last_seen"] = time.time()
+
+
 def get_catchup_ttl() -> int:
     try:
         return int(db.get_setting("catchup_ttl", "120"))
@@ -1075,11 +1099,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
 
     # Catchup segments bypass session tracking
     if catchup == "1":
-        _now_cu = time.time()
-        for _ck, _cv in _catchup_sessions.items():
-            if _cv["token"] == token:
-                _catchup_sessions[_ck]["last_seen"] = _now_cu
-                break
+        _touch_catchup_last_seen(token, decoded_url)
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
@@ -1094,51 +1114,53 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         if _ts_match:
                             _y,_mo,_d,_h,_mi = _ts_match.groups()
                             _new_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}:00"
-                            # Find this catchup session
-                            for _ck2, _cv2 in _catchup_sessions.items():
-                                if _cv2["token"] == token:
-                                    # Look up new EPG title for this timestamp
-                                    _new_epg = None
-                                    try:
-                                        import xml.etree.ElementTree as _ET2
-                                        _epg_c = _epg_cache.get("content")
-                                        if not _epg_c:
-                                            try:
-                                                with open("/data/epg_cache.xml","r",encoding="utf-8") as _ef2:
-                                                    _epg_c = _ef2.read()
-                                            except Exception: pass
-                                        if _epg_c:
-                                            _root2 = _ET2.fromstring(_epg_c)
-                                            with db.conn() as _con2:
-                                                _ch_row = _con2.execute(
-                                                    "SELECT wl.channel FROM watch_logs wl WHERE wl.id = ?",
-                                                    (_cv2["log_id"],)
-                                                ).fetchone()
-                                            if _ch_row:
-                                                _ch_name2 = _ch_row["channel"]
-                                                _ch_rec2 = db.get_channel_by_name(_ch_name2) or {}
-                                                _tvg2 = _ch_rec2.get("tvg_id","").strip()
-                                                if _tvg2:
-                                                    _ct2 = _parse_catchup_wall_time(_new_dt_str)
-                                                    if _ct2:
-                                                        for _prog2 in _root2.findall("programme"):
-                                                            if _prog2.get("channel","") != _tvg2: continue
-                                                            _ps2 = _parse_xmltv_datetime(_prog2.get("start", ""))
-                                                            _pe2 = _parse_xmltv_datetime(_prog2.get("stop", ""))
-                                                            if _epg_programme_contains_instant(_ps2, _pe2, _ct2):
-                                                                _new_epg = _prog2.findtext("title") or None
-                                                                break
-                                    except Exception: pass
-                                    # Update DB log with new catchup_time and epg_title
-                                    if _new_epg is not None:
+                            # Match catchup session to URL (not only first token match)
+                            _ck_res = _resolve_catchup_session_key(token, decoded_url)
+                            _cv2 = _catchup_sessions.get(_ck_res) if _ck_res else None
+                            if _cv2 is not None:
+                                _new_epg = None
+                                try:
+                                    import xml.etree.ElementTree as _ET2
+                                    _epg_c = _epg_cache.get("content")
+                                    if not _epg_c:
                                         try:
-                                            with db.conn() as _cu:
-                                                _cu.execute(
-                                                    "UPDATE watch_logs SET catchup_time=?, epg_title=? WHERE id=?",
-                                                    (_new_dt_str, _new_epg, _cv2["log_id"])
-                                                )
-                                        except Exception: pass
-                                    break
+                                            with open("/data/epg_cache.xml","r",encoding="utf-8") as _ef2:
+                                                _epg_c = _ef2.read()
+                                        except Exception:
+                                            pass
+                                    if _epg_c:
+                                        _root2 = _ET2.fromstring(_epg_c)
+                                        with db.conn() as _con2:
+                                            _ch_row = _con2.execute(
+                                                "SELECT wl.channel FROM watch_logs wl WHERE wl.id = ?",
+                                                (_cv2["log_id"],)
+                                            ).fetchone()
+                                        if _ch_row:
+                                            _ch_name2 = _ch_row["channel"]
+                                            _ch_rec2 = db.get_channel_by_name(_ch_name2) or {}
+                                            _tvg2 = _ch_rec2.get("tvg_id","").strip()
+                                            if _tvg2:
+                                                _ct2 = _parse_catchup_wall_time(_new_dt_str)
+                                                if _ct2:
+                                                    for _prog2 in _root2.findall("programme"):
+                                                        if _prog2.get("channel","") != _tvg2:
+                                                            continue
+                                                        _ps2 = _parse_xmltv_datetime(_prog2.get("start", ""))
+                                                        _pe2 = _parse_xmltv_datetime(_prog2.get("stop", ""))
+                                                        if _epg_programme_contains_instant(_ps2, _pe2, _ct2):
+                                                            _new_epg = _prog2.findtext("title") or None
+                                                            break
+                                except Exception:
+                                    pass
+                                if _new_epg is not None:
+                                    try:
+                                        with db.conn() as _cu:
+                                            _cu.execute(
+                                                "UPDATE watch_logs SET catchup_time=?, epg_title=? WHERE id=?",
+                                                (_new_dt_str, _new_epg, _cv2["log_id"])
+                                            )
+                                    except Exception:
+                                        pass
                     except Exception: pass
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
@@ -1157,13 +1179,9 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                             _cu_size_kb = len(_cu_data) / 1024
                             _cu_speed = min((len(_cu_data) * 8) / (max(_cu_elapsed, 0.001) * 1_000_000), 10000.0)
                             _cu_seg = decoded_url.split("/")[-1].split("?")[0]
-                            # Find channel name and user info from catchup session
-                            _cu_ch = ""
                             _cu_user = user.get("name", token[:8])
-                            for _ck, _cv in _catchup_sessions.items():
-                                if _cv.get("token") == token:
-                                    _cu_ch = _ck.split("::")[-1] if "::" in _ck else ""
-                                    break
+                            _ck_cu = _resolve_catchup_session_key(token, decoded_url)
+                            _cu_ch = _ck_cu.split("::")[-1] if _ck_cu and "::" in _ck_cu else ""
                             # Get provider_id from channel record
                             _cu_provider_id = user.get("provider_id")
                             if not _cu_provider_id and _cu_ch:
