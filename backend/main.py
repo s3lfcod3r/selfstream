@@ -725,6 +725,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     "token": token, "ip": _catchup_ip,
                     "epg_title": _catchup_epg_title or "",
                     "catchup_time": dt_str,
+                    "last_dvr_dt_str": dt_str,
                 }
                 # Show catchup in live sessions view
                 db.session_start(token, channel_name, _catchup_ip)
@@ -952,6 +953,129 @@ def _touch_catchup_last_seen(token: str, decoded_url: str) -> None:
         _catchup_sessions[ck]["last_seen"] = time.time()
 
 
+_DVR_PATH_RE = re.compile(r"/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})")
+
+
+def _dvr_wall_time_from_url(decoded_url: str) -> Optional[str]:
+    m = _DVR_PATH_RE.search(decoded_url)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}:00"
+    # Xtream-style: ...dvr-2026/05/01/12/05/...
+    m2 = re.search(r"dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})", decoded_url, re.I)
+    if m2:
+        return f"{m2.group(1)}-{m2.group(2)}-{m2.group(3)} {m2.group(4)}:{m2.group(5)}:00"
+    return None
+
+
+def _epg_title_from_wall_time_channel(channel_name: str, wall_dt_str: str) -> Optional[str]:
+    try:
+        ct = _parse_catchup_wall_time(wall_dt_str)
+        if not ct:
+            return None
+        epg_c = _epg_cache.get("content")
+        if not epg_c:
+            try:
+                with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
+                    epg_c = f.read()
+            except Exception:
+                return None
+        if not epg_c:
+            return None
+        root = ET.fromstring(epg_c)
+        ch_rec = db.get_channel_by_name(channel_name) or {}
+        tvg = ch_rec.get("tvg_id", "").strip()
+        if not tvg:
+            return None
+        for prog in root.findall("programme"):
+            if prog.get("channel", "") != tvg:
+                continue
+            ps = _parse_xmltv_datetime(prog.get("start", ""))
+            pe = _parse_xmltv_datetime(prog.get("stop", ""))
+            if _epg_programme_contains_instant(ps, pe, ct):
+                t = (prog.findtext("title") or "").strip()
+                return t or None
+        return None
+    except Exception:
+        return None
+
+
+def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, source: str) -> bool:
+    """If URL contains .../YYYY/MM/DD/HH/MM/..., advance watch_log catchup_time + EPG (also for .ts)."""
+    new_dt_str = _dvr_wall_time_from_url(decoded_url)
+    if not new_dt_str:
+        return False
+    ck = _resolve_catchup_session_key(token, decoded_url)
+    if not ck or ck not in _catchup_sessions:
+        return True
+    cv = _catchup_sessions[ck]
+    if cv.get("last_dvr_dt_str") == new_dt_str:
+        return True
+    ch_name = ck.split("::")[-1] if "::" in ck else ""
+    if not ch_name:
+        try:
+            with db.conn() as con:
+                row = con.execute(
+                    "SELECT channel FROM watch_logs WHERE id = ?", (cv["log_id"],)
+                ).fetchone()
+            ch_name = row["channel"] if row else ""
+        except Exception:
+            ch_name = ""
+    if not ch_name:
+        return True
+    new_epg = _epg_title_from_wall_time_channel(ch_name, new_dt_str)
+    old_dt = (cv.get("catchup_time") or "").strip() or "(start)"
+    old_epg = (cv.get("epg_title") or "").strip() or "(none)"
+    try:
+        with db.conn() as con:
+            if new_epg:
+                con.execute(
+                    "UPDATE watch_logs SET catchup_time = ?, epg_title = ? WHERE id = ?",
+                    (new_dt_str, new_epg, cv["log_id"]),
+                )
+            else:
+                con.execute(
+                    "UPDATE watch_logs SET catchup_time = ? WHERE id = ?",
+                    (new_dt_str, cv["log_id"]),
+                )
+                diag_log(
+                    "WARNING",
+                    "catchup",
+                    f"Catchup DVR {new_dt_str} ({source}) aber kein EPG-Titel (tvg_id/EPG?): {ch_name}",
+                )
+    except Exception:
+        return True
+    cv["catchup_time"] = new_dt_str
+    cv["last_dvr_dt_str"] = new_dt_str
+    if new_epg:
+        cv["epg_title"] = new_epg
+    disp_epg = new_epg or old_epg
+    diag_log(
+        "INFO",
+        "catchup",
+        f"Catchup DVR ({source}): {user.get('name', '')} → {ch_name} {old_dt} → {new_dt_str} | {old_epg!r} → {disp_epg!r}",
+    )
+    return True
+
+
+def _catchup_warn_if_no_dvr_in_url(token: str, decoded_url: str) -> None:
+    if _dvr_wall_time_from_url(decoded_url):
+        return
+    ck = _resolve_catchup_session_key(token, decoded_url)
+    if not ck or ck not in _catchup_sessions:
+        return
+    cv = _catchup_sessions[ck]
+    now = time.time()
+    if now - float(cv.get("_no_dvr_diag_ts", 0)) < 120:
+        return
+    cv["_no_dvr_diag_ts"] = now
+    tail = decoded_url[-120:] if len(decoded_url) > 120 else decoded_url
+    diag_log(
+        "WARNING",
+        "catchup",
+        f"Catchup-Anfrage ohne DVR-Datum im Pfad (Titel folgt nur Start/Watchdog): …{tail}",
+    )
+
+
 def get_catchup_ttl() -> int:
     try:
         return int(db.get_setting("catchup_ttl", "120"))
@@ -1102,77 +1226,23 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     # Catchup segments bypass session tracking
     if catchup == "1":
         _touch_catchup_last_seen(token, decoded_url)
+        _catchup_src = "segment" if is_ts else "playlist"
+        if not _catchup_sync_epg_from_dvr_url(token, decoded_url, user, _catchup_src):
+            _catchup_warn_if_no_dvr_in_url(token, decoded_url)
         try:
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
                 if not is_ts:
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
-                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token, catchup=True)
-                    # Try to extract new timestamp from URL and update EPG title
-                    try:
-                        import re as _re
-                        _ts_match = _re.search(r'/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})', decoded_url)
-                        if _ts_match:
-                            _y,_mo,_d,_h,_mi = _ts_match.groups()
-                            _new_dt_str = f"{_y}-{_mo}-{_d} {_h}:{_mi}:00"
-                            # Match catchup session to URL (not only first token match)
-                            _ck_res = _resolve_catchup_session_key(token, decoded_url)
-                            _cv2 = _catchup_sessions.get(_ck_res) if _ck_res else None
-                            if _cv2 is not None:
-                                _new_epg = None
-                                try:
-                                    import xml.etree.ElementTree as _ET2
-                                    _epg_c = _epg_cache.get("content")
-                                    if not _epg_c:
-                                        try:
-                                            with open("/data/epg_cache.xml","r",encoding="utf-8") as _ef2:
-                                                _epg_c = _ef2.read()
-                                        except Exception:
-                                            pass
-                                    if _epg_c:
-                                        _root2 = _ET2.fromstring(_epg_c)
-                                        with db.conn() as _con2:
-                                            _ch_row = _con2.execute(
-                                                "SELECT wl.channel FROM watch_logs wl WHERE wl.id = ?",
-                                                (_cv2["log_id"],)
-                                            ).fetchone()
-                                        if _ch_row:
-                                            _ch_name2 = _ch_row["channel"]
-                                            _ch_rec2 = db.get_channel_by_name(_ch_name2) or {}
-                                            _tvg2 = _ch_rec2.get("tvg_id","").strip()
-                                            if _tvg2:
-                                                _ct2 = _parse_catchup_wall_time(_new_dt_str)
-                                                if _ct2:
-                                                    for _prog2 in _root2.findall("programme"):
-                                                        if _prog2.get("channel","") != _tvg2:
-                                                            continue
-                                                        _ps2 = _parse_xmltv_datetime(_prog2.get("start", ""))
-                                                        _pe2 = _parse_xmltv_datetime(_prog2.get("stop", ""))
-                                                        if _epg_programme_contains_instant(_ps2, _pe2, _ct2):
-                                                            _new_epg = _prog2.findtext("title") or None
-                                                            break
-                                except Exception:
-                                    pass
-                                if _new_epg is not None:
-                                    try:
-                                        with db.conn() as _cu:
-                                            _cu.execute(
-                                                "UPDATE watch_logs SET catchup_time=?, epg_title=? WHERE id=?",
-                                                (_new_dt_str, _new_epg, _cv2["log_id"])
-                                            )
-                                        _ep_old = (_cv2.get("epg_title") or "").strip() or "(none)"
-                                        diag_log(
-                                            "INFO",
-                                            "catchup",
-                                            f"Catchup EPG from playlist URL: {user['name']} → {_ch_name2} @ {_new_dt_str} ({_new_epg}) [was: {_ep_old}]",
-                                        )
-                                        if _ck_res and _ck_res in _catchup_sessions:
-                                            _catchup_sessions[_ck_res]["catchup_time"] = _new_dt_str
-                                            _catchup_sessions[_ck_res]["epg_title"] = _new_epg
-                                    except Exception:
-                                        pass
-                    except Exception: pass
+                    raw_pl = resp.text
+                    if "#EXT-X-ENDLIST" in raw_pl:
+                        diag_log(
+                            "INFO",
+                            "catchup",
+                            f"Catchup-Playlist ENDLIST (VOD-Ende): {user.get('name', '')}",
+                        )
+                    rewritten = rewrite_hls_playlist(raw_pl, decoded_url, public_url_seg, token, catchup=True)
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
                 else:
