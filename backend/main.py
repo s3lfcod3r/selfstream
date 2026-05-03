@@ -1036,6 +1036,16 @@ def _touch_catchup_last_seen(token: str, decoded_url: str) -> None:
         _catchup_sessions[ck]["last_seen"] = time.time()
 
 
+async def _catchup_segment_idle_heartbeat(token: str, decoded_url: str) -> None:
+    """Refresh last_seen during long TS downloads so idle cleanup cannot fire mid-segment (catchup_ttl)."""
+    try:
+        while True:
+            await asyncio.sleep(30)
+            _touch_catchup_last_seen(token, decoded_url)
+    except asyncio.CancelledError:
+        return
+
+
 _DVR_PATH_RE = re.compile(r"/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})")
 
 
@@ -1706,6 +1716,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
                 else:
                     async def stream_catchup_ts():
+                        _hb = asyncio.create_task(_catchup_segment_idle_heartbeat(token, decoded_url))
                         try:
                             _cu_t0 = time.time()
                             _cu_data = b""
@@ -1766,6 +1777,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         except Exception as e:
                             logger.error(f"Catchup TS segment error: {e}")
                             diag_log("ERROR", "catchup", f"Catchup TS segment error: {e}")
+                        finally:
+                            _hb.cancel()
+                            try:
+                                await _hb
+                            except asyncio.CancelledError:
+                                pass
                     return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
                                             headers={
                                                 "Cache-Control": "no-cache, no-store",
