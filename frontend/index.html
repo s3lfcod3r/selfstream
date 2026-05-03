@@ -718,13 +718,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
         <p class="form-hint" style="margin-bottom:10px;">
           Server-Ereignisse (Catchup, Streams, M3U, EPG, VPN, Segmente). Aufbewahrung max. ca. 30 Tage; beim Start werden ältere Einträge bereinigt.<br>
-          <strong>Erste Spalte</strong> = Zeitpunkt, zu dem der Eintrag gespeichert wurde (UTC, Serverzeit). <strong>Catchup-Sendezeit</strong> steht in der Meldung nach dem <code>@</code> (und im Watch-Verlauf).
+          <strong>Erste Spalte</strong> = Zeitpunkt des Eintrags (intern UTC); die Umrechnung erfolgt nach der Zeitzone unter <strong>Einstellungen → Diagnose</strong>. <strong>Catchup-Sendezeit</strong> nach <code>@</code> kommt vom Anbieter/App und kann davon abweichen.
           Kein neuer Eintrag heißt meist: Es trat kein protokollierter Fehler auf und die Catchup-Session wurde nur regulär beendet — dann siehst du z.&nbsp;B. „Catchup session ended (TTL)“ oder Einträge unter Traffic → Buffering.
         </p>
         <div id="diag-meta" class="form-hint" style="margin-bottom:10px;">Lädt…</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Serverzeit (UTC)</th><th>Level</th><th>Quelle</th><th>Meldung</th></tr></thead>
+            <thead><tr><th>Zeit</th><th>Level</th><th>Quelle</th><th>Meldung</th></tr></thead>
             <tbody id="diag-tbody"></tbody>
           </table>
         </div>
@@ -845,6 +845,34 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </div>
             </div>
             <button class="btn primary" onclick="saveLogRetention()">Speichern</button>
+          </div>
+
+          <div class="scard">
+            <div class="scard-title">🔧 Diagnose</div>
+            <div class="form-group">
+              <label class="form-label">Zeitzone für die Diagnose-Tabelle</label>
+              <select class="form-select" id="cfg-diagnostic-tz" onchange="toggleDiagTzCustom()">
+                <option value="browser">Automatisch (wie Browser / PC)</option>
+                <option value="Europe/Berlin">Europa/Berlin</option>
+                <option value="Europe/Vienna">Europa/Wien</option>
+                <option value="Europe/Zurich">Europa/Zürich</option>
+                <option value="Europe/Amsterdam">Europa/Amsterdam</option>
+                <option value="Europe/Copenhagen">Europa/Kopenhagen</option>
+                <option value="Europe/London">Europa/London</option>
+                <option value="UTC">UTC</option>
+                <option value="America/New_York">Amerika/New York</option>
+                <option value="Asia/Tokyo">Asien/Tokio</option>
+                <option value="custom">Eigene IANA-Zeitzone…</option>
+              </select>
+              <div id="cfg-diagnostic-tz-custom-wrap" style="display:none;margin-top:10px;">
+                <input class="form-input" id="cfg-diagnostic-tz-custom" placeholder="z.B. Europe/Paris oder Pacific/Auckland" style="font-family:var(--mono);font-size:12px;">
+              </div>
+              <div class="form-hint">
+                Die erste Spalte unter „Diagnose“ zeigt dieses Datum/Uhrzeit (intern wird weiterhin UTC gespeichert).
+                Übersicht gültiger Namen: <a href="https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" target="_blank" rel="noopener">IANA-Zeitzonen ↗</a>
+              </div>
+            </div>
+            <button class="btn primary" onclick="saveDiagnosticTimezone()">Speichern</button>
           </div>
 
         </div>
@@ -1360,6 +1388,10 @@ let usersPage = 1;
 let usersTotalPages = 1;
 const userTokenVisible = {};
 let providersCache = [];
+const DIAG_TZ_PRESETS = new Set([
+  'browser', 'Europe/Berlin', 'Europe/Vienna', 'Europe/Zurich', 'Europe/Amsterdam',
+  'Europe/Copenhagen', 'Europe/London', 'UTC', 'America/New_York', 'Asia/Tokyo',
+]);
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
@@ -1400,6 +1432,7 @@ async function loadApp() {
   try {
     const s = await api('GET', '/api/settings');
     window._localProxyUrl = s.proxy_url || '';
+    window._diagnosticTimezone = s.diagnostic_timezone || 'Europe/Berlin';
   } catch(e) {}
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
@@ -3067,6 +3100,65 @@ async function clearLogs() {
   loadLogs(1); showToast('Verlauf bereinigt');
 }
 
+/** Diagnose: DB-Zeit als UTC lesen, nach Einstellung diagnostic_timezone formatieren. */
+function formatDiagTime(raw) {
+  if (!raw) return '—';
+  const s = String(raw).trim();
+  const tz = window._diagnosticTimezone || 'Europe/Berlin';
+  let d;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s)) {
+    const norm = s.replace(' ', 'T');
+    if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(norm)) d = new Date(norm);
+    else d = new Date(norm + 'Z');
+  } else {
+    d = new Date(s);
+  }
+  if (Number.isNaN(d.getTime())) return esc(s);
+  const opts = {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  };
+  if (tz && tz !== 'browser') opts.timeZone = tz;
+  try {
+    return esc(d.toLocaleString('de-DE', opts));
+  } catch (_e) {
+    try {
+      return esc(d.toLocaleString('de-DE', { ...opts, timeZone: 'UTC' }));
+    } catch (_e2) {
+      return esc(s);
+    }
+  }
+}
+
+function toggleDiagTzCustom() {
+  const sel = document.getElementById('cfg-diagnostic-tz');
+  const wrap = document.getElementById('cfg-diagnostic-tz-custom-wrap');
+  if (!sel || !wrap) return;
+  wrap.style.display = sel.value === 'custom' ? 'block' : 'none';
+}
+
+async function saveDiagnosticTimezone() {
+  const sel = document.getElementById('cfg-diagnostic-tz');
+  const cust = document.getElementById('cfg-diagnostic-tz-custom');
+  if (!sel) return;
+  let tz = sel.value;
+  if (tz === 'custom') {
+    tz = (cust && cust.value || '').trim();
+    if (!tz) return showToast('Eigene Zeitzone: IANA-Name eintragen', true);
+  }
+  await api('POST', '/api/settings', { diagnostic_timezone: tz });
+  window._diagnosticTimezone = tz;
+  showToast('Diagnose-Zeitzone gespeichert');
+  if (document.getElementById('page-diagnose') && document.getElementById('page-diagnose').style.display !== 'none') {
+    loadDiagnosticLogs();
+  }
+}
+
 async function loadDiagnosticLogs(pageArg) {
   const days = parseInt(document.getElementById('diag-days')?.value || '30', 10);
   const pageSize = parseInt(document.getElementById('diag-page-size')?.value || '100', 10);
@@ -3108,7 +3200,7 @@ async function loadDiagnosticLogs(pageArg) {
     };
     if (tbody) {
       tbody.innerHTML = items.map((row) => {
-        const t = row.created_at ? esc(String(row.created_at)) : '—';
+        const t = formatDiagTime(row.created_at);
         const lv = esc(String(row.level || ''));
         const src = esc(String(row.source || ''));
         const msg = esc(String(row.message || ''));
@@ -3161,6 +3253,20 @@ async function loadSettings() {
   }
   // Update proxy URL preview based on short_domain (public URL)
   _updateProxyPreview(s.short_domain||'');
+  const dtRaw = s.diagnostic_timezone || 'Europe/Berlin';
+  window._diagnosticTimezone = dtRaw;
+  const dtzSel = document.getElementById('cfg-diagnostic-tz');
+  const dtzCust = document.getElementById('cfg-diagnostic-tz-custom');
+  if (dtzSel && dtzCust) {
+    if (DIAG_TZ_PRESETS.has(dtRaw)) {
+      dtzSel.value = dtRaw;
+      dtzCust.value = '';
+    } else {
+      dtzSel.value = 'custom';
+      dtzCust.value = dtRaw;
+    }
+    toggleDiagTzCustom();
+  }
 }
 
 function _updateProxyPreview(url) {
