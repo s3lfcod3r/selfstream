@@ -806,7 +806,18 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="300">5 Minuten</option>
                 <option value="900">15 Minuten</option>
               </select>
-              <div class="form-hint">Wie lange ein Catchup noch als aktiv gilt nachdem kein Segment mehr angefragt wurde.</div>
+              <div class="form-hint">Wie lange ein Catchup noch als <strong>aktiv</strong> gilt, wenn der Player <strong>ohne vorheriges Playback-Ende</strong> keine Segmente mehr anfragt (App geschlossen, Sender gewechselt, Netz weg). Bei <strong>Pausen</strong> länger als dieser Wert wirkt die Session wie beendet.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">⏱️ Catchup nach Playback-Ende</label>
+              <select class="form-select" id="cfg-catchup-ttl-after-endlist">
+                <option value="10">10s</option>
+                <option value="15">15s</option>
+                <option value="30" selected>30s (Standard)</option>
+                <option value="60">60s</option>
+                <option value="120">120s</option>
+              </select>
+              <div class="form-hint">Sobald die Anbieter-Playlist <code>#EXT-X-ENDLIST</code> enthält (Archiv zu Ende), gilt dieser <strong>kürzere</strong> Idle-Timer — Catchup verschwindet schneller aus der Übersicht. Sehr kurze Archiv-Fenster beim Anbieter beenden die Playlist selbst; das ist kein selfstream-Fehler.</div>
             </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
@@ -3239,6 +3250,7 @@ async function loadSettings() {
   document.getElementById('cfg-rtimeout').value=s.hls_read_timeout||'30';
   document.getElementById('cfg-prefetch').value=s.prefetch_segments||'2';
   if(document.getElementById('cfg-catchup-ttl')) document.getElementById('cfg-catchup-ttl').value=s.catchup_ttl||'120';
+  if(document.getElementById('cfg-catchup-ttl-after-endlist')) document.getElementById('cfg-catchup-ttl-after-endlist').value=s.catchup_ttl_after_endlist||'30';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
   if (retEl) retEl.value = currentLogRetention;
@@ -3330,7 +3342,8 @@ async function saveHls() {
     hls_timeout:document.getElementById('cfg-timeout').value,
     hls_read_timeout:document.getElementById('cfg-rtimeout').value,
     prefetch_segments:document.getElementById('cfg-prefetch').value,
-    catchup_ttl:(document.getElementById('cfg-catchup-ttl')||{}).value||'120'
+    catchup_ttl:(document.getElementById('cfg-catchup-ttl')||{}).value||'120',
+    catchup_ttl_after_endlist:(document.getElementById('cfg-catchup-ttl-after-endlist')||{}).value||'30'
   });
   showToast('HLS-Einstellungen gespeichert');
 }
