@@ -610,7 +610,12 @@ class Database:
             con.execute("DELETE FROM diagnostic_logs")
 
     def get_diagnostic_logs(
-        self, days: int = 30, limit: int = 100, offset: int = 0, level: Optional[str] = None
+        self,
+        days: int = 30,
+        limit: int = 100,
+        offset: int = 0,
+        level: Optional[str] = None,
+        source: Optional[str] = None,
     ) -> Dict[str, Any]:
         days = max(1, min(int(days), 366))
         limit = max(1, min(int(limit), 500))
@@ -621,6 +626,10 @@ class Database:
         if lvl:
             where += " AND UPPER(level) = UPPER(?)"
             params.append(lvl[:16])
+        src_f = (source or "").strip()
+        if src_f:
+            where += " AND LOWER(source) = LOWER(?)"
+            params.append(src_f[:80])
         with self.conn() as con:
             total_row = con.execute(
                 f"SELECT COUNT(*) as cnt FROM diagnostic_logs {where}", tuple(params)

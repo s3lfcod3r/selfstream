@@ -89,6 +89,13 @@ def _epg_programme_contains_instant(ps: datetime, pe: datetime, ct: datetime) ->
     return ps <= ct <= pe
 
 
+def _epg_programme_contains_instant_half_open(ps: datetime, pe: datetime, ct: datetime) -> bool:
+    """XMLTV-style window [start, stop): avoids double-match when programmes share a boundary."""
+    if ps is None or pe is None or ct is None:
+        return False
+    return ps <= ct < pe
+
+
 def _epg_title_at_time(channel_name: str, catchup_time_str: str, root) -> str:
     """Resolve programme title for channel at catchup wall time (UTC)."""
     if not root or not channel_name or not catchup_time_str:
@@ -1002,12 +1009,164 @@ def _epg_title_from_wall_time_channel(channel_name: str, wall_dt_str: str) -> Op
                 continue
             ps = _parse_xmltv_datetime(prog.get("start", ""))
             pe = _parse_xmltv_datetime(prog.get("stop", ""))
-            if _epg_programme_contains_instant(ps, pe, ct):
+            # Half-open: minute-rounded DVR times sit on boundaries less often on the wrong programme.
+            if _epg_programme_contains_instant_half_open(ps, pe, ct):
                 t = (prog.findtext("title") or "").strip()
                 return t or None
         return None
     except Exception:
         return None
+
+
+def _epg_programme_stop_for_title_at_dt(channel_name: str, ct: datetime, title_wanted: str):
+    """XMLTV stop time for the programme half-open-containing ct with this title (for sticky catchup titles)."""
+    if not channel_name or not title_wanted or not ct:
+        return None
+    tw = title_wanted.strip()
+    if not tw:
+        return None
+    try:
+        epg_c = _epg_cache.get("content")
+        if not epg_c:
+            try:
+                with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
+                    epg_c = f.read()
+            except Exception:
+                return None
+        if not epg_c:
+            return None
+        root = ET.fromstring(epg_c)
+        ch_rec = db.get_channel_by_name(channel_name) or {}
+        tvg = ch_rec.get("tvg_id", "").strip()
+        if not tvg:
+            return None
+        for prog in root.findall("programme"):
+            if prog.get("channel", "") != tvg:
+                continue
+            ps = _parse_xmltv_datetime(prog.get("start", ""))
+            pe = _parse_xmltv_datetime(prog.get("stop", ""))
+            if not _epg_programme_contains_instant_half_open(ps, pe, ct):
+                continue
+            if (prog.findtext("title") or "").strip() != tw:
+                continue
+            return pe
+        return None
+    except Exception:
+        return None
+
+
+def _epg_slot_detail_at_dt(channel_name: str, ct: datetime) -> Optional[dict]:
+    """Half-open EPG slot containing ct — for diagnostic explanations."""
+    if not channel_name or not ct:
+        return None
+    try:
+        epg_c = _epg_cache.get("content")
+        if not epg_c:
+            try:
+                with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
+                    epg_c = f.read()
+            except Exception:
+                return None
+        if not epg_c:
+            return None
+        root = ET.fromstring(epg_c)
+        ch_rec = db.get_channel_by_name(channel_name) or {}
+        tvg = ch_rec.get("tvg_id", "").strip()
+        if not tvg:
+            return None
+        for prog in root.findall("programme"):
+            if prog.get("channel", "") != tvg:
+                continue
+            ps = _parse_xmltv_datetime(prog.get("start", ""))
+            pe = _parse_xmltv_datetime(prog.get("stop", ""))
+            if not _epg_programme_contains_instant_half_open(ps, pe, ct):
+                continue
+            title = (prog.findtext("title") or "").strip()
+            return {
+                "title": title,
+                "start_xmltv": (prog.get("start") or "").strip(),
+                "stop_xmltv": (prog.get("stop") or "").strip(),
+                "start_iso": ps.isoformat() if ps else "",
+                "stop_iso": pe.isoformat() if pe else "",
+            }
+        return None
+    except Exception:
+        return None
+
+
+def _catchup_diag_segment_tail(decoded_url: str) -> str:
+    try:
+        return decoded_url.split("/")[-1].split("?")[0][:96]
+    except Exception:
+        return ""
+
+
+def _catchup_format_dvr_sync_message(
+    *,
+    user_name: str,
+    ch_name: str,
+    source: str,
+    old_dt: str,
+    new_dt_str: str,
+    old_epg: str,
+    disp_epg: str,
+    decoded_url: str,
+    new_epg: Optional[str],
+    old_epg_clean: str,
+    sticky: bool,
+    cur_parsed,
+    new_parsed,
+    pe_slot,
+) -> str:
+    seg = _catchup_diag_segment_tail(decoded_url)
+    head = (
+        f"Catchup DVR ({source}): {user_name} → {ch_name} | Positionszeit {old_dt} → {new_dt_str} "
+        f"| Anzeige-Titel {old_epg!r} → {disp_epg!r}"
+    )
+    if seg:
+        head += f" | Segment …/{seg}"
+
+    slot_new = _epg_slot_detail_at_dt(ch_name, new_parsed) if new_parsed else None
+    slot_cur = _epg_slot_detail_at_dt(ch_name, cur_parsed) if cur_parsed else None
+
+    parts = [
+        "Ursache: Die Positionsminute kommt aus dem DVR-/CDN-Pfad im Segment oder der Playlist (nicht aus der Wanduhr des TVs)."
+    ]
+    if slot_new:
+        parts.append(
+            f"EPG-Zuordnung für die neue Minute (XMLTV halb-offen [start,stop)): „{slot_new['title']}“ "
+            f"(start={slot_new['start_xmltv'] or slot_new['start_iso']}, stop={slot_new['stop_xmltv'] or slot_new['stop_iso']})."
+        )
+    elif new_parsed:
+        parts.append(
+            "Für die neue Minute liefert das EPG keine Sendung (Lücke, falsche tvg_id oder Zeit nicht im Cache)."
+        )
+
+    if sticky and pe_slot is not None:
+        parts.append(
+            f"Titelwechsel zunächst unterdrückt (sticky): Die zuletzt angezeigte Sendung „{old_epg_clean}“ hat laut EPG Endzeit {pe_slot.isoformat()}; "
+            f"die neue DVR-Minute liegt noch davor — es wird nur die Zeit fortgeschrieben, der Titel bleibt."
+        )
+    elif new_epg and old_epg_clean and new_epg.strip() != old_epg_clean:
+        parts.append(
+            "Der Titel wechselt, weil die neue DVR-Minute in einen anderen EPG-Slot fällt als vorher (nach geladenem XMLTV)."
+        )
+        if slot_cur:
+            parts.append(
+                f"Vorherige Minute lag im EPG-Slot „{slot_cur['title']}“ "
+                f"(start={slot_cur['start_xmltv'] or slot_cur['start_iso']}, stop={slot_cur['stop_xmltv'] or slot_cur['stop_iso']})."
+            )
+        if pe_slot is not None and new_parsed:
+            parts.append(
+                f"Sticky griff nicht: neue DVR-Zeit liegt nicht mehr vor dem EPG-Ende ({pe_slot.isoformat()}) "
+                "der zuvor angezeigten Sendung — oder der alte Slot war im EPG nicht eindeutig."
+            )
+    else:
+        parts.append(
+            "Kein Titelwechsel nötig — gleiche Sendung laut EPG oder keine zweite Zuordnung."
+        )
+
+    return head + "\n" + " ".join(parts)
 
 
 def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, source: str) -> bool:
@@ -1050,12 +1209,26 @@ def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, sou
     new_epg = _epg_title_from_wall_time_channel(ch_name, new_dt_str)
     old_dt = (cv.get("catchup_time") or "").strip() or "(start)"
     old_epg = (cv.get("epg_title") or "").strip() or "(none)"
+    old_epg_clean = (cv.get("epg_title") or "").strip()
+    sticky = False
+    pe_slot = None
+    if (
+        new_epg
+        and old_epg_clean
+        and new_epg.strip() != old_epg_clean
+        and cur_parsed
+        and new_parsed
+    ):
+        pe_slot = _epg_programme_stop_for_title_at_dt(ch_name, cur_parsed, old_epg_clean)
+        if pe_slot is not None and new_parsed < pe_slot:
+            sticky = True
+    resolved_epg = old_epg_clean if sticky else new_epg
     try:
         with db.conn() as con:
-            if new_epg:
+            if resolved_epg:
                 con.execute(
                     "UPDATE watch_logs SET catchup_time = ?, epg_title = ? WHERE id = ?",
-                    (new_dt_str, new_epg, cv["log_id"]),
+                    (new_dt_str, resolved_epg, cv["log_id"]),
                 )
             else:
                 con.execute(
@@ -1071,13 +1244,28 @@ def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, sou
         return True
     cv["catchup_time"] = new_dt_str
     cv["last_dvr_dt_str"] = new_dt_str
-    if new_epg:
-        cv["epg_title"] = new_epg
-    disp_epg = new_epg or old_epg
+    if resolved_epg:
+        cv["epg_title"] = resolved_epg
+    disp_epg = (cv.get("epg_title") or "").strip() or old_epg
     diag_log(
         "INFO",
         "catchup",
-        f"Catchup DVR ({source}): {user.get('name', '')} → {ch_name} {old_dt} → {new_dt_str} | {old_epg!r} → {disp_epg!r}",
+        _catchup_format_dvr_sync_message(
+            user_name=user.get("name", "") or "",
+            ch_name=ch_name,
+            source=source,
+            old_dt=old_dt,
+            new_dt_str=new_dt_str,
+            old_epg=old_epg,
+            disp_epg=disp_epg,
+            decoded_url=decoded_url,
+            new_epg=new_epg,
+            old_epg_clean=old_epg_clean,
+            sticky=sticky,
+            cur_parsed=cur_parsed,
+            new_parsed=new_parsed,
+            pe_slot=pe_slot,
+        ),
     )
     return True
 
@@ -1156,7 +1344,12 @@ def _cleanup_sessions():
             epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
             db.end_watch_log(s["log_id"], int(now - s["start"]), epg_title=epg_title_end)
             logger.info(f"Session expired (TTL): {k} epg={epg_title_end}")
-            diag_log("INFO", "session", f"Session expired (TTL): {k} epg={epg_title_end}")
+            diag_log(
+                "INFO",
+                "session",
+                f"Session expired (TTL): {k} epg={epg_title_end}. "
+                f"Ursache: Live-Stream seit >{SESSION_MEM_TTL}s ohne Segment-Anfrage (nicht Catchup/catchup_ttl).",
+            )
         except Exception:
             pass
     # Cleanup stale catchup sessions (idle TTL; shorter after #EXT-X-ENDLIST seen)
@@ -1233,7 +1426,7 @@ async def _catchup_epg_watchdog():
                                         continue
                                     _ps3 = _parse_xmltv_datetime(_prog3.get("start", ""))
                                     _pe3 = _parse_xmltv_datetime(_prog3.get("stop", ""))
-                                    if _epg_programme_contains_instant(_ps3, _pe3, _current_dt):
+                                    if _epg_programme_contains_instant_half_open(_ps3, _pe3, _current_dt):
                                         _new_epg = _prog3.findtext("title") or None
                                         break
                     except Exception:
@@ -1242,6 +1435,17 @@ async def _catchup_epg_watchdog():
                     # Update DB only if title changed (reconcile cache vs EPG at same catchup_time)
                     if _new_epg and _new_epg != (row["epg_title"] or ""):
                         _old_t = (row["epg_title"] or "").strip() or "(none)"
+                        _slot_w = _epg_slot_detail_at_dt(row["channel"], _current_dt)
+                        _why = (
+                            "Ursache: Alle ~2 Min prüft der Catchup-Watchdog, ob der gespeicherte Titel noch zur "
+                            f"gleichen catchup_time {row['catchup_time']!r} passt (XMLTV halb-offen)."
+                        )
+                        if _slot_w:
+                            _why += (
+                                f" EPG-Slot jetzt: „{_slot_w['title']}“ "
+                                f"(start={_slot_w['start_xmltv'] or _slot_w['start_iso']}, "
+                                f"stop={_slot_w['stop_xmltv'] or _slot_w['stop_iso']})."
+                            )
                         try:
                             with db.conn() as con:
                                 con.execute(
@@ -1253,7 +1457,7 @@ async def _catchup_epg_watchdog():
                             diag_log(
                                 "INFO",
                                 "catchup",
-                                f"Catchup EPG reconcile @ {row['catchup_time']}: {row['channel']} title {_old_t!r} → {_new_epg!r}",
+                                f"Catchup EPG reconcile @ {row['catchup_time']}: {row['channel']} title {_old_t!r} → {_new_epg!r}. {_why}",
                             )
                         except Exception:
                             pass
@@ -3065,6 +3269,7 @@ def get_diagnostic_logs_api(
     page_size: int = 100,
     days: int = 30,
     level: str = "",
+    source: str = "",
     _=Depends(check_admin),
 ):
     page = max(1, int(page))
@@ -3072,7 +3277,10 @@ def get_diagnostic_logs_api(
     days = max(1, min(int(days), 366))
     offset = (page - 1) * page_size
     lvl = level.strip() or None
-    result = db.get_diagnostic_logs(days=days, limit=page_size, offset=offset, level=lvl)
+    src_f = source.strip() or None
+    result = db.get_diagnostic_logs(
+        days=days, limit=page_size, offset=offset, level=lvl, source=src_f
+    )
     total = int(result.get("total", 0))
     total_pages = max(1, math.ceil(total / page_size)) if total else 1
     return {
