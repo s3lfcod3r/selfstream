@@ -421,10 +421,12 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
     base = original_url.rsplit("/", 1)[0] + "/"
     lines = content.splitlines()
     out = []
-    is_dvr = "dvr" in original_url or "index-" in original_url
+    _oul = original_url.lower()
+    # Treat archive catchup master (/index.m3u8) like DVR for ENDLIST handling so logs and client both see ENDLIST.
+    is_dvr = "dvr" in original_url or "index-" in original_url or "/index.m3u8" in _oul
     for line in lines:
         stripped = line.strip()
-        # Keep EXT-X-ENDLIST only for non-DVR (VOD) playlists
+        # Strip ENDLIST for plain live/VOD masters so players keep polling; keep ENDLIST for DVR/archive playlists.
         if stripped == "#EXT-X-ENDLIST" and not is_dvr:
             continue
         if stripped.startswith("#"):
@@ -726,12 +728,21 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     "epg_title": _catchup_epg_title or "",
                     "catchup_time": dt_str,
                     "last_dvr_dt_str": dt_str,
+                    "saw_endlist": False,
+                    "endlist_seen_at": None,
                 }
                 # Show catchup in live sessions view
                 db.session_start(token, channel_name, _catchup_ip)
                 _cu_msg = f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})"
                 logger.info(_cu_msg)
                 diag_log("INFO", "catchup", _cu_msg)
+                if "#EXT-X-ENDLIST" in archive_content:
+                    _catchup_mark_endlist(token, archive_url)
+                    diag_log(
+                        "INFO",
+                        "catchup",
+                        f"Catchup-Playlist ENDLIST (Playback zu Ende; kürzeres Idle-TTL aktiv): {user.get('name', '')}",
+                    )
             except Exception as _ce:
                 logger.warning(f"Catchup log failed: {_ce}")
                 diag_log("WARNING", "catchup", f"Catchup log failed: {_ce}")
@@ -1096,9 +1107,34 @@ def _catchup_warn_if_no_dvr_in_url(token: str, decoded_url: str) -> None:
 
 def get_catchup_ttl() -> int:
     try:
-        return int(db.get_setting("catchup_ttl", "120"))
+        return max(5, int(db.get_setting("catchup_ttl", "120")))
     except Exception:
         return 120
+
+
+def get_catchup_ttl_after_endlist() -> int:
+    """Shorter idle window once provider playlist contained #EXT-X-ENDLIST (playback ended)."""
+    try:
+        return max(5, int(db.get_setting("catchup_ttl_after_endlist", "30")))
+    except Exception:
+        return 30
+
+
+def _catchup_idle_ttl_seconds(cv: dict) -> int:
+    if cv.get("saw_endlist"):
+        return get_catchup_ttl_after_endlist()
+    return get_catchup_ttl()
+
+
+def _catchup_mark_endlist(token: str, decoded_url: str) -> None:
+    ck = _resolve_catchup_session_key(token, decoded_url)
+    if not ck or ck not in _catchup_sessions:
+        return
+    cv = _catchup_sessions[ck]
+    if cv.get("saw_endlist"):
+        return
+    cv["saw_endlist"] = True
+    cv["endlist_seen_at"] = time.time()
 
 _last_cleanup = 0.0
 
@@ -1123,15 +1159,24 @@ def _cleanup_sessions():
             diag_log("INFO", "session", f"Session expired (TTL): {k} epg={epg_title_end}")
         except Exception:
             pass
-    # Cleanup stale catchup sessions
-    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > get_catchup_ttl()]
+    # Cleanup stale catchup sessions (idle TTL; shorter after #EXT-X-ENDLIST seen)
+    stale_cu = [k for k, v in _catchup_sessions.items() if now - v["last_seen"] > _catchup_idle_ttl_seconds(v)]
     for k in stale_cu:
         s = _catchup_sessions.pop(k)
         try:
             duration = int(now - s["start"])
             db.end_watch_log(s["log_id"], duration)
-            logger.info(f"Catchup session ended (TTL): {k} duration={duration}s")
-            diag_log("INFO", "catchup", f"Catchup session ended (TTL): {k} duration={duration}s")
+            tok = s.get("token", "")
+            try:
+                db.session_end(tok)
+            except Exception:
+                pass
+            if s.get("saw_endlist"):
+                detail = f"Catchup session ended (after ENDLIST, idle): {k} duration={duration}s"
+            else:
+                detail = f"Catchup session ended (idle timeout): {k} duration={duration}s"
+            logger.info(detail)
+            diag_log("INFO", "catchup", detail)
         except Exception:
             pass
 
@@ -1149,7 +1194,7 @@ async def _catchup_epg_watchdog():
         try:
             now = time.time()
             for _ck, _cv in list(_catchup_sessions.items()):
-                if now - _cv["last_seen"] >= get_catchup_ttl():
+                if now - _cv["last_seen"] >= _catchup_idle_ttl_seconds(_cv):
                     continue
                 try:
                     # Get current catchup_time and channel from DB
@@ -1255,11 +1300,17 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     resp.raise_for_status()
                     raw_pl = resp.text
                     if "#EXT-X-ENDLIST" in raw_pl:
-                        diag_log(
-                            "INFO",
-                            "catchup",
-                            f"Catchup-Playlist ENDLIST (VOD-Ende): {user.get('name', '')}",
+                        _ck_el = _resolve_catchup_session_key(token, decoded_url)
+                        _already_el = bool(
+                            _ck_el and _ck_el in _catchup_sessions and _catchup_sessions[_ck_el].get("saw_endlist")
                         )
+                        _catchup_mark_endlist(token, decoded_url)
+                        if not _already_el:
+                            diag_log(
+                                "INFO",
+                                "catchup",
+                                f"Catchup-Playlist ENDLIST (Playback zu Ende; kürzeres Idle-TTL aktiv): {user.get('name', '')}",
+                            )
                     rewritten = rewrite_hls_playlist(raw_pl, decoded_url, public_url_seg, token, catchup=True)
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
@@ -2466,7 +2517,7 @@ def get_stats(_=Depends(check_admin)):
     active_catchup_out = []
     now_ts = time.time()
     for ck, cv in list(_catchup_sessions.items()):
-        if now_ts - cv["last_seen"] < get_catchup_ttl():
+        if now_ts - cv["last_seen"] < _catchup_idle_ttl_seconds(cv):
             # Get user name and epg title from DB log
             try:
                 with db.conn() as con:
@@ -2494,7 +2545,7 @@ def get_stats(_=Depends(check_admin)):
 
     return {
         "total_users": len(users),
-        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < get_catchup_ttl()]),
+        "active_streams": len(active_sessions) + len([cv for cv in _catchup_sessions.values() if time.time() - cv["last_seen"] < _catchup_idle_ttl_seconds(cv)]),
         "active_sessions": sessions_out,
         "active_catchup": active_catchup_out,
         "recent_logs": logs_out,
@@ -2564,7 +2615,8 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
-        "catchup_ttl":          s.get("catchup_ttl", "120"),
+        "catchup_ttl":                  s.get("catchup_ttl", "120"),
+        "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "30"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
@@ -2574,7 +2626,8 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "catchup_ttl",
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug",
+               "catchup_ttl", "catchup_ttl_after_endlist",
                "diagnostic_timezone"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
