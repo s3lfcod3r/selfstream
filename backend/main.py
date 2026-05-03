@@ -441,6 +441,17 @@ def get_hls_settings() -> dict:
     }
 
 
+def catchup_upstream_httpx_timeout(hls: dict) -> httpx.Timeout:
+    """
+    Upstream catchup/DVR playlists are often much larger than a live mono.m3u8.
+    Use a more generous read bound than live (similar idea to iptv-proxy catchup_* timeouts).
+    """
+    connect = max(5.0, float(hls["hls_timeout"]))
+    base_read = float(hls["hls_read_timeout"])
+    read_sec = max(base_read, min(300.0, base_read * 2.0))
+    return httpx.Timeout(connect, read=read_sec)
+
+
 def make_headers(hls: dict) -> dict:
     h = {"User-Agent": hls["hls_user_agent"]}
     if hls["hls_referer"]:
@@ -707,14 +718,40 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             ch_token = decoded_url.split("token=")[-1] if "token=" in decoded_url else ""
             archive_url = f"{base_cdn}/index.m3u8?token={ch_token}&utc={utc}"
 
-            async with make_iptv_client(
-                timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
-                follow_redirects=True,
-                headers=make_headers(hls)
-            ) as client:
-                resp = await client.get(archive_url)
-                resp.raise_for_status()
-                archive_content = resp.text
+            _cu_to = catchup_upstream_httpx_timeout(hls)
+            archive_content = None
+            for _cu_attempt in range(3):
+                try:
+                    async with make_iptv_client(
+                        timeout=_cu_to,
+                        follow_redirects=True,
+                        headers=make_headers(hls),
+                    ) as client:
+                        resp = await client.get(archive_url)
+                        resp.raise_for_status()
+                        archive_content = resp.text
+                    break
+                except httpx.HTTPStatusError as _cu_http:
+                    _code = _cu_http.response.status_code if _cu_http.response is not None else 0
+                    if _cu_attempt < 2 and _code in (408, 429, 500, 502, 503, 504):
+                        await asyncio.sleep(0.2 * (_cu_attempt + 1))
+                        diag_log(
+                            "WARNING",
+                            "catchup",
+                            f"Catchup index.m3u8 HTTP {_code}, retry {_cu_attempt + 2}/3",
+                        )
+                        continue
+                    raise
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as _cu_net:
+                    if _cu_attempt >= 2:
+                        diag_log("ERROR", "catchup", f"Catchup index.m3u8 failed after retries: {_cu_net!r}")
+                        raise
+                    await asyncio.sleep(0.2 * (_cu_attempt + 1))
+                    diag_log(
+                        "WARNING",
+                        "catchup",
+                        f"Catchup index.m3u8 {_cu_net.__class__.__name__}, retry {_cu_attempt + 2}/3",
+                    )
 
             # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
             rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, catchup=True)
@@ -1643,7 +1680,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         if not _catchup_sync_epg_from_dvr_url(token, decoded_url, user, _catchup_src):
             _catchup_warn_if_no_dvr_in_url(token, decoded_url)
         try:
-            timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
+            timeout = catchup_upstream_httpx_timeout(hls)
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
                 if not is_ts:
                     resp = await client.get(decoded_url)
