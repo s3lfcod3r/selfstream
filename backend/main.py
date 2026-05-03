@@ -745,10 +745,11 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 diag_log("INFO", "catchup", _cu_msg)
                 if "#EXT-X-ENDLIST" in archive_content:
                     _catchup_mark_endlist(token, archive_url)
-                    diag_log(
-                        "INFO",
-                        "catchup",
-                        f"Catchup-Playlist ENDLIST (Playback zu Ende; kürzeres Idle-TTL aktiv): {user.get('name', '')}",
+                    _diag_log_catchup_endlist_epg_context(
+                        user.get("name", "") or "",
+                        channel_name,
+                        dt_str,
+                        where="index.m3u8 (Catchup-Start)",
                     )
             except Exception as _ce:
                 logger.warning(f"Catchup log failed: {_ce}")
@@ -1092,6 +1093,83 @@ def _epg_slot_detail_at_dt(channel_name: str, ct: datetime) -> Optional[dict]:
         return None
     except Exception:
         return None
+
+
+def _diag_log_catchup_endlist_epg_context(
+    user_name: str,
+    channel_name: str,
+    catchup_wall_str: str,
+    *,
+    where: str,
+) -> None:
+    """When upstream playlist contains #EXT-X-ENDLIST: explain vs EPG nominal programme length."""
+    uname = user_name or ""
+    ch = (channel_name or "").strip()
+    cw = (catchup_wall_str or "").strip()
+    ct = _parse_catchup_wall_time(cw) if cw else None
+    head = (
+        f"Catchup ENDLIST ({where}): {uname} → {ch or '?'} | Session-Positionszeit {cw or '(unbekannt)'}. "
+        "Die Playlist enthält #EXT-X-ENDLIST vom Anbieter — danach liefert dieses Stück keine weiteren Segmente."
+    )
+    if not ch or not ct:
+        diag_log(
+            "INFO",
+            "catchup",
+            head
+            + "\nEPG-Vergleich übersprungen (Kanal oder Zeit fehlt). "
+            "Schwankende Abspiellängen trotz gleichem Film: oft anderer utc-/Startzeitpunkt oder CDN-Fenster — "
+            "selfstream kann ohne neue Anbieter-Playlist nicht verlängern.",
+        )
+        return
+    slot = _epg_slot_detail_at_dt(ch, ct)
+    if not slot:
+        diag_log(
+            "INFO",
+            "catchup",
+            head
+            + "\nEPG: keine Sendung zur Positionsminute (tvg_id/Lücke). "
+            "Hinweis: variable Enden bei gleicher Auswahl passieren häufig durch Archiv-Fenster/Limits beim IPTV-Anbieter.",
+        )
+        return
+    ps = _parse_xmltv_datetime(slot["start_xmltv"])
+    pe = _parse_xmltv_datetime(slot["stop_xmltv"])
+    tit = slot.get("title") or "(ohne Titel)"
+    tail_parts = [head]
+    if ps and pe:
+        dur_min = max(0.0, (pe - ps).total_seconds()) / 60.0
+        pos_min = max(0.0, (ct - ps).total_seconds()) / 60.0 if ct >= ps else 0.0
+        rem_sec = (pe - ct).total_seconds()
+        rem_min = rem_sec / 60.0
+        h_epg = dur_min // 60
+        m_epg = dur_min % 60
+        len_human = f"{int(h_epg)}h {int(m_epg)}m" if h_epg >= 1 else f"{dur_min:.0f} Min"
+        tail_parts.append(
+            f"EPG (Vergleich zur Positionsminute): „{tit}“ geplant "
+            f"{slot['start_xmltv']} → {slot['stop_xmltv']} (nominal ~{len_human} Sendelänge)."
+        )
+        tail_parts.append(
+            f"Diese Minute liegt ~{pos_min:.1f} Min nach EPG-Sendungsbeginn; bis zum EPG-Endzeitpunkt noch ~{rem_min:.1f} Min."
+        )
+        if rem_sec > 15 * 60:
+            tail_parts.append(
+                "ACHTUNG: Playlist-Ende (ENDLIST), aber EPG lässt die Sendung noch deutlich länger laufen — "
+                "typisch kurzes Archiv-/Rolling-Fenster beim Anbieter, nicht eine von selfstream gewählte Abbruchdauer."
+            )
+        elif rem_sec > 0:
+            tail_parts.append(
+                "Einordnung: noch Restlaufzeit im EPG; kurzes CDN-Fenster oder nächste Playlist-Generation beim Anbieter möglich."
+            )
+        else:
+            tail_parts.append(
+                "Einordnung: Positionszeit liegt am oder nach dem EPG-Endzeitpunkt — Ende der Playlist kann zur Rasterzeit passen."
+            )
+    else:
+        tail_parts.append(f"EPG-Slot „{tit}“ gefunden, Start/Stopp nicht eindeutig parsebar.")
+    tail_parts.append(
+        "Was wir nicht zuverlässig clientseitig fixen können: fehlende oder verkürzte Mediensegmente nach ENDLIST; "
+        "andere Längen bei identischer Auswahl prüfen bei Anbieter (utc, Zeitzone, Gerät, parallele Live-Session)."
+    )
+    diag_log("INFO", "catchup", "\n".join(tail_parts))
 
 
 def _catchup_diag_segment_tail(decoded_url: str) -> str:
@@ -1510,10 +1588,14 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         )
                         _catchup_mark_endlist(token, decoded_url)
                         if not _already_el:
-                            diag_log(
-                                "INFO",
-                                "catchup",
-                                f"Catchup-Playlist ENDLIST (Playback zu Ende; kürzeres Idle-TTL aktiv): {user.get('name', '')}",
+                            _cv_el = _catchup_sessions.get(_ck_el) if _ck_el else None
+                            _ch_el = (_ck_el.split("::")[-1] if _ck_el and "::" in _ck_el else "").strip()
+                            _cw_el = (_cv_el or {}).get("catchup_time") or ""
+                            _diag_log_catchup_endlist_epg_context(
+                                user.get("name", "") or "",
+                                _ch_el,
+                                _cw_el,
+                                where="nachgelagerte Playlist (.m3u8)",
                             )
                     rewritten = rewrite_hls_playlist(raw_pl, decoded_url, public_url_seg, token, catchup=True)
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
