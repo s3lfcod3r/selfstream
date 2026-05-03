@@ -824,10 +824,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="10">10s</option>
                 <option value="15">15s</option>
                 <option value="30" selected>30s (Standard)</option>
-                <option value="60">60s</option>
-                <option value="120">120s</option>
+                <option value="60">60s – 1 Minute</option>
+                <option value="120">120s – 2 Minuten</option>
+                <option value="180">180s – 3 Minuten</option>
+                <option value="300">300s – 5 Minuten</option>
+                <option value="600">600s – 10 Minuten</option>
+                <option value="900">900s – 15 Minuten</option>
               </select>
-              <div class="form-hint">Gilt nur, wenn beim Catchup-<strong>Start</strong> die Master-<code>index.m3u8</code> schon <code>#EXT-X-ENDLIST</code> enthält (dann oft echtes Kurz-Archiv). Unter-Playlisten mit ENDLIST (Sliding Window) lösen diesen Timer <strong>nicht</strong> mehr aus — damit verhält sich die Idle-Zählung näher an einer direkten Anbieter-M3U.</div>
+              <div class="form-hint">Gilt nur, wenn beim Catchup-<strong>Start</strong> die Master-<code>index.m3u8</code> schon <code>#EXT-X-ENDLIST</code> enthält (dann oft echtes Kurz-Archiv). Unter-Playlisten mit ENDLIST (Sliding Window) lösen diesen Timer <strong>nicht</strong> mehr aus — damit verhält sich die Idle-Zählung näher an einer direkten Anbieter-M3U. Höher = Session bleibt nach diesem Archiv-Ende länger als „aktiv“ gelistet, wenn der Player noch nichts anfragt.</div>
             </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
