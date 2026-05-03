@@ -730,6 +730,11 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         except Exception as e:
             logger.error(f"Catchup error: {e}")
             diag_log("ERROR", "catchup", f"Catchup error: {e}")
+            diag_log(
+                "INFO",
+                "catchup",
+                f"Catchup skipped, serving live playlist: {user['name']} → {channel_name} (utc={utc})",
+            )
             # Fall through to live
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
