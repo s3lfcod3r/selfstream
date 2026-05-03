@@ -1434,6 +1434,9 @@ def _catchup_idle_ttl_seconds(cv: dict) -> int:
 
 
 def _catchup_mark_endlist(token: str, decoded_url: str) -> None:
+    """Set flag for shorter idle TTL. Nur bei echtem Archiv-Ende im Catchup-**Master** (index.m3u8 Start),
+    nicht bei Unter-Playlisten: die liefern bei Sliding Window oft ENDLIST ohne dass Playback stoppt —
+    direkte Anbieter-M3U hat keine vergleichbare Session-TTL und wirkt dann stabiler."""
     ck = _resolve_catchup_session_key(token, decoded_url)
     if not ck or ck not in _catchup_sessions:
         return
@@ -1648,14 +1651,13 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     raw_pl = resp.text
                     if "#EXT-X-ENDLIST" in raw_pl:
                         _ck_el = _resolve_catchup_session_key(token, decoded_url)
-                        _already_el = bool(
-                            _ck_el and _ck_el in _catchup_sessions and _catchup_sessions[_ck_el].get("saw_endlist")
-                        )
-                        _catchup_mark_endlist(token, decoded_url)
-                        if not _already_el:
-                            _cv_el = _catchup_sessions.get(_ck_el) if _ck_el else None
+                        _cv_el = _catchup_sessions.get(_ck_el) if _ck_el else None
+                        # Unter-Playlist ENDLIST nicht für Idle-Verkürzung werten (Sliding Window / CDN-Artefakt).
+                        # Diagnose einmal pro Session — ohne saw_endlist, siehe _catchup_mark_endlist-Docstring.
+                        if _cv_el and not _cv_el.get("_diag_endlist_nested_logged"):
+                            _cv_el["_diag_endlist_nested_logged"] = True
                             _ch_el = (_ck_el.split("::")[-1] if _ck_el and "::" in _ck_el else "").strip()
-                            _cw_el = (_cv_el or {}).get("catchup_time") or ""
+                            _cw_el = _cv_el.get("catchup_time") or ""
                             _diag_log_catchup_endlist_epg_context(
                                 user.get("name", "") or "",
                                 _ch_el,
