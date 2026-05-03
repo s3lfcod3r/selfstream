@@ -1414,7 +1414,7 @@ def _catchup_warn_if_no_dvr_in_url(token: str, decoded_url: str) -> None:
 
 def get_catchup_ttl() -> int:
     try:
-        return max(5, int(db.get_setting("catchup_ttl", "120")))
+        return max(5, int(db.get_setting("catchup_ttl", "900")))
     except Exception:
         return 120
 
@@ -1422,7 +1422,7 @@ def get_catchup_ttl() -> int:
 def get_catchup_ttl_after_endlist() -> int:
     """Shorter idle window once provider playlist contained #EXT-X-ENDLIST (playback ended)."""
     try:
-        return max(5, int(db.get_setting("catchup_ttl_after_endlist", "30")))
+        return max(5, int(db.get_setting("catchup_ttl_after_endlist", "180")))
     except Exception:
         return 30
 
@@ -2968,8 +2968,8 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
-        "catchup_ttl":                  s.get("catchup_ttl", "120"),
-        "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "30"),
+        "catchup_ttl":                  s.get("catchup_ttl", "900"),
+        "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "180"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
