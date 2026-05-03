@@ -1483,11 +1483,35 @@ def _cleanup_sessions():
                 db.session_end(tok)
             except Exception:
                 pass
+            idle_gap = int(now - float(s.get("last_seen", now)))
             if s.get("saw_endlist"):
-                detail = f"Catchup session ended (after ENDLIST, idle): {k} duration={duration}s"
+                ttl_used = get_catchup_ttl_after_endlist()
+                els = float(s.get("endlist_seen_at") or 0)
+                detail = f"Catchup session ended (nach ENDLIST-Marker, Idle): {k} duration={duration}s"
+                explain = (
+                    f"Ursache: Mindestens eine Anbieter-Playlist hatte #EXT-X-ENDLIST — dann gilt das kürzere Idle-Limit ({ttl_used}s), "
+                    f"nicht catchup_ttl für „normales“ Ende."
+                )
+                if els > 0:
+                    secs_after_start = max(0, int(els - float(s.get("start", els))))
+                    wall_since_endlist = max(0, int(now - els))
+                    explain += (
+                        f" ENDLIST zuerst ~{secs_after_start}s nach Catchup-Start erkannt; seitdem sind ~{wall_since_endlist}s Wandzeit vergangen "
+                        f"(Playback lief oft weiter über andere Playlist-Anfragen)."
+                    )
+                explain += (
+                    f" Zuletzt ~{idle_gap}s keine Segment-/Playlist-Anfragen mehr durch diesen Pfad (≥{ttl_used}s Schwelle) — Session geschlossen. "
+                    "Das bedeutet nicht zwingend „Film im EPG zu Ende“; typisch Player-Stopp, Netz oder CDN ohne Folge-Segmente."
+                )
+                detail = detail + "\n" + explain
             else:
-                detail = f"Catchup session ended (idle timeout): {k} duration={duration}s"
-            logger.info(detail)
+                ttl_used = get_catchup_ttl()
+                detail = (
+                    f"Catchup session ended (idle timeout): {k} duration={duration}s\n"
+                    f"Ursache: ~{idle_gap}s keine Catchup-Anfragen mehr (Schwelle catchup_ttl={ttl_used}s); "
+                    "kein ENDLIST-Marker in dieser Session gesetzt."
+                )
+            logger.info(detail.split("\n")[0])
             diag_log("INFO", "catchup", detail)
         except Exception:
             pass
