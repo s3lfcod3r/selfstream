@@ -291,8 +291,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('epg',this)" title="EPG"><span class="nav-icon">📅</span><span class="nav-label">EPG</span></div>
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('logs',this)" title="Verlauf"><span class="nav-icon">📋</span><span class="nav-label">Verlauf</span></div>
-      <div class="nav-item" onclick="nav('diagnose',this)" title="Diagnose"><span class="nav-icon">🔧</span><span class="nav-label">Diagnose</span></div>
       <div class="nav-item" onclick="nav('traffic',this)" title="Traffic"><span class="nav-icon">📊</span><span class="nav-label">Traffic</span></div>
+      <div class="nav-item" onclick="nav('diagnose',this)" title="Diagnose"><span class="nav-icon">🔧</span><span class="nav-label">Diagnose</span></div>
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
@@ -717,12 +717,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
         </div>
         <p class="form-hint" style="margin-bottom:10px;">
-          Server-Ereignisse (Catchup, Streams, M3U, EPG, VPN, Segmente). Aufbewahrung max. ca. 30 Tage; beim Start werden ältere Einträge bereinigt.
+          Server-Ereignisse (Catchup, Streams, M3U, EPG, VPN, Segmente). Aufbewahrung max. ca. 30 Tage; beim Start werden ältere Einträge bereinigt.<br>
+          <strong>Erste Spalte</strong> = Zeitpunkt, zu dem der Eintrag gespeichert wurde (UTC, Serverzeit). <strong>Catchup-Sendezeit</strong> steht in der Meldung nach dem <code>@</code> (und im Watch-Verlauf).
+          Kein neuer Eintrag heißt meist: Es trat kein protokollierter Fehler auf und die Catchup-Session wurde nur regulär beendet — dann siehst du z.&nbsp;B. „Catchup session ended (TTL)“ oder Einträge unter Traffic → Buffering.
         </p>
         <div id="diag-meta" class="form-hint" style="margin-bottom:10px;">Lädt…</div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Zeit (UTC)</th><th>Level</th><th>Quelle</th><th>Meldung</th></tr></thead>
+            <thead><tr><th>Serverzeit (UTC)</th><th>Level</th><th>Quelle</th><th>Meldung</th></tr></thead>
             <tbody id="diag-tbody"></tbody>
           </table>
         </div>
