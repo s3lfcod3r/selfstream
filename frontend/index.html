@@ -728,7 +728,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <p class="form-hint" style="margin-bottom:10px;">
           Server-Ereignisse (Catchup, Streams, M3U, EPG, VPN, Segmente). Aufbewahrung max. ca. 30 Tage; beim Start werden ältere Einträge bereinigt.<br>
           <strong>Erste Spalte</strong> = Zeitpunkt des Eintrags (intern UTC); die Umrechnung erfolgt nach der Zeitzone unter <strong>Einstellungen → Diagnose</strong>. <strong>Catchup-Sendezeit</strong> nach <code>@</code> kommt vom Anbieter/App und kann davon abweichen.<br>
-          Einträge mit <strong>Ursache:</strong> erklären absichtlich den Kontext (DVR-Pfad vs. EPG-Slot, sticky, Watchdog). Mit <strong>Quelle → catchup</strong> siehst du nur Catchup-Zeilen — „Warum ist nichts da?“ heißt meist: es gab keinen neuen Catchup-DVR-Sync in diesem Zeitraum (normales Abspielen ohne Minutenwechsel protokolliert nicht jedes Segment).
+          Einträge mit <strong>Ursache:</strong> erklären absichtlich den Kontext (DVR-Pfad vs. EPG-Slot, sticky, Watchdog). Mit <strong>Quelle → catchup</strong> siehst du nur Catchup-Zeilen — „Warum ist nichts da?“ heißt meist: es gab keinen neuen Catchup-DVR-Sync in diesem Zeitraum (normales Abspielen ohne Minutenwechsel protokolliert nicht jedes Segment).<br>
+          Bei <strong>Catchup ENDLIST</strong> steht die nominale <strong>EPG-Sendlänge</strong> und die Restzeit bis zum EPG-Ende — damit siehst du, ob das Playlist-Ende zum Raster passt oder ein kurzes Anbieter-Fenster wahrscheinlich ist.
         </p>
         <div id="diag-meta" class="form-hint" style="margin-bottom:10px;">Lädt…</div>
         <div class="table-wrap">
