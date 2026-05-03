@@ -1001,7 +1001,7 @@ def _user_has_session(user_id: int, session_key: str) -> bool:
     return session_key in _sessions
 
 async def _catchup_epg_watchdog():
-    """Every 2 minutes: check if catchup EPG title is still correct based on elapsed time."""
+    """Every ~2 min: reconcile catchup epg_title with DB catchup_time (DVR/playlist), not wall-clock playback."""
     await asyncio.sleep(30)  # wait for startup
     while True:
         try:
@@ -1019,17 +1019,13 @@ async def _catchup_epg_watchdog():
                     if not row or not row["catchup_time"]:
                         continue
 
-                    # Calculate how much time has elapsed since catchup started
-                    elapsed_since_start = now - _cv["start"]
-                    _base_dt = _parse_catchup_wall_time(row["catchup_time"])
-                    if not _base_dt:
-                        continue
-                    try:
-                        _current_dt = _base_dt + __import__("datetime").timedelta(seconds=elapsed_since_start)
-                    except Exception:
+                    # Playback position must come from DB catchup_time (updated from DVR paths in playlists).
+                    # Wall-clock + elapsed is wrong after buffering/pauses — shows next programme too early.
+                    _current_dt = _parse_catchup_wall_time(row["catchup_time"])
+                    if not _current_dt:
                         continue
 
-                    # Look up EPG title for the current estimated position
+                    # Look up EPG title at stored catchup_time
                     _new_epg = None
                     try:
                         import xml.etree.ElementTree as _ET3
@@ -1056,8 +1052,9 @@ async def _catchup_epg_watchdog():
                     except Exception:
                         pass
 
-                    # Update DB only if title changed
+                    # Update DB only if title changed (reconcile cache vs EPG at same catchup_time)
                     if _new_epg and _new_epg != (row["epg_title"] or ""):
+                        _old_t = (row["epg_title"] or "").strip() or "(none)"
                         try:
                             with db.conn() as con:
                                 con.execute(
@@ -1066,6 +1063,11 @@ async def _catchup_epg_watchdog():
                                 )
                             _cv["epg_title"] = _new_epg
                             logger.info(f"Catchup EPG updated: {row['channel']} → {_new_epg}")
+                            diag_log(
+                                "INFO",
+                                "catchup",
+                                f"Catchup EPG reconcile @ {row['catchup_time']}: {row['channel']} title {_old_t!r} → {_new_epg!r}",
+                            )
                         except Exception:
                             pass
                 except Exception:
@@ -1159,6 +1161,15 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                 "UPDATE watch_logs SET catchup_time=?, epg_title=? WHERE id=?",
                                                 (_new_dt_str, _new_epg, _cv2["log_id"])
                                             )
+                                        _ep_old = (_cv2.get("epg_title") or "").strip() or "(none)"
+                                        diag_log(
+                                            "INFO",
+                                            "catchup",
+                                            f"Catchup EPG from playlist URL: {user['name']} → {_ch_name2} @ {_new_dt_str} ({_new_epg}) [was: {_ep_old}]",
+                                        )
+                                        if _ck_res and _ck_res in _catchup_sessions:
+                                            _catchup_sessions[_ck_res]["catchup_time"] = _new_dt_str
+                                            _catchup_sessions[_ck_res]["epg_title"] = _new_epg
                                     except Exception:
                                         pass
                     except Exception: pass
