@@ -291,6 +291,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('epg',this)" title="EPG"><span class="nav-icon">📅</span><span class="nav-label">EPG</span></div>
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('logs',this)" title="Verlauf"><span class="nav-icon">📋</span><span class="nav-label">Verlauf</span></div>
+      <div class="nav-item" onclick="nav('diagnose',this)" title="Diagnose"><span class="nav-icon">🔧</span><span class="nav-label">Diagnose</span></div>
       <div class="nav-item" onclick="nav('traffic',this)" title="Traffic"><span class="nav-icon">📊</span><span class="nav-label">Traffic</span></div>
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
@@ -688,6 +689,50 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
       </div>
 
+      <!-- Diagnose (Server-Logs, ~30 Tage) -->
+      <div id="page-diagnose" class="content-area" style="display:none">
+        <div class="section-hdr">
+          <span class="section-title">🔧 Diagnose</span>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:11px;color:var(--text2);">Zeitraum</label>
+            <select id="diag-days" class="form-select" style="width:auto;padding:5px 8px;font-size:11px;" onchange="loadDiagnosticLogs(1)">
+              <option value="1">24 h</option>
+              <option value="7">7 Tage</option>
+              <option value="30" selected>30 Tage</option>
+              <option value="90">90 Tage</option>
+            </select>
+            <select id="diag-level" class="form-select" style="width:auto;padding:5px 8px;font-size:11px;" onchange="loadDiagnosticLogs(1)">
+              <option value="">Alle Level</option>
+              <option value="ERROR">ERROR</option>
+              <option value="WARNING">WARNING</option>
+              <option value="INFO">INFO</option>
+            </select>
+            <select id="diag-page-size" class="form-select" style="width:auto;padding:5px 8px;font-size:11px;" onchange="loadDiagnosticLogs(1)">
+              <option value="50">50 / Seite</option>
+              <option value="100" selected>100 / Seite</option>
+              <option value="200">200 / Seite</option>
+            </select>
+            <button class="btn sm danger" onclick="clearDiagnosticLogs()">🗑 Alles löschen</button>
+            <button class="btn sm" onclick="loadDiagnosticLogs()">↻ Refresh</button>
+          </div>
+        </div>
+        <p class="form-hint" style="margin-bottom:10px;">
+          Server-Ereignisse (Catchup, Streams, M3U, EPG, VPN, Segmente). Aufbewahrung max. ca. 30 Tage; beim Start werden ältere Einträge bereinigt.
+        </p>
+        <div id="diag-meta" class="form-hint" style="margin-bottom:10px;">Lädt…</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Zeit (UTC)</th><th>Level</th><th>Quelle</th><th>Meldung</th></tr></thead>
+            <tbody id="diag-tbody"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+          <button class="btn sm" id="diag-prev-btn" onclick="loadDiagnosticLogs(Math.max(1, diagnosePage-1))">← Zurück</button>
+          <div id="diag-page-info" class="form-hint">Seite 1</div>
+          <button class="btn sm" id="diag-next-btn" onclick="loadDiagnosticLogs(diagnosePage+1)">Weiter →</button>
+        </div>
+      </div>
+
       <!-- Settings -->
       <div id="page-settings" class="content-area" style="display:none">
         <div class="section-title" style="margin-bottom:16px;">Einstellungen</div>
@@ -1063,7 +1108,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <input type="checkbox" id="tr-debug-mode" style="accent-color:var(--teal);" onchange="window._segManualReload=true;toggleDebugMode(this)">
                 <span style="color:var(--text2);">🔬 Debug</span>
               </label>
-              <button class="btn sm" window._segManualReload=true;loadSegmentEvents()">↻</button>
+              <button class="btn sm" onclick="window._segManualReload=true;loadSegmentEvents()">↻</button>
               <button class="btn sm danger" onclick="clearSegmentEvents()">🗑</button>
             </div>
           </div>
@@ -1305,6 +1350,8 @@ let allCh = [];
 let dragId = null;
 let logsPage = 1;
 let logsTotalPages = 1;
+let diagnosePage = 1;
+let diagnoseTotalPages = 1;
 let logsReloadTimer = null;
 let currentLogRetention = '-1';
 let usersPage = 1;
@@ -1390,6 +1437,7 @@ function nav(page, el) {
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='channels') { loadChProviderFilter(); }
   if(page==='logs') loadLogs();
+  if(page==='diagnose') loadDiagnosticLogs();
   if(page==='settings') loadSettings();
   if(page==='vpn') loadVpnSettings();
   if(page==='traffic') startTrafficMonitor();
@@ -3015,6 +3063,72 @@ async function clearLogs() {
   if(!confirm(msg)) return;
   await api('POST','/api/logs/clear',{days:days===-1?0:days});
   loadLogs(1); showToast('Verlauf bereinigt');
+}
+
+async function loadDiagnosticLogs(pageArg) {
+  const days = parseInt(document.getElementById('diag-days')?.value || '30', 10);
+  const pageSize = parseInt(document.getElementById('diag-page-size')?.value || '100', 10);
+  const level = (document.getElementById('diag-level')?.value || '').trim();
+  const page = Math.max(1, parseInt(pageArg || diagnosePage || 1, 10));
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    days: String(days),
+    level
+  });
+  const tbody = document.getElementById('diag-tbody');
+  const meta = document.getElementById('diag-meta');
+  const pageInfo = document.getElementById('diag-page-info');
+  const prevBtn = document.getElementById('diag-prev-btn');
+  const nextBtn = document.getElementById('diag-next-btn');
+  try {
+    const payload = await api('GET', `/api/diagnostic-logs?${params.toString()}`);
+    diagnosePage = payload.page || page;
+    diagnoseTotalPages = payload.total_pages || 1;
+    const items = payload.items || [];
+    if (meta) {
+      const shownFrom = items.length ? ((diagnosePage - 1) * pageSize + 1) : 0;
+      const shownTo = items.length ? ((diagnosePage - 1) * pageSize + items.length) : 0;
+      meta.textContent = `Gefiltert: ${payload.total || 0} | Anzeige: ${shownFrom}-${shownTo} (Zeitraum ${payload.days || days} Tage)`;
+    }
+    if (pageInfo) pageInfo.textContent = `Seite ${diagnosePage} / ${diagnoseTotalPages}`;
+    if (prevBtn) prevBtn.disabled = diagnosePage <= 1;
+    if (nextBtn) nextBtn.disabled = diagnosePage >= diagnoseTotalPages;
+    if (!items.length) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Keine Einträge</div></td></tr>';
+      return;
+    }
+    const levelColor = (lv) => {
+      const u = String(lv || '').toUpperCase();
+      if (u === 'ERROR') return 'var(--red)';
+      if (u === 'WARNING') return 'var(--yellow)';
+      return 'var(--text2)';
+    };
+    if (tbody) {
+      tbody.innerHTML = items.map((row) => {
+        const t = row.created_at ? esc(String(row.created_at)) : '—';
+        const lv = esc(String(row.level || ''));
+        const src = esc(String(row.source || ''));
+        const msg = esc(String(row.message || ''));
+        return `<tr>
+          <td style="font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--text2);">${t}</td>
+          <td style="font-family:var(--mono);font-size:10px;font-weight:600;color:${levelColor(row.level)};">${lv}</td>
+          <td style="font-family:var(--mono);font-size:10px;">${src}</td>
+          <td style="font-size:11px;word-break:break-word;max-width:560px;">${msg}</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    if (meta) meta.textContent = 'Fehler: ' + (e.message || e);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">Laden fehlgeschlagen</div></td></tr>';
+  }
+}
+
+async function clearDiagnosticLogs() {
+  if (!confirm('Alle Diagnose-Einträge unwiderruflich löschen?')) return;
+  await api('DELETE', '/api/diagnostic-logs');
+  showToast('Diagnose-Log geleert');
+  loadDiagnosticLogs(1);
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
