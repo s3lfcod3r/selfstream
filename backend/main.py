@@ -123,6 +123,33 @@ def _epg_title_at_time(channel_name: str, catchup_time_str: str, root) -> str:
     return ""
 
 
+def _epg_title_at_time_half_open(channel_name: str, catchup_time_str: str, root) -> str:
+    """Same as _epg_title_at_time but [start,stop) — matches Catchup-DVR-Sync and ENDLIST diagnostics."""
+    if not root or not channel_name or not catchup_time_str:
+        return ""
+    ct = _parse_catchup_wall_time(catchup_time_str)
+    if not ct:
+        return ""
+    ch_rec = db.get_channel_by_name(channel_name) or {}
+    tvg_id = ch_rec.get("tvg_id", "").strip()
+    if not tvg_id:
+        for ch_el in root.findall("channel"):
+            disp = ch_el.findtext("display-name") or ""
+            if channel_name.lower() in disp.lower() or disp.lower() in channel_name.lower():
+                tvg_id = ch_el.get("id", "")
+                break
+    if not tvg_id:
+        return ""
+    for prog in root.findall("programme"):
+        if prog.get("channel", "") != tvg_id:
+            continue
+        ps = _parse_xmltv_datetime(prog.get("start", ""))
+        pe = _parse_xmltv_datetime(prog.get("stop", ""))
+        if _epg_programme_contains_instant_half_open(ps, pe, ct):
+            return (prog.findtext("title") or "").strip()
+    return ""
+
+
 # Segment timing events for buffering diagnosis
 _segment_events: list = []
 
@@ -714,7 +741,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                             pass
                     if _epg_content:
                         _root = ET.fromstring(_epg_content)
-                        _t = _epg_title_at_time(channel_name, dt_str, _root)
+                        _t = _epg_title_at_time_half_open(channel_name, dt_str, _root)
                         _catchup_epg_title = _t if _t else None
                 except Exception:
                     pass
@@ -1226,19 +1253,33 @@ def _catchup_format_dvr_sync_message(
             f"die neue DVR-Minute liegt noch davor — es wird nur die Zeit fortgeschrieben, der Titel bleibt."
         )
     elif new_epg and old_epg_clean and new_epg.strip() != old_epg_clean:
-        parts.append(
-            "Der Titel wechselt, weil die neue DVR-Minute in einen anderen EPG-Slot fällt als vorher (nach geladenem XMLTV)."
+        same_half_open_slot = bool(
+            slot_cur
+            and slot_new
+            and (slot_cur.get("title") or "").strip() == (slot_new.get("title") or "").strip()
+            and (slot_cur.get("start_xmltv") or slot_cur.get("start_iso"))
+            == (slot_new.get("start_xmltv") or slot_new.get("start_iso"))
         )
-        if slot_cur:
+        if same_half_open_slot:
             parts.append(
-                f"Vorherige Minute lag im EPG-Slot „{slot_cur['title']}“ "
-                f"(start={slot_cur['start_xmltv'] or slot_cur['start_iso']}, stop={slot_cur['stop_xmltv'] or slot_cur['stop_iso']})."
+                "Titelkorrektur (kein Sendungswechsel): Der beim Start gespeicherte Titel entsprach nicht der halb-offenen "
+                "XMLTV-Zuordnung zu dieser DVR-Minute (Start nutzte früher inklusive Grenzen). Der EPG-Slot ist durchgehend "
+                f"„{slot_new['title']}“ — der Anzeigename wird an den DVR-/EPG-Pfad angeglichen."
             )
-        if pe_slot is not None and new_parsed:
+        else:
             parts.append(
-                f"Sticky griff nicht: neue DVR-Zeit liegt nicht mehr vor dem EPG-Ende ({pe_slot.isoformat()}) "
-                "der zuvor angezeigten Sendung — oder der alte Slot war im EPG nicht eindeutig."
+                "Der Titel wechselt, weil die neue DVR-Minute in einen anderen EPG-Slot fällt als vorher (nach geladenem XMLTV)."
             )
+            if slot_cur:
+                parts.append(
+                    f"Vorherige Minute lag im EPG-Slot „{slot_cur['title']}“ "
+                    f"(start={slot_cur['start_xmltv'] or slot_cur['start_iso']}, stop={slot_cur['stop_xmltv'] or slot_cur['stop_iso']})."
+                )
+            if pe_slot is not None and new_parsed:
+                parts.append(
+                    f"Sticky griff nicht: neue DVR-Zeit liegt nicht mehr vor dem EPG-Ende ({pe_slot.isoformat()}) "
+                    "der zuvor angezeigten Sendung — oder der alte Slot war im EPG nicht eindeutig."
+                )
     else:
         parts.append(
             "Kein Titelwechsel nötig — gleiche Sendung laut EPG oder keine zweite Zuordnung."
@@ -2783,7 +2824,7 @@ def get_stats(_=Depends(check_admin)):
                                     continue
                                 ps = _parse_xmltv_datetime(prog.get("start", ""))
                                 pe = _parse_xmltv_datetime(prog.get("stop", ""))
-                                if _epg_programme_contains_instant(ps, pe, ct):
+                                if _epg_programme_contains_instant_half_open(ps, pe, ct):
                                     epg_title = prog.findtext("title") or epg_title
                                     break
             except Exception:
