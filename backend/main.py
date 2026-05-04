@@ -874,6 +874,54 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         rewritten = rewrite_hls_playlist(playlist_content, decoded_url, public_url, token, sid=sid)
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
 
+        # Keep live session alive on playlist refreshes (ExoPlayer polls m3u8 frequently).
+        # Without this, cleanup can kill an active session while segments are still slow/blocked.
+        try:
+            _now_ls = time.time()
+            _sk_ls = f"{token}::sid::{sid}"
+            if _sk_ls in _sessions:
+                _sessions[_sk_ls]["last_seen"] = _now_ls
+                db.session_refresh(token)
+            else:
+                # If not started yet (edge cases), align with segment path by creating a session here too.
+                max_s_ls = user.get("max_streams", 1) or 0
+                if max_s_ls > 0:
+                    _cleanup_sessions()
+                    _other_ls = [
+                        s for s in _sessions.values()
+                        if s["user_id"] == user["id"] and s.get("session_key") != _sk_ls
+                    ]
+                    if len(_other_ls) >= max_s_ls:
+                        logger.warning(f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
+                        diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
+                        raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
+                db.session_start(token, channel_name, ip_address=_ip2)
+                _epg_now_ls = _get_now_playing(channel_name)
+                _epg_title_ls = _epg_now_ls.get("title") if _epg_now_ls else None
+                _log_id_ls = db.start_watch_log(
+                    user_id=user["id"],
+                    channel=channel_name,
+                    stream_url=decoded_url,
+                    ip_address=_ip2,
+                    epg_title=_epg_title_ls,
+                )
+                _sessions[_sk_ls] = {
+                    "channel": channel_name,
+                    "log_id": _log_id_ls,
+                    "start": _now_ls,
+                    "last_seen": _now_ls,
+                    "user_id": user["id"],
+                    "token": token,
+                    "session_key": _sk_ls,
+                    "epg_title": _epg_title_ls,
+                    "user_name": user["name"],
+                }
+                logger.info(f"Session started (playlist): {user['name']} ({_ip2}) → {channel_name}")
+        except HTTPException:
+            raise
+        except Exception as _e_ls_sess:
+            logger.warning(f"Live session touch failed: {_e_ls_sess}")
+
         # Prefetch next segments in background
         try:
             base_url = "/".join(decoded_url.split("/")[:-1])
@@ -1708,11 +1756,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             client_ip0 = forwarded0.split(",")[0].strip() if forwarded0 else (request.client.host if request.client else "")
 
         ua0 = request.headers.get("user-agent", "") if request else ""
-        ua_short0 = ua0[:40].strip()
-        if sid:
-            session_key = f"{token}::sid::{sid}"
-        else:
-            session_key = f"{token}::{client_ip0}::{ua_short0}"
+        # Must match proxy_stream sid derivation, otherwise we create duplicate session keys
+        # (token::IP::UA vs token::sid::<md5>) and TTL cleanup looks "random".
+        ua_sid0 = ua0[:60]
+        if not sid:
+            sid = hashlib.md5(f"{token}::{client_ip0}::{ua_sid0}".encode()).hexdigest()[:16]
+        session_key = f"{token}::sid::{sid}"
 
         user_id0 = user["id"]
         now0 = time.time()
