@@ -1522,7 +1522,8 @@ def _cleanup_sessions():
                 "INFO",
                 "session",
                 f"Session expired (TTL): {k} epg={epg_title_end}. "
-                f"Ursache: Live-Stream seit >{SESSION_MEM_TTL}s ohne Segment-Anfrage (nicht Catchup/catchup_ttl).",
+                f"Ursache: Live-Stream seit >{SESSION_MEM_TTL}s ohne Traffic über den Proxy-Segmentpfad "
+                f"(keine TS- und keine Playlist-Anfragen mehr; nicht Catchup/catchup_ttl).",
             )
         except Exception:
             pass
@@ -1688,6 +1689,82 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     public_url_seg = short_domain_seg.rstrip("/") if short_domain_seg else proxy_url
     is_ts = not (decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0])
 
+    # Live session tracking (TS *and* playlist refreshes).
+    # Important: ExoPlayer polls playlists frequently even while still buffering segments.
+    # If we only touch sessions on TS downloads, idle cleanup can kill a perfectly active live session.
+    session_key = None
+    if catchup != "1":
+        parts0 = decoded_url.split("/")
+        ch_record0 = db.get_channel_by_url_fragment(decoded_url)
+        if ch_record0:
+            channel_name0 = ch_record0["name"]
+        else:
+            ch_idx0 = next((i for i, p in enumerate(parts0) if p.startswith("ch")), None)
+            channel_name0 = parts0[ch_idx0] if ch_idx0 else parts0[-1].split("?")[0]
+
+        client_ip0 = ""
+        if request:
+            forwarded0 = request.headers.get("x-forwarded-for")
+            client_ip0 = forwarded0.split(",")[0].strip() if forwarded0 else (request.client.host if request.client else "")
+
+        ua0 = request.headers.get("user-agent", "") if request else ""
+        ua_short0 = ua0[:40].strip()
+        if sid:
+            session_key = f"{token}::sid::{sid}"
+        else:
+            session_key = f"{token}::{client_ip0}::{ua_short0}"
+
+        user_id0 = user["id"]
+        now0 = time.time()
+
+        if session_key in _sessions:
+            existing0 = _sessions[session_key]
+            if existing0["channel"] != channel_name0:
+                _sessions.pop(session_key)
+                db.session_end(token)
+                epg_sw0 = _get_now_playing(existing0["channel"])
+                epg_title_sw0 = existing0.get("epg_title") or (epg_sw0.get("title") if epg_sw0 else None)
+                db.end_watch_log(existing0["log_id"], int(now0 - existing0["start"]), epg_title=epg_title_sw0)
+                logger.info(f"Channel switch: {user['name']} ({client_ip0}) → {channel_name0}")
+            else:
+                _sessions[session_key]["last_seen"] = now0
+                db.session_refresh(token)
+
+        if session_key not in _sessions:
+            max_s0 = user.get("max_streams", 1) or 0
+            if max_s0 > 0:
+                active_count0 = _user_stream_count(user_id0)
+                if active_count0 >= max_s0:
+                    logger.warning(f"Max streams blocked: {user['name']} {active_count0}/{max_s0} from {client_ip0}")
+                    diag_log(
+                        "WARNING",
+                        "stream",
+                        f"Max streams blocked: {user['name']} {active_count0}/{max_s0} from {client_ip0}",
+                    )
+                    raise HTTPException(status_code=429, detail=f"Max. {max_s0} Stream(s) erlaubt")
+            db.session_start(token, channel_name0, ip_address=client_ip0)
+            epg_now0 = _get_now_playing(channel_name0)
+            epg_title_now0 = epg_now0.get("title") if epg_now0 else None
+            log_id0 = db.start_watch_log(
+                user_id=user["id"],
+                channel=channel_name0,
+                stream_url=decoded_url,
+                ip_address=client_ip0,
+                epg_title=epg_title_now0,
+            )
+            _sessions[session_key] = {
+                "channel": channel_name0,
+                "log_id": log_id0,
+                "start": now0,
+                "last_seen": now0,
+                "user_id": user_id0,
+                "token": token,
+                "session_key": session_key,
+                "epg_title": epg_title_now0,
+                "user_name": user["name"],
+            }
+            logger.info(f"Session started: {user['name']} ({client_ip0}) → {channel_name0}")
+
     # Catchup segments bypass session tracking
     if catchup == "1":
         _touch_catchup_last_seen(token, decoded_url)
@@ -1800,65 +1877,6 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             logger.error(f"Catchup segment error: {e}")
             diag_log("ERROR", "catchup", f"Catchup segment error: {e}")
             raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
-
-    if is_ts:
-        parts = decoded_url.split("/")
-        ch_record = db.get_channel_by_url_fragment(decoded_url)
-        if ch_record:
-            channel_name = ch_record["name"]
-        else:
-            ch_idx = next((i for i, p in enumerate(parts) if p.startswith("ch")), None)
-            channel_name = parts[ch_idx] if ch_idx else parts[-1].split("?")[0]
-
-        client_ip = ""
-        if request:
-            forwarded = request.headers.get("x-forwarded-for")
-            client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "")
-
-        ua = request.headers.get("user-agent", "") if request else ""
-        ua_short = ua[:40].strip()
-        if sid:
-            session_key = f"{token}::sid::{sid}"
-        else:
-            session_key = f"{token}::{client_ip}::{ua_short}"
-        user_id = user["id"]
-        now = time.time()
-
-        if session_key in _sessions:
-            existing = _sessions[session_key]
-            if existing["channel"] != channel_name:
-                _sessions.pop(session_key)
-                db.session_end(token)
-                epg_sw = _get_now_playing(existing["channel"])
-                epg_title_sw = existing.get("epg_title") or (epg_sw.get("title") if epg_sw else None)
-                db.end_watch_log(existing["log_id"], int(now - existing["start"]), epg_title=epg_title_sw)
-                logger.info(f"Channel switch: {user['name']} ({client_ip}) → {channel_name}")
-            else:
-                _sessions[session_key]["last_seen"] = now
-                db.session_refresh(token)
-
-        if session_key not in _sessions:
-            max_s = user.get("max_streams", 1) or 0
-            if max_s > 0:
-                active_count = _user_stream_count(user_id)
-                if active_count >= max_s:
-                    logger.warning(f"Max streams blocked: {user['name']} {active_count}/{max_s} from {client_ip}")
-                    diag_log(
-                        "WARNING",
-                        "stream",
-                        f"Max streams blocked: {user['name']} {active_count}/{max_s} from {client_ip}",
-                    )
-                    raise HTTPException(status_code=429, detail=f"Max. {max_s} Stream(s) erlaubt")
-            db.session_start(token, channel_name, ip_address=client_ip)
-            epg_now = _get_now_playing(channel_name)
-            epg_title_now = epg_now.get("title") if epg_now else None
-            log_id = db.start_watch_log(user_id=user["id"], channel=channel_name, stream_url=decoded_url, ip_address=client_ip, epg_title=epg_title_now)
-            _sessions[session_key] = {
-                "channel": channel_name, "log_id": log_id, "start": now,
-                "last_seen": now, "user_id": user_id, "token": token, "session_key": session_key,
-                "epg_title": epg_title_now, "user_name": user["name"]
-            }
-            logger.info(f"Session started: {user['name']} ({client_ip}) → {channel_name}")
 
     ts_prefetch: tuple[bytes, float, bool] | None = None
     if is_ts:
@@ -1978,7 +1996,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         except Exception as e:
             logger.error(f"Segment error: {e}")
             diag_log("ERROR", "segment", f"Segment error: {e}")
-            if session_key in _sessions:
+            if session_key and session_key in _sessions:
                 s = _sessions.pop(session_key)
                 db.session_end(token)
                 db.end_watch_log(s["log_id"], int(time.time() - s["start"]))
