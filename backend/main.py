@@ -981,9 +981,14 @@ async def _get_segment(url: str, hls: dict) -> tuple:
             headers=make_headers(hls)
         ) as client:
             async with client.stream("GET", url) as resp:
-                if resp.status_code == 200:
-                    async for chunk in resp.aiter_bytes(chunk_size=131072):
-                        buf.extend(chunk)
+                # Manche CDNs liefern kurzzeitig 204/empty body oder 200 mit 0 bytes,
+                # bevor das Segment wirklich verfügbar ist. Ohne Status-Check landet das als "leeres Segment"
+                # im Cache-Pfad und bricht Clients + Live-Sessions weg.
+                if resp.status_code not in (200, 206):
+                    elapsed = time.time() - t_start
+                    return b"", elapsed, False
+                async for chunk in resp.aiter_bytes(chunk_size=131072):
+                    buf.extend(chunk)
         elapsed = time.time() - t_start
         data = bytes(buf)
         if len(data) > 100:
@@ -1855,106 +1860,119 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             }
             logger.info(f"Session started: {user['name']} ({client_ip}) → {channel_name}")
 
+    ts_prefetch: tuple[bytes, float, bool] | None = None
+    if is_ts:
+        max_attempts = 6
+        seg_name_pf = decoded_url.split("/")[-1].split("?")[0]
+        user_name_pf = _sessions.get(session_key, {}).get("user_name") or token[:8]
+        channel_name_pf = _sessions.get(session_key, {}).get("channel", "")
+        data_pf = b""
+        elapsed_pf = 0.0
+        from_cache_pf = False
+        for attempt in range(max_attempts):
+            data_pf, elapsed_pf, from_cache_pf = await _get_segment(decoded_url, hls)
+            total_pf = len(data_pf)
+            if total_pf >= 1_000:
+                break
+            logger.warning(f"⚠️ EMPTY SEGMENT [{user_name_pf}] {seg_name_pf}: {total_pf} bytes")
+            diag_log(
+                "WARNING",
+                "segment",
+                f"EMPTY SEGMENT [{user_name_pf}] {channel_name_pf} {seg_name_pf}: {total_pf} bytes",
+            )
+            _ev0 = {
+                "time": time.time(), "user": user_name_pf, "channel": channel_name_pf,
+                "type": "slow", "elapsed": round(elapsed_pf, 2),
+                "size_kb": round(total_pf / 1024, 1), "mbps": 0.0,
+                "seg": f"⚠️ LEER: {seg_name_pf}", "provider_id": user.get("provider_id")
+            }
+            _segment_events.append(_ev0)
+            if len(_segment_events) > 500: _segment_events.pop(0)
+            try:
+                db.add_segment_event(_ev0)
+            except Exception:
+                pass
+            if attempt < max_attempts - 1:
+                _segment_cache.pop(decoded_url, None)
+                await asyncio.sleep(min(2.0, 0.25 * (2 ** attempt)))
+                continue
+            raise HTTPException(status_code=502, detail="Empty segment after retries")
+
+        ts_prefetch = (data_pf, elapsed_pf, from_cache_pf)
+
     async def stream_segment():
         try:
+            if is_ts:
+                assert ts_prefetch is not None
+                data, elapsed, _from_cache = ts_prefetch
+                total = len(data)
+
+                size_kb = total / 1024
+                safe_elapsed = max(elapsed, 0.001)
+                speed_mbps = min((total * 8) / (safe_elapsed * 1_000_000), 10000.0)
+                seg_name = decoded_url.split("/")[-1].split("?")[0]
+                user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
+                channel_name_log = _sessions.get(session_key, {}).get("channel", "")
+                debug_mode = db.get_setting("segment_debug", "0") == "1"
+
+                if _from_cache:
+                    if debug_mode:
+                        _ev_cache = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                                "type": "ok", "elapsed": round(elapsed, 2),
+                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                                "seg": f"⚡ {seg_name}", "provider_id": user.get("provider_id")}
+                        _segment_events.append(_ev_cache)
+                        try: db.add_segment_event(_ev_cache)
+                        except Exception: pass
+                elif elapsed > 2.0:
+                    logger.warning(f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s")
+                    diag_log(
+                        "WARNING",
+                        "segment",
+                        f"SLOW SEGMENT [{user_name}] {channel_name_log} {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s",
+                    )
+                    _ev1 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                            "type": "slow", "elapsed": round(elapsed, 2),
+                            "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                            "seg": seg_name, "provider_id": user.get("provider_id")}
+                    _segment_events.append(_ev1)
+                    try: db.add_segment_event(_ev1)
+                    except Exception: pass
+                elif elapsed > 1.0:
+                    _ev2 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                            "type": "delayed", "elapsed": round(elapsed, 2),
+                            "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                            "seg": seg_name, "provider_id": user.get("provider_id")}
+                    _segment_events.append(_ev2)
+                    try: db.add_segment_event(_ev2)
+                    except Exception: pass
+                elif debug_mode:
+                    _ev3 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
+                            "type": "ok", "elapsed": round(elapsed, 2),
+                            "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
+                            "seg": seg_name, "provider_id": user.get("provider_id")}
+                    _segment_events.append(_ev3)
+                    try: db.add_segment_event(_ev3)
+                    except Exception: pass
+
+                if len(_segment_events) > 500: _segment_events.pop(0)
+
+                chunk_size = 524288
+                for i in range(0, len(data), chunk_size):
+                    yield data[i:i + chunk_size]
+                return
+
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with make_iptv_client(
                 timeout=timeout,
                 follow_redirects=hls["hls_follow_redirects"],
                 headers=make_headers(hls)
             ) as client:
-                if not is_ts:
-                    resp = await client.get(decoded_url)
-                    resp.raise_for_status()
-                    rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token)
-                    yield rewritten.encode()
-                    return
-                else:
-                    for attempt in range(2):
-                        t_start = time.time()
-                        data, elapsed, _from_cache = await _get_segment(decoded_url, hls)
-                        total = len(data)
-
-                        if total < 1_000:
-                            seg_name = decoded_url.split("/")[-1].split("?")[0]
-                            user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
-                            channel_name_log = _sessions.get(session_key, {}).get("channel", "")
-                            logger.warning(f"⚠️ EMPTY SEGMENT [{user_name}] {seg_name}: {total} bytes")
-                            diag_log(
-                                "WARNING",
-                                "segment",
-                                f"EMPTY SEGMENT [{user_name}] {channel_name_log} {seg_name}: {total} bytes",
-                            )
-                            _ev0 = {
-                                "time": time.time(), "user": user_name, "channel": channel_name_log,
-                                "type": "slow", "elapsed": round(elapsed, 2),
-                                "size_kb": round(total / 1024, 1), "mbps": 0.0,
-                                "seg": f"⚠️ LEER: {seg_name}", "provider_id": user.get("provider_id")
-                            }
-                            _segment_events.append(_ev0)
-                            if len(_segment_events) > 500: _segment_events.pop(0)
-                            try: db.add_segment_event(_ev0)
-                            except Exception: pass
-                            if attempt == 0:
-                                _segment_cache.pop(decoded_url, None)
-                                await asyncio.sleep(0.5)
-                                continue
-                            break
-
-                        size_kb = total / 1024
-                        safe_elapsed = max(elapsed, 0.001)
-                        speed_mbps = min((total * 8) / (safe_elapsed * 1_000_000), 10000.0)
-                        seg_name = decoded_url.split("/")[-1].split("?")[0]
-                        user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
-                        channel_name_log = _sessions.get(session_key, {}).get("channel", "")
-                        debug_mode = db.get_setting("segment_debug", "0") == "1"
-
-                        if _from_cache:
-                            if debug_mode:
-                                _ev_cache = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                                        "type": "ok", "elapsed": round(elapsed, 2),
-                                        "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                        "seg": f"⚡ {seg_name}", "provider_id": user.get("provider_id")}
-                                _segment_events.append(_ev_cache)
-                                try: db.add_segment_event(_ev_cache)
-                                except Exception: pass
-                        elif elapsed > 2.0:
-                            logger.warning(f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s")
-                            diag_log(
-                                "WARNING",
-                                "segment",
-                                f"SLOW SEGMENT [{user_name}] {channel_name_log} {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s",
-                            )
-                            _ev1 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                                    "type": "slow", "elapsed": round(elapsed, 2),
-                                    "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                    "seg": seg_name, "provider_id": user.get("provider_id")}
-                            _segment_events.append(_ev1)
-                            try: db.add_segment_event(_ev1)
-                            except Exception: pass
-                        elif elapsed > 1.0:
-                            _ev2 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                                    "type": "delayed", "elapsed": round(elapsed, 2),
-                                    "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                    "seg": seg_name, "provider_id": user.get("provider_id")}
-                            _segment_events.append(_ev2)
-                            try: db.add_segment_event(_ev2)
-                            except Exception: pass
-                        elif debug_mode:
-                            _ev3 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                                    "type": "ok", "elapsed": round(elapsed, 2),
-                                    "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                    "seg": seg_name, "provider_id": user.get("provider_id")}
-                            _segment_events.append(_ev3)
-                            try: db.add_segment_event(_ev3)
-                            except Exception: pass
-
-                        if len(_segment_events) > 500: _segment_events.pop(0)
-
-                        chunk_size = 524288
-                        for i in range(0, len(data), chunk_size):
-                            yield data[i:i + chunk_size]
-                        break
+                resp = await client.get(decoded_url)
+                resp.raise_for_status()
+                rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token)
+                yield rewritten.encode()
+                return
         except asyncio.CancelledError:
             pass
         except Exception as e:
