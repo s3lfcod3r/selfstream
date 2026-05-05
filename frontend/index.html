@@ -849,6 +849,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </select>
               <div class="form-hint">Wenn ein Client bei Catchup-Aussetzern ploetzlich die Live-URL anfragt, wird dieselbe Quelle auf die letzte Catchup-Position zurueckgeleitet.</div>
             </div>
+            <div class="form-group">
+              <label class="form-label">🕵️ Player Request Diagnose</label>
+              <select class="form-select" id="cfg-player-request-debug">
+                <option value="1" selected>Ein - Alle Player-Requests/Headers/Parameter loggen</option>
+                <option value="0">Aus - Nur normale Diagnose-Logs</option>
+              </select>
+              <div class="form-hint">Loggt fuer `playlist`, `stream`, `segment`, `catchup` die komplette Anfrage (Pfad, Query, Header, IP) und Response-Ereignisse. Achtung: erzeugt viele Logs.</div>
+            </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
@@ -3285,6 +3293,7 @@ async function loadSettings() {
   if(document.getElementById('cfg-catchup-ttl-after-endlist')) document.getElementById('cfg-catchup-ttl-after-endlist').value=s.catchup_ttl_after_endlist||'30';
   if(document.getElementById('cfg-catchup-strict-mode')) document.getElementById('cfg-catchup-strict-mode').value=s.catchup_strict_mode||'1';
   if(document.getElementById('cfg-catchup-sticky-recover')) document.getElementById('cfg-catchup-sticky-recover').value=s.catchup_sticky_recover||'1';
+  if(document.getElementById('cfg-player-request-debug')) document.getElementById('cfg-player-request-debug').value=s.player_request_debug||'1';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
   if (retEl) retEl.value = currentLogRetention;
@@ -3379,7 +3388,8 @@ async function saveHls() {
     catchup_ttl:(document.getElementById('cfg-catchup-ttl')||{}).value||'120',
     catchup_ttl_after_endlist:(document.getElementById('cfg-catchup-ttl-after-endlist')||{}).value||'30',
     catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1',
-    catchup_sticky_recover:(document.getElementById('cfg-catchup-sticky-recover')||{}).value||'1'
+    catchup_sticky_recover:(document.getElementById('cfg-catchup-sticky-recover')||{}).value||'1',
+    player_request_debug:(document.getElementById('cfg-player-request-debug')||{}).value||'1'
   });
   showToast('HLS-Einstellungen gespeichert');
 }
