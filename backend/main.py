@@ -876,6 +876,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     "token": token, "ip": _catchup_ip,
                     "epg_title": _catchup_epg_title or "",
                     "catchup_time": dt_str,
+                    "live_url": decoded_url,
+                    "auto_live_pending": False,
                     "last_dvr_dt_str": dt_str,
                     "saw_endlist": False,
                     "endlist_seen_at": None,
@@ -1564,6 +1566,19 @@ def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, sou
     cv["last_dvr_dt_str"] = new_dt_str
     if resolved_epg:
         cv["epg_title"] = resolved_epg
+    if (
+        is_catchup_auto_live_on_program_change_enabled()
+        and not sticky
+        and old_epg_clean
+        and new_epg
+        and new_epg.strip() != old_epg_clean
+    ):
+        cv["auto_live_pending"] = True
+        diag_log(
+            "INFO",
+            "catchup",
+            f"Catchup programme changed ({old_epg_clean!r} -> {new_epg!r}) for {ch_name}; switch to live is armed.",
+        )
     disp_epg = (cv.get("epg_title") or "").strip() or old_epg
     diag_log(
         "INFO",
@@ -1634,6 +1649,11 @@ def is_catchup_strict_mode() -> bool:
 def is_catchup_sticky_recover_enabled() -> bool:
     """If enabled, accidental live fallback requests are redirected back into recent catchup."""
     return db.get_setting("catchup_sticky_recover", "1") == "1"
+
+
+def is_catchup_auto_live_on_program_change_enabled() -> bool:
+    """If enabled, catchup switches to live when the watched programme changes."""
+    return db.get_setting("catchup_auto_live_on_program_change", "1") == "1"
 
 
 def _catchup_idle_ttl_seconds(cv: dict) -> int:
@@ -1937,6 +1957,34 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             timeout = catchup_upstream_httpx_timeout(hls)
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
                 if not is_ts:
+                    _ck_live = _resolve_catchup_session_key(token, decoded_url)
+                    _cv_live = _catchup_sessions.get(_ck_live) if _ck_live else None
+                    if _cv_live and _cv_live.get("auto_live_pending"):
+                        _live_url = (_cv_live.get("live_url") or "").strip()
+                        if _live_url:
+                            _live_resp = await client.get(_live_url)
+                            _live_resp.raise_for_status()
+                            _live_pl = _live_resp.text
+                            rewritten_live = rewrite_hls_playlist(
+                                _live_pl, _live_url, public_url_seg, token, sid=sid, catchup=False
+                            )
+                            _cv_live["auto_live_pending"] = False
+                            diag_log(
+                                "INFO",
+                                "catchup",
+                                f"Catchup -> live handoff for {user.get('name', token[:8])}: {(_ck_live or '').split('::')[-1] or '?'}",
+                            )
+                            _log_player_request(
+                                "segment:catchup_auto_live_playlist_response",
+                                request,
+                                token,
+                                {"live_url": _live_url, "playlist_len": len(rewritten_live)},
+                            )
+                            return HTMLResponse(
+                                content=rewritten_live,
+                                media_type="application/vnd.apple.mpegurl",
+                                headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"},
+                            )
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     raw_pl = resp.text
@@ -3264,6 +3312,7 @@ def get_settings(_=Depends(check_admin)):
         "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "900"),
         "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
         "catchup_sticky_recover":       s.get("catchup_sticky_recover", "1"),
+        "catchup_auto_live_on_program_change": s.get("catchup_auto_live_on_program_change", "1"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
@@ -3275,6 +3324,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_strict_mode", "catchup_sticky_recover",
+               "catchup_auto_live_on_program_change",
                "diagnostic_timezone"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
