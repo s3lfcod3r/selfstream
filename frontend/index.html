@@ -841,6 +841,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </select>
               <div class="form-hint">Wenn aktiviert, liefert selfstream bei Catchup-Fehlern einen klaren Fehler statt still auf Live zu springen. Das verhindert ungewollte Spruenge auf den Live-Sender.</div>
             </div>
+            <div class="form-group">
+              <label class="form-label">🧲 Catchup Sticky Recover</label>
+              <select class="form-select" id="cfg-catchup-sticky-recover">
+                <option value="1" selected>Ein (empfohlen) - Live-Anfragen zurueck auf Catchup lenken</option>
+                <option value="0">Aus - Kein automatisches Zuruecklenken</option>
+              </select>
+              <div class="form-hint">Wenn ein Client bei Catchup-Aussetzern ploetzlich die Live-URL anfragt, wird dieselbe Quelle auf die letzte Catchup-Position zurueckgeleitet.</div>
+            </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
@@ -3276,6 +3284,7 @@ async function loadSettings() {
   if(document.getElementById('cfg-catchup-ttl')) document.getElementById('cfg-catchup-ttl').value=s.catchup_ttl||'120';
   if(document.getElementById('cfg-catchup-ttl-after-endlist')) document.getElementById('cfg-catchup-ttl-after-endlist').value=s.catchup_ttl_after_endlist||'30';
   if(document.getElementById('cfg-catchup-strict-mode')) document.getElementById('cfg-catchup-strict-mode').value=s.catchup_strict_mode||'1';
+  if(document.getElementById('cfg-catchup-sticky-recover')) document.getElementById('cfg-catchup-sticky-recover').value=s.catchup_sticky_recover||'1';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
   if (retEl) retEl.value = currentLogRetention;
@@ -3369,7 +3378,8 @@ async function saveHls() {
     prefetch_segments:document.getElementById('cfg-prefetch').value,
     catchup_ttl:(document.getElementById('cfg-catchup-ttl')||{}).value||'120',
     catchup_ttl_after_endlist:(document.getElementById('cfg-catchup-ttl-after-endlist')||{}).value||'30',
-    catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1'
+    catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1',
+    catchup_sticky_recover:(document.getElementById('cfg-catchup-sticky-recover')||{}).value||'1'
   });
   showToast('HLS-Einstellungen gespeichert');
 }
