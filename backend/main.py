@@ -829,9 +829,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             diag_log(
                 "INFO",
                 "catchup",
-                f"Catchup skipped, serving live playlist: {user['name']} → {channel_name} (utc={utc})",
+                f"Catchup failed (no live fallback): {user['name']} → {channel_name} (utc={utc})",
             )
-            # Fall through to live
+            raise HTTPException(status_code=502, detail=f"Catchup fetch failed: {e}")
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
     # Check max concurrent streams only for live mode
@@ -1520,16 +1520,17 @@ def get_catchup_ttl() -> int:
 
 
 def get_catchup_ttl_after_endlist() -> int:
-    """Shorter idle window once provider playlist contained #EXT-X-ENDLIST (playback ended)."""
+    """Idle window once provider playlist contained #EXT-X-ENDLIST."""
     try:
-        return max(5, int(db.get_setting("catchup_ttl_after_endlist", "180")))
+        return max(30, int(db.get_setting("catchup_ttl_after_endlist", "900")))
     except Exception:
-        return 30
+        return 900
 
 
 def _catchup_idle_ttl_seconds(cv: dict) -> int:
     if cv.get("saw_endlist"):
-        return get_catchup_ttl_after_endlist()
+        # Never shorten below normal catchup ttl; ENDLIST can appear early on some providers.
+        return max(get_catchup_ttl(), get_catchup_ttl_after_endlist())
     return get_catchup_ttl()
 
 
