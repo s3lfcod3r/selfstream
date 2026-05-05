@@ -721,6 +721,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <option value="100" selected>100 / Seite</option>
               <option value="200">200 / Seite</option>
             </select>
+            <button class="btn sm" onclick="downloadDiagnosticLogs()">⬇ Download CSV</button>
             <button class="btn sm danger" onclick="clearDiagnosticLogs()">🗑 Alles löschen</button>
             <button class="btn sm" onclick="loadDiagnosticLogs()">↻ Refresh</button>
           </div>
@@ -3274,6 +3275,45 @@ async function clearDiagnosticLogs() {
   await api('DELETE', '/api/diagnostic-logs');
   showToast('Diagnose-Log geleert');
   loadDiagnosticLogs(1);
+}
+
+async function downloadDiagnosticLogs() {
+  try {
+    const days = document.getElementById('diag-days')?.value || '30';
+    const level = document.getElementById('diag-level')?.value || '';
+    const source = document.getElementById('diag-source')?.value || '';
+    const params = new URLSearchParams();
+    params.set('days', days);
+    if (level) params.set('level', level);
+    if (source) params.set('source', source);
+    const resp = await fetch(`/api/diagnostic-logs/download?${params.toString()}`, {
+      method: 'GET',
+      headers: { 'x-admin-token': TOKEN },
+    });
+    if (resp.status === 401) {
+      logout();
+      throw new Error('Unauthorized');
+    }
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      throw new Error(txt || resp.statusText || 'Download fehlgeschlagen');
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('content-disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/i);
+    const filename = (m && m[1]) ? m[1] : 'diagnostic-logs.csv';
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('Diagnose-Log Download gestartet');
+  } catch (e) {
+    showToast(e.message || 'Download fehlgeschlagen', true);
+  }
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
