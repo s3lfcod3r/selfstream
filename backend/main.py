@@ -13,6 +13,8 @@ import subprocess
 import urllib.parse
 import re
 import json
+import io
+import csv
 import xml.etree.ElementTree as ET
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -3732,6 +3734,58 @@ def get_diagnostic_logs_api(
         "total_pages": total_pages,
         "days": days,
     }
+
+
+@admin_app.get("/api/diagnostic-logs/download")
+def download_diagnostic_logs_api(
+    days: int = 30,
+    level: str = "",
+    source: str = "",
+    _=Depends(check_admin),
+):
+    days = max(1, min(int(days), 366))
+    lvl = level.strip() or None
+    src_f = source.strip() or None
+    where = "WHERE datetime(created_at) >= datetime('now', ?)"
+    params = [f"-{days} days"]
+    if lvl:
+        where += " AND UPPER(level) = UPPER(?)"
+        params.append(lvl[:16])
+    if src_f:
+        where += " AND LOWER(source) = LOWER(?)"
+        params.append(src_f[:80])
+
+    with db.conn() as con:
+        rows = con.execute(
+            f"""
+            SELECT id, level, source, message, created_at
+            FROM diagnostic_logs
+            {where}
+            ORDER BY datetime(created_at) DESC, id DESC
+            """,
+            tuple(params),
+        ).fetchall()
+
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["id", "created_at", "level", "source", "message"])
+    for r in rows:
+        d = dict(r)
+        w.writerow([
+            d.get("id", ""),
+            d.get("created_at", ""),
+            d.get("level", ""),
+            d.get("source", ""),
+            d.get("message", ""),
+        ])
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    filename = f"diagnostic-logs-{days}d-{ts}.csv"
+    return Response(
+        content=out.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @admin_app.delete("/api/diagnostic-logs")
