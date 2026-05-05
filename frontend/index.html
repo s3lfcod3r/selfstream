@@ -833,6 +833,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </select>
               <div class="form-hint">Gilt nur, wenn beim Catchup-<strong>Start</strong> die Master-<code>index.m3u8</code> schon <code>#EXT-X-ENDLIST</code> enthält (dann oft echtes Kurz-Archiv). Unter-Playlisten mit ENDLIST (Sliding Window) lösen diesen Timer <strong>nicht</strong> mehr aus — damit verhält sich die Idle-Zählung näher an einer direkten Anbieter-M3U. Höher = Session bleibt nach diesem Archiv-Ende länger als „aktiv“ gelistet, wenn der Player noch nichts anfragt.</div>
             </div>
+            <div class="form-group">
+              <label class="form-label">🛡️ Catchup Strict Mode</label>
+              <select class="form-select" id="cfg-catchup-strict-mode">
+                <option value="1" selected>Ein (empfohlen) - Kein Live-Fallback bei Catchup-Fehler</option>
+                <option value="0">Aus - Bei Catchup-Fehler auf Live fallen</option>
+              </select>
+              <div class="form-hint">Wenn aktiviert, liefert selfstream bei Catchup-Fehlern einen klaren Fehler statt still auf Live zu springen. Das verhindert ungewollte Spruenge auf den Live-Sender.</div>
+            </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
@@ -3267,6 +3275,7 @@ async function loadSettings() {
   document.getElementById('cfg-prefetch').value=s.prefetch_segments||'2';
   if(document.getElementById('cfg-catchup-ttl')) document.getElementById('cfg-catchup-ttl').value=s.catchup_ttl||'120';
   if(document.getElementById('cfg-catchup-ttl-after-endlist')) document.getElementById('cfg-catchup-ttl-after-endlist').value=s.catchup_ttl_after_endlist||'30';
+  if(document.getElementById('cfg-catchup-strict-mode')) document.getElementById('cfg-catchup-strict-mode').value=s.catchup_strict_mode||'1';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
   if (retEl) retEl.value = currentLogRetention;
@@ -3359,7 +3368,8 @@ async function saveHls() {
     hls_read_timeout:document.getElementById('cfg-rtimeout').value,
     prefetch_segments:document.getElementById('cfg-prefetch').value,
     catchup_ttl:(document.getElementById('cfg-catchup-ttl')||{}).value||'120',
-    catchup_ttl_after_endlist:(document.getElementById('cfg-catchup-ttl-after-endlist')||{}).value||'30'
+    catchup_ttl_after_endlist:(document.getElementById('cfg-catchup-ttl-after-endlist')||{}).value||'30',
+    catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1'
   });
   showToast('HLS-Einstellungen gespeichert');
 }
