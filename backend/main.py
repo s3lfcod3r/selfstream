@@ -12,6 +12,7 @@ import threading
 import subprocess
 import urllib.parse
 import re
+import json
 import xml.etree.ElementTree as ET
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -40,6 +41,46 @@ def diag_log(level: str, source: str, message: str):
     """Persist server diagnostics for the admin UI (~30 days). Must never affect requests."""
     try:
         db.add_diagnostic_log(level, source, message)
+    except Exception:
+        pass
+
+
+def _clip_text(v, max_len: int = 6000) -> str:
+    s = str(v)
+    if len(s) <= max_len:
+        return s
+    return s[:max_len] + f"... [truncated {len(s) - max_len} chars]"
+
+
+def is_player_request_debug_enabled() -> bool:
+    """Log detailed player HTTP requests/responses to diagnostics."""
+    return db.get_setting("player_request_debug", "1") == "1"
+
+
+def _log_player_request(stage: str, request: Request | None, token: str, extra: dict | None = None, level: str = "INFO"):
+    """Structured request tracing for playlist/stream/segment/catchup endpoints."""
+    if not is_player_request_debug_enabled():
+        return
+    try:
+        hdrs = {}
+        if request:
+            for k, v in request.headers.items():
+                hdrs[k.lower()] = v
+        payload = {
+            "stage": stage,
+            "token_prefix": (token or "")[:8],
+            "method": request.method if request else "",
+            "path": request.url.path if request else "",
+            "query": dict(request.query_params) if request else {},
+            "headers": hdrs,
+            "client": {
+                "x_forwarded_for": (request.headers.get("x-forwarded-for", "") if request else ""),
+                "remote_addr": (request.client.host if request and request.client else ""),
+            },
+            "extra": extra or {},
+        }
+        msg = _clip_text(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        diag_log(level, "player-request", msg)
     except Exception:
         pass
 
@@ -504,9 +545,11 @@ def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token
 
 @proxy_app.get("/iptv/{token}/playlist.m3u")
 @proxy_app.get("/iptv/{token}/playlist.m3u8")
-async def serve_playlist(token: str, local: str = None):
+async def serve_playlist(token: str, local: str = None, request: Request = None):
+    _log_player_request("playlist:request", request, token, {"local": local})
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
+        _log_player_request("playlist:forbidden", request, token, {"reason": "invalid_or_disabled"}, level="WARNING")
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
 
     channels = db.get_channels(enabled_only=True)
@@ -595,6 +638,7 @@ async def serve_playlist(token: str, local: str = None):
 
     content = build_m3u(channels, public_url, token, epg_sources)
     db.log_playlist_access(user["id"])
+    _log_player_request("playlist:response", request, token, {"channels": len(channels), "public_url": public_url})
     return HTMLResponse(content=content, media_type="application/x-mpegURL")
 
 
@@ -683,8 +727,10 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     - Normal mode: fetches live .m3u8 and rewrites segment URLs
     - Catchup mode (utc param): builds archive playlist from timestamp
     """
+    _log_player_request("stream:request", request, token, {"utc": utc, "lutc": lutc, "url_raw": url})
     user = db.get_user_by_token(token)
     if not user:
+        _log_player_request("stream:forbidden", request, token, {"reason": "invalid_token"}, level="WARNING")
         raise HTTPException(status_code=403, detail="Invalid token")
 
     if not user["active"]:
@@ -736,6 +782,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     "catchup",
                     f"Sticky catchup recover: redirect live->catchup for {user['name']} → {channel_name} @ {_cw}",
                 )
+                _log_player_request("stream:redirect_sticky_catchup", request, token, {"channel": channel_name, "catchup_time": _cw, "redirect_utc": _utc_rec})
                 return RedirectResponse(url=_redir)
 
     # ── CATCHUP MODE ──────────────────────────────────────────────────────────
@@ -847,6 +894,12 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             except Exception as _ce:
                 logger.warning(f"Catchup log failed: {_ce}")
                 diag_log("WARNING", "catchup", f"Catchup log failed: {_ce}")
+            _log_player_request(
+                "stream:catchup_playlist_response",
+                request,
+                token,
+                {"channel": channel_name, "utc": utc, "playlist_len": len(rewritten)},
+            )
             return HTMLResponse(
                 content=rewritten,
                 media_type="application/vnd.apple.mpegurl",
@@ -867,6 +920,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 "catchup",
                 f"Catchup failed, fallback to live enabled: {user['name']} → {channel_name} (utc={utc})",
             )
+            _log_player_request("stream:catchup_error_fallback_live", request, token, {"channel": channel_name, "utc": utc}, level="WARNING")
             # Fall through to live when strict mode is disabled.
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
@@ -976,6 +1030,12 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     asyncio.create_task(_prefetch_segment(seg_url, hls))
         except Exception:
             pass
+        _log_player_request(
+            "stream:live_playlist_response",
+            request,
+            token,
+            {"channel": channel_name, "playlist_len": len(rewritten), "sid": sid},
+        )
         return HTMLResponse(
             content=rewritten,
             media_type="application/vnd.apple.mpegurl",
@@ -985,6 +1045,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             }
         )
     except Exception as e:
+        _log_player_request("stream:error", request, token, {"channel": channel_name, "error": repr(e)}, level="ERROR")
         logger.error(f"Failed to fetch stream for {user['name']}: {e}")
         diag_log("ERROR", "stream", f"Failed to fetch stream for {user['name']}: {e}")
         raise HTTPException(status_code=502, detail=f"Stream fetch failed: {e}")
@@ -1764,8 +1825,10 @@ async def _catchup_epg_watchdog():
 
 @proxy_app.get("/iptv/{token}/segment")
 async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = None, request: Request = None):
+    _log_player_request("segment:request", request, token, {"catchup": catchup, "sid": sid, "url_raw": url})
     user = db.get_user_by_token(token)
     if not user:
+        _log_player_request("segment:forbidden", request, token, {"reason": "invalid_token"}, level="WARNING")
         raise HTTPException(status_code=403, detail="Invalid token")
 
     if not user["active"]:
@@ -1783,6 +1846,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     short_domain_seg = db.get_setting("short_domain", "")
     public_url_seg = short_domain_seg.rstrip("/") if short_domain_seg else proxy_url
     is_ts = not (decoded_url.endswith(".m3u8") or "m3u8" in decoded_url.split("?")[0])
+    _log_player_request("segment:decoded", request, token, {"catchup": catchup, "is_ts": is_ts, "decoded_url": decoded_url})
 
     # Live session tracking (TS *and* playlist refreshes).
     # Important: ExoPlayer polls playlists frequently even while still buffering segments.
@@ -1890,6 +1954,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                 where="nachgelagerte Playlist (.m3u8)",
                             )
                     rewritten = rewrite_hls_playlist(raw_pl, decoded_url, public_url_seg, token, catchup=True)
+                    _log_player_request(
+                        "segment:catchup_playlist_response",
+                        request,
+                        token,
+                        {"decoded_url": decoded_url, "playlist_len": len(rewritten)},
+                    )
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
                 else:
@@ -1981,6 +2051,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         for i in range(0, len(_cu_data), chunk_size):
                             yield _cu_data[i:i + chunk_size]
 
+                    _log_player_request(
+                        "segment:catchup_ts_response",
+                        request,
+                        token,
+                        {"decoded_url": decoded_url, "bytes": len(_cu_data), "elapsed": round(_cu_elapsed, 3)},
+                    )
                     return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
                                             headers={
                                                 "Cache-Control": "no-cache, no-store",
@@ -1990,6 +2066,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                                 "X-Accel-Timeout": "0",
                                             })
         except Exception as e:
+            _log_player_request("segment:catchup_error", request, token, {"decoded_url": decoded_url, "error": repr(e)}, level="ERROR")
             logger.error(f"Catchup segment error: {e}")
             diag_log("ERROR", "catchup", f"Catchup segment error: {e}")
             raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
@@ -2110,6 +2187,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         except asyncio.CancelledError:
             pass
         except Exception as e:
+            _log_player_request("segment:error", request, token, {"decoded_url": decoded_url, "is_ts": is_ts, "error": repr(e)}, level="ERROR")
             logger.error(f"Segment error: {e}")
             diag_log("ERROR", "segment", f"Segment error: {e}")
             if session_key and session_key in _sessions:
@@ -2118,6 +2196,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 db.end_watch_log(s["log_id"], int(time.time() - s["start"]))
 
     media_type = "application/vnd.apple.mpegurl" if not is_ts else "video/mp2t"
+    _log_player_request("segment:response_streaming", request, token, {"decoded_url": decoded_url, "is_ts": is_ts, "media_type": media_type})
     return StreamingResponse(stream_segment(), media_type=media_type,
                              headers={
                                  "Cache-Control": "no-cache, no-store",
@@ -2139,14 +2218,17 @@ async def stop_stream(token: str, request: Request = None):
 
 @proxy_app.get("/iptv/{token}/catchup/{channel_id}")
 async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str = None, request: Request = None):
+    _log_player_request("catchup:request", request, token, {"channel_id": channel_id, "utc": utc, "lutc": lutc})
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
+        _log_player_request("catchup:forbidden", request, token, {"channel_id": channel_id}, level="WARNING")
         raise HTTPException(status_code=403, detail="Invalid or disabled token")
     with db.conn() as con:
         row = con.execute(
             "SELECT * FROM channels WHERE tvg_id = ? LIMIT 1", (channel_id,)
         ).fetchone()
     if not row:
+        _log_player_request("catchup:not_found", request, token, {"channel_id": channel_id}, level="WARNING")
         raise HTTPException(status_code=404, detail="Channel not found")
     ch = dict(row)
     stream_url = ch["stream_url"]
@@ -2156,6 +2238,7 @@ async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str 
         redirect_url += f"&utc={utc}"
     if lutc:
         redirect_url += f"&lutc={lutc}"
+    _log_player_request("catchup:redirect_stream", request, token, {"channel_id": channel_id, "redirect_url": redirect_url})
     return RedirectResponse(url=redirect_url)
 
 
@@ -3174,6 +3257,7 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
+        "player_request_debug": s.get("player_request_debug", "1"),
         "catchup_ttl":                  s.get("catchup_ttl", "900"),
         "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "900"),
         "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
@@ -3187,7 +3271,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug",
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_strict_mode", "catchup_sticky_recover",
                "diagnostic_timezone"}
 
