@@ -20,7 +20,7 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Header
-from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import Database
