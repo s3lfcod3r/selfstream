@@ -760,6 +760,42 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     # Sticky catchup recovery:
     # Some clients switch to live URL after a transient catchup failure.
     # If a recent catchup session exists for the same token/channel, redirect back to catchup UTC.
+    if not utc and is_catchup_force_same_channel_live_enabled():
+        _req_ip = ""
+        if request:
+            _fwd_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            _req_ip = _fwd_ip or (request.client.host if request.client else "")
+        _now = time.time()
+        _recent_cv = None
+        _recent_ck = ""
+        for _k, _v in _catchup_sessions.items():
+            if _v.get("token") != token:
+                continue
+            if _req_ip and (_v.get("ip") or "").strip() and (_v.get("ip") or "").strip() != _req_ip:
+                continue
+            if (_now - float(_v.get("last_seen", 0))) > 75:
+                continue
+            if _recent_cv is None or float(_v.get("last_seen", 0)) > float(_recent_cv.get("last_seen", 0)):
+                _recent_cv = _v
+                _recent_ck = _k
+        if _recent_cv and _recent_ck:
+            _cu_channel = _recent_ck.split("::")[-1] if "::" in _recent_ck else ""
+            _cu_live_url = (_recent_cv.get("live_url") or "").strip()
+            if _cu_channel and _cu_live_url and _cu_channel != channel_name:
+                _redir_live_same = f"/iptv/{token}/stream?url={urllib.parse.quote(_cu_live_url, safe='')}"
+                diag_log(
+                    "INFO",
+                    "catchup",
+                    f"Catchup live channel guard: {user['name']} requested live {channel_name}, redirect to {_cu_channel}",
+                )
+                _log_player_request(
+                    "stream:redirect_live_same_channel",
+                    request,
+                    token,
+                    {"requested_channel": channel_name, "redirect_channel": _cu_channel},
+                )
+                return RedirectResponse(url=_redir_live_same)
+
     if not utc and is_catchup_sticky_recover_enabled():
         _ck = f"catchup::{token}::{channel_name}"
         _cv = _catchup_sessions.get(_ck)
@@ -1654,6 +1690,11 @@ def is_catchup_sticky_recover_enabled() -> bool:
 def is_catchup_auto_live_on_program_change_enabled() -> bool:
     """If enabled, catchup switches to live when the watched programme changes."""
     return db.get_setting("catchup_auto_live_on_program_change", "1") == "1"
+
+
+def is_catchup_force_same_channel_live_enabled() -> bool:
+    """If enabled, unexpected live-channel jumps after catchup are redirected to the catchup channel."""
+    return db.get_setting("catchup_force_same_channel_live", "1") == "1"
 
 
 def _catchup_idle_ttl_seconds(cv: dict) -> int:
@@ -3313,6 +3354,7 @@ def get_settings(_=Depends(check_admin)):
         "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
         "catchup_sticky_recover":       s.get("catchup_sticky_recover", "1"),
         "catchup_auto_live_on_program_change": s.get("catchup_auto_live_on_program_change", "1"),
+        "catchup_force_same_channel_live": s.get("catchup_force_same_channel_live", "1"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
@@ -3325,6 +3367,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",
+               "catchup_force_same_channel_live",
                "diagnostic_timezone"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
