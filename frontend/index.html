@@ -851,6 +851,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <div class="form-hint">Wenn ein Client bei Catchup-Aussetzern ploetzlich die Live-URL anfragt, wird dieselbe Quelle auf die letzte Catchup-Position zurueckgeleitet.</div>
             </div>
             <div class="form-group">
+              <label class="form-label">📺 Catchup -> Live bei Sendungswechsel</label>
+              <select class="form-select" id="cfg-catchup-auto-live-on-program-change">
+                <option value="1" selected>Ein - Bei naechster Sendung automatisch auf Live umschalten</option>
+                <option value="0">Aus - In Catchup weiterlaufen lassen</option>
+              </select>
+              <div class="form-hint">Wenn die Catchup-Position in den naechsten EPG-Slot wechselt, liefert selfstream beim naechsten Playlist-Refresh die Live-Playlist desselben Senders.</div>
+            </div>
+            <div class="form-group">
               <label class="form-label">🕵️ Player Request Diagnose</label>
               <select class="form-select" id="cfg-player-request-debug">
                 <option value="1" selected>Ein - Alle Player-Requests/Headers/Parameter loggen</option>
@@ -3333,6 +3341,7 @@ async function loadSettings() {
   if(document.getElementById('cfg-catchup-ttl-after-endlist')) document.getElementById('cfg-catchup-ttl-after-endlist').value=s.catchup_ttl_after_endlist||'30';
   if(document.getElementById('cfg-catchup-strict-mode')) document.getElementById('cfg-catchup-strict-mode').value=s.catchup_strict_mode||'1';
   if(document.getElementById('cfg-catchup-sticky-recover')) document.getElementById('cfg-catchup-sticky-recover').value=s.catchup_sticky_recover||'1';
+  if(document.getElementById('cfg-catchup-auto-live-on-program-change')) document.getElementById('cfg-catchup-auto-live-on-program-change').value=s.catchup_auto_live_on_program_change||'1';
   if(document.getElementById('cfg-player-request-debug')) document.getElementById('cfg-player-request-debug').value=s.player_request_debug||'1';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
@@ -3429,6 +3438,7 @@ async function saveHls() {
     catchup_ttl_after_endlist:(document.getElementById('cfg-catchup-ttl-after-endlist')||{}).value||'30',
     catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1',
     catchup_sticky_recover:(document.getElementById('cfg-catchup-sticky-recover')||{}).value||'1',
+    catchup_auto_live_on_program_change:(document.getElementById('cfg-catchup-auto-live-on-program-change')||{}).value||'1',
     player_request_debug:(document.getElementById('cfg-player-request-debug')||{}).value||'1'
   });
   showToast('HLS-Einstellungen gespeichert');
