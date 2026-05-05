@@ -826,12 +826,19 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         except Exception as e:
             logger.error(f"Catchup error: {e}")
             diag_log("ERROR", "catchup", f"Catchup error: {e}")
+            if is_catchup_strict_mode():
+                diag_log(
+                    "INFO",
+                    "catchup",
+                    f"Catchup strict mode active: no live fallback for {user['name']} → {channel_name} (utc={utc})",
+                )
+                raise HTTPException(status_code=502, detail=f"Catchup fetch failed: {e}")
             diag_log(
-                "INFO",
+                "WARNING",
                 "catchup",
-                f"Catchup failed (no live fallback): {user['name']} → {channel_name} (utc={utc})",
+                f"Catchup failed, fallback to live enabled: {user['name']} → {channel_name} (utc={utc})",
             )
-            raise HTTPException(status_code=502, detail=f"Catchup fetch failed: {e}")
+            # Fall through to live when strict mode is disabled.
 
     # ── LIVE MODE ─────────────────────────────────────────────────────────────
     # Check max concurrent streams only for live mode
@@ -1527,6 +1534,11 @@ def get_catchup_ttl_after_endlist() -> int:
         return 900
 
 
+def is_catchup_strict_mode() -> bool:
+    """If enabled, catchup errors return 502 instead of silently falling back to live."""
+    return db.get_setting("catchup_strict_mode", "1") == "1"
+
+
 def _catchup_idle_ttl_seconds(cv: dict) -> int:
     if cv.get("saw_endlist"):
         # Never shorten below normal catchup ttl; ENDLIST can appear early on some providers.
@@ -1847,74 +1859,94 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     return HTMLResponse(content=rewritten, media_type="application/vnd.apple.mpegurl",
                                         headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"})
                 else:
-                    async def stream_catchup_ts():
+                    max_cu_attempts = 4
+                    _cu_data = b""
+                    _cu_elapsed = 0.0
+                    for _cu_try in range(max_cu_attempts):
                         _hb = asyncio.create_task(_catchup_segment_idle_heartbeat(token, decoded_url))
                         try:
                             _cu_t0 = time.time()
-                            _cu_data = b""
+                            _buf = bytearray()
                             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
                                 async with c2.stream("GET", decoded_url) as r2:
+                                    if r2.status_code not in (200, 206):
+                                        raise HTTPException(status_code=502, detail=f"Catchup segment upstream HTTP {r2.status_code}")
                                     async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
-                                        _cu_data += chunk
-                                        yield chunk
-                            # Log timing for catchup segments
+                                        _buf.extend(chunk)
                             _cu_elapsed = time.time() - _cu_t0
-                            _cu_size_kb = len(_cu_data) / 1024
-                            _cu_speed = min((len(_cu_data) * 8) / (max(_cu_elapsed, 0.001) * 1_000_000), 10000.0)
-                            _cu_seg = decoded_url.split("/")[-1].split("?")[0]
-                            _cu_user = user.get("name", token[:8])
-                            _ck_cu = _resolve_catchup_session_key(token, decoded_url)
-                            _cu_ch = _ck_cu.split("::")[-1] if _ck_cu and "::" in _ck_cu else ""
-                            # Get provider_id from channel record
-                            _cu_provider_id = user.get("provider_id")
-                            if not _cu_provider_id and _cu_ch:
-                                try:
-                                    _cu_ch_rec = db.get_channel_by_name(_cu_ch) or {}
-                                    _cu_provider_id = _cu_ch_rec.get("provider_id")
-                                except Exception:
-                                    pass
-                            if _cu_elapsed > 2.0:
-                                logger.warning(f"⚠️ SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s")
-                                diag_log(
-                                    "WARNING",
-                                    "segment",
-                                    f"SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s",
-                                )
-                                _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
-                                          "type": "slow", "elapsed": round(_cu_elapsed, 2),
-                                          "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
-                                          "seg": _cu_seg, "provider_id": _cu_provider_id}
-                                _segment_events.append(_cu_ev)
-                                if len(_segment_events) > 500: _segment_events.pop(0)
-                                try: db.add_segment_event(_cu_ev)
-                                except Exception: pass
-                            elif _cu_elapsed > 1.0:
-                                _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
-                                          "type": "delayed", "elapsed": round(_cu_elapsed, 2),
-                                          "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
-                                          "seg": _cu_seg, "provider_id": _cu_provider_id}
-                                _segment_events.append(_cu_ev)
-                                if len(_segment_events) > 500: _segment_events.pop(0)
-                                try: db.add_segment_event(_cu_ev)
-                                except Exception: pass
-                            elif db.get_setting("segment_debug", "0") == "1":
-                                _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
-                                          "type": "ok", "elapsed": round(_cu_elapsed, 2),
-                                          "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
-                                          "seg": _cu_seg, "provider_id": _cu_provider_id}
-                                _segment_events.append(_cu_ev)
-                                if len(_segment_events) > 500: _segment_events.pop(0)
-                                try: db.add_segment_event(_cu_ev)
-                                except Exception: pass
-                        except Exception as e:
-                            logger.error(f"Catchup TS segment error: {e}")
-                            diag_log("ERROR", "catchup", f"Catchup TS segment error: {e}")
+                            _cu_data = bytes(_buf)
+                            if len(_cu_data) >= 1_000:
+                                break
+                            raise HTTPException(status_code=502, detail=f"Catchup segment too small ({len(_cu_data)} bytes)")
+                        except Exception as _cu_err:
+                            if _cu_try >= max_cu_attempts - 1:
+                                raise
+                            diag_log(
+                                "WARNING",
+                                "catchup",
+                                f"Catchup TS retry {_cu_try + 2}/{max_cu_attempts}: {_cu_err}",
+                            )
+                            await asyncio.sleep(min(1.5, 0.2 * (2 ** _cu_try)))
                         finally:
                             _hb.cancel()
                             try:
                                 await _hb
                             except asyncio.CancelledError:
                                 pass
+
+                    _cu_size_kb = len(_cu_data) / 1024
+                    _cu_speed = min((len(_cu_data) * 8) / (max(_cu_elapsed, 0.001) * 1_000_000), 10000.0)
+                    _cu_seg = decoded_url.split("/")[-1].split("?")[0]
+                    _cu_user = user.get("name", token[:8])
+                    _ck_cu = _resolve_catchup_session_key(token, decoded_url)
+                    _cu_ch = _ck_cu.split("::")[-1] if _ck_cu and "::" in _ck_cu else ""
+                    # Get provider_id from channel record
+                    _cu_provider_id = user.get("provider_id")
+                    if not _cu_provider_id and _cu_ch:
+                        try:
+                            _cu_ch_rec = db.get_channel_by_name(_cu_ch) or {}
+                            _cu_provider_id = _cu_ch_rec.get("provider_id")
+                        except Exception:
+                            pass
+                    if _cu_elapsed > 2.0:
+                        logger.warning(f"⚠️ SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s")
+                        diag_log(
+                            "WARNING",
+                            "segment",
+                            f"SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s",
+                        )
+                        _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
+                                  "type": "slow", "elapsed": round(_cu_elapsed, 2),
+                                  "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
+                                  "seg": _cu_seg, "provider_id": _cu_provider_id}
+                        _segment_events.append(_cu_ev)
+                        if len(_segment_events) > 500: _segment_events.pop(0)
+                        try: db.add_segment_event(_cu_ev)
+                        except Exception: pass
+                    elif _cu_elapsed > 1.0:
+                        _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
+                                  "type": "delayed", "elapsed": round(_cu_elapsed, 2),
+                                  "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
+                                  "seg": _cu_seg, "provider_id": _cu_provider_id}
+                        _segment_events.append(_cu_ev)
+                        if len(_segment_events) > 500: _segment_events.pop(0)
+                        try: db.add_segment_event(_cu_ev)
+                        except Exception: pass
+                    elif db.get_setting("segment_debug", "0") == "1":
+                        _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
+                                  "type": "ok", "elapsed": round(_cu_elapsed, 2),
+                                  "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
+                                  "seg": _cu_seg, "provider_id": _cu_provider_id}
+                        _segment_events.append(_cu_ev)
+                        if len(_segment_events) > 500: _segment_events.pop(0)
+                        try: db.add_segment_event(_cu_ev)
+                        except Exception: pass
+
+                    async def stream_catchup_ts():
+                        chunk_size = 524288
+                        for i in range(0, len(_cu_data), chunk_size):
+                            yield _cu_data[i:i + chunk_size]
+
                     return StreamingResponse(stream_catchup_ts(), media_type="video/mp2t",
                                             headers={
                                                 "Cache-Control": "no-cache, no-store",
@@ -3109,7 +3141,8 @@ def get_settings(_=Depends(check_admin)):
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
         "catchup_ttl":                  s.get("catchup_ttl", "900"),
-        "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "180"),
+        "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "900"),
+        "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
@@ -3120,7 +3153,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug",
-               "catchup_ttl", "catchup_ttl_after_endlist",
+               "catchup_ttl", "catchup_ttl_after_endlist", "catchup_strict_mode",
                "diagnostic_timezone"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
