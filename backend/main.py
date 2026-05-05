@@ -709,6 +709,35 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         decoded_url.split("/")[-2] if "/ch" in decoded_url else decoded_url.split("/")[-1].split("?")[0]
     )
 
+    # Sticky catchup recovery:
+    # Some clients switch to live URL after a transient catchup failure.
+    # If a recent catchup session exists for the same token/channel, redirect back to catchup UTC.
+    if not utc and is_catchup_sticky_recover_enabled():
+        _ck = f"catchup::{token}::{channel_name}"
+        _cv = _catchup_sessions.get(_ck)
+        if _cv:
+            _now = time.time()
+            _idle_ttl = _catchup_idle_ttl_seconds(_cv)
+            _is_recent = (_now - float(_cv.get("last_seen", 0))) <= max(30, _idle_ttl)
+            _same_ip = True
+            if request:
+                _fwd_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                _req_ip = _fwd_ip or (request.client.host if request.client else "")
+                _sess_ip = (_cv.get("ip") or "").strip()
+                if _sess_ip and _req_ip:
+                    _same_ip = _sess_ip == _req_ip
+            _cw = (_cv.get("catchup_time") or "").strip()
+            _ct = _parse_catchup_wall_time(_cw) if _cw else None
+            if _is_recent and _same_ip and _ct:
+                _utc_rec = int(_ct.timestamp())
+                _redir = f"/iptv/{token}/stream?url={urllib.parse.quote(decoded_url, safe='')}&utc={_utc_rec}"
+                diag_log(
+                    "INFO",
+                    "catchup",
+                    f"Sticky catchup recover: redirect live->catchup for {user['name']} → {channel_name} @ {_cw}",
+                )
+                return RedirectResponse(url=_redir)
+
     # ── CATCHUP MODE ──────────────────────────────────────────────────────────
     # Catchup requests bypass max-stream check – they don't hold a live session
     if utc:
@@ -1537,6 +1566,11 @@ def get_catchup_ttl_after_endlist() -> int:
 def is_catchup_strict_mode() -> bool:
     """If enabled, catchup errors return 502 instead of silently falling back to live."""
     return db.get_setting("catchup_strict_mode", "1") == "1"
+
+
+def is_catchup_sticky_recover_enabled() -> bool:
+    """If enabled, accidental live fallback requests are redirected back into recent catchup."""
+    return db.get_setting("catchup_sticky_recover", "1") == "1"
 
 
 def _catchup_idle_ttl_seconds(cv: dict) -> int:
@@ -3143,6 +3177,7 @@ def get_settings(_=Depends(check_admin)):
         "catchup_ttl":                  s.get("catchup_ttl", "900"),
         "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "900"),
         "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
+        "catchup_sticky_recover":       s.get("catchup_sticky_recover", "1"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
@@ -3153,7 +3188,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug",
-               "catchup_ttl", "catchup_ttl_after_endlist", "catchup_strict_mode",
+               "catchup_ttl", "catchup_ttl_after_endlist", "catchup_strict_mode", "catchup_sticky_recover",
                "diagnostic_timezone"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
