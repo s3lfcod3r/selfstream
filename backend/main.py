@@ -757,10 +757,64 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         decoded_url.split("/")[-2] if "/ch" in decoded_url else decoded_url.split("/")[-1].split("?")[0]
     )
 
+    # Catchup hard lock:
+    # While a catchup session is active, force plain live stream requests back to catchup utc.
+    if not utc and is_catchup_guard_master_enabled() and is_catchup_hard_lock_enabled():
+        _req_ip_hl = ""
+        if request:
+            _fwd_ip_hl = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            _req_ip_hl = _fwd_ip_hl or (request.client.host if request.client else "")
+        _now_hl = time.time()
+        _best_key = ""
+        _best_cv = None
+        for _k_hl, _cv_hl in _catchup_sessions.items():
+            if _cv_hl.get("token") != token:
+                continue
+            _sess_ip_hl = (_cv_hl.get("ip") or "").strip()
+            if _req_ip_hl and _sess_ip_hl and _sess_ip_hl != _req_ip_hl:
+                continue
+            _idle_gap_hl = _now_hl - float(_cv_hl.get("last_seen", 0))
+            if _idle_gap_hl > max(30, _catchup_idle_ttl_seconds(_cv_hl)):
+                continue
+            if _best_cv is None:
+                _best_key = _k_hl
+                _best_cv = _cv_hl
+                continue
+            _best_ch = _best_key.split("::")[-1] if "::" in _best_key else ""
+            _cur_ch = _k_hl.split("::")[-1] if "::" in _k_hl else ""
+            if _cur_ch == channel_name and _best_ch != channel_name:
+                _best_key = _k_hl
+                _best_cv = _cv_hl
+                continue
+            if float(_cv_hl.get("last_seen", 0)) > float(_best_cv.get("last_seen", 0)):
+                _best_key = _k_hl
+                _best_cv = _cv_hl
+
+        if _best_cv and _best_key:
+            _cw_hl = (_best_cv.get("catchup_time") or "").strip()
+            _ct_hl = _parse_catchup_wall_time(_cw_hl) if _cw_hl else None
+            _live_url_hl = (_best_cv.get("live_url") or "").strip() or decoded_url
+            _hl_channel = _best_key.split("::")[-1] if "::" in _best_key else channel_name
+            if _ct_hl and _live_url_hl:
+                _utc_hl = int(_ct_hl.timestamp())
+                _redir_hl = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url_hl, safe='')}&utc={_utc_hl}"
+                diag_log(
+                    "INFO",
+                    "catchup",
+                    f"Catchup hard-lock: redirect live->catchup for {user['name']} → {_hl_channel} @ {_cw_hl}",
+                )
+                _log_player_request(
+                    "stream:redirect_catchup_hard_lock",
+                    request,
+                    token,
+                    {"requested_channel": channel_name, "lock_channel": _hl_channel, "catchup_time": _cw_hl, "redirect_utc": _utc_hl},
+                )
+                return RedirectResponse(url=_redir_hl)
+
     # Sticky catchup recovery:
     # Some clients switch to live URL after a transient catchup failure.
     # If a recent catchup session exists for the same token/channel, redirect back to catchup UTC.
-    if not utc and is_catchup_force_same_channel_live_enabled():
+    if not utc and is_catchup_guard_master_enabled() and is_catchup_force_same_channel_live_enabled():
         _req_ip = ""
         if request:
             _fwd_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
@@ -796,7 +850,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 )
                 return RedirectResponse(url=_redir_live_same)
 
-    if not utc and is_catchup_sticky_recover_enabled():
+    if not utc and is_catchup_guard_master_enabled() and is_catchup_sticky_recover_enabled():
         _ck = f"catchup::{token}::{channel_name}"
         _cv = _catchup_sessions.get(_ck)
         if _cv:
@@ -1603,7 +1657,8 @@ def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, sou
     if resolved_epg:
         cv["epg_title"] = resolved_epg
     if (
-        is_catchup_auto_live_on_program_change_enabled()
+        is_catchup_guard_master_enabled()
+        and is_catchup_auto_live_on_program_change_enabled()
         and not sticky
         and old_epg_clean
         and new_epg
@@ -1682,6 +1737,11 @@ def is_catchup_strict_mode() -> bool:
     return db.get_setting("catchup_strict_mode", "1") == "1"
 
 
+def is_catchup_guard_master_enabled() -> bool:
+    """Master switch for catchup guard/recovery redirects."""
+    return db.get_setting("catchup_guard_master", "1") == "1"
+
+
 def is_catchup_sticky_recover_enabled() -> bool:
     """If enabled, accidental live fallback requests are redirected back into recent catchup."""
     return db.get_setting("catchup_sticky_recover", "1") == "1"
@@ -1695,6 +1755,11 @@ def is_catchup_auto_live_on_program_change_enabled() -> bool:
 def is_catchup_force_same_channel_live_enabled() -> bool:
     """If enabled, unexpected live-channel jumps after catchup are redirected to the catchup channel."""
     return db.get_setting("catchup_force_same_channel_live", "1") == "1"
+
+
+def is_catchup_hard_lock_enabled() -> bool:
+    """If enabled, active catchup sessions force /stream requests back to catchup utc."""
+    return db.get_setting("catchup_hard_lock", "1") == "1"
 
 
 def _catchup_idle_ttl_seconds(cv: dict) -> int:
@@ -1999,11 +2064,16 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
                 _ck_live = _resolve_catchup_session_key(token, decoded_url)
                 _cv_live = _catchup_sessions.get(_ck_live) if _ck_live else None
-                if _cv_live and _cv_live.get("auto_live_pending"):
+                if is_catchup_guard_master_enabled() and _cv_live and _cv_live.get("auto_live_pending"):
                     _live_url = (_cv_live.get("live_url") or "").strip()
                     if _live_url:
+                        _cw_live = (_cv_live.get("catchup_time") or "").strip()
+                        _ct_live = _parse_catchup_wall_time(_cw_live) if _cw_live else None
                         _cv_live["auto_live_pending"] = False
-                        _redir_live = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url, safe='')}"
+                        if _ct_live:
+                            _redir_live = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url, safe='')}&utc={int(_ct_live.timestamp())}"
+                        else:
+                            _redir_live = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url, safe='')}"
                         diag_log(
                             "INFO",
                             "catchup",
@@ -3342,10 +3412,12 @@ def get_settings(_=Depends(check_admin)):
         "player_request_debug": s.get("player_request_debug", "1"),
         "catchup_ttl":                  s.get("catchup_ttl", "900"),
         "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "900"),
+        "catchup_guard_master":         s.get("catchup_guard_master", "1"),
         "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
         "catchup_sticky_recover":       s.get("catchup_sticky_recover", "1"),
         "catchup_auto_live_on_program_change": s.get("catchup_auto_live_on_program_change", "1"),
         "catchup_force_same_channel_live": s.get("catchup_force_same_channel_live", "1"),
+        "catchup_hard_lock":            s.get("catchup_hard_lock", "1"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
     }
 
@@ -3356,9 +3428,10 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "player_request_debug",
-               "catchup_ttl", "catchup_ttl_after_endlist", "catchup_strict_mode", "catchup_sticky_recover",
+               "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",
                "catchup_force_same_channel_live",
+               "catchup_hard_lock",
                "diagnostic_timezone"}
 
     old_ret_raw = db.get_setting("log_retention_days", "-1")
