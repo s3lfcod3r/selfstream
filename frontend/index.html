@@ -933,6 +933,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <div class="form-hint">Wenn die Catchup-Position in den naechsten EPG-Slot wechselt, liefert selfstream beim naechsten Playlist-Refresh die Live-Playlist desselben Senders.</div>
             </div>
             <div class="form-group">
+              <label class="form-label">🧷 Auto-Live Redirect mit UTC-Lock</label>
+              <select class="form-select" id="cfg-catchup-auto-live-keep-utc">
+                <option value="1" selected>Ein - UTC mitsenden (bleibt Catchup-zeitgebunden)</option>
+                <option value="0">Aus - Echter Live-Sprung ohne UTC</option>
+              </select>
+              <div class="form-hint">Steuert das Verhalten beim Auto-Live-Redirect: mit UTC bleibt die Catchup-Zeit fixiert; ohne UTC geht es auf echten Live-Stream.</div>
+            </div>
+            <div class="form-group">
               <label class="form-label">🧭 Catchup Live Kanal-Schutz</label>
               <select class="form-select" id="cfg-catchup-force-same-channel-live">
                 <option value="1" selected>Ein (empfohlen) - Unerwartete Live-Spruenge auf anderen Kanal korrigieren</option>
@@ -3433,6 +3441,7 @@ async function loadSettings() {
   if(document.getElementById('cfg-catchup-strict-mode')) document.getElementById('cfg-catchup-strict-mode').value=s.catchup_strict_mode||'1';
   if(document.getElementById('cfg-catchup-sticky-recover')) document.getElementById('cfg-catchup-sticky-recover').value=s.catchup_sticky_recover||'1';
   if(document.getElementById('cfg-catchup-auto-live-on-program-change')) document.getElementById('cfg-catchup-auto-live-on-program-change').value=s.catchup_auto_live_on_program_change||'1';
+  if(document.getElementById('cfg-catchup-auto-live-keep-utc')) document.getElementById('cfg-catchup-auto-live-keep-utc').value=s.catchup_auto_live_keep_utc||'1';
   if(document.getElementById('cfg-catchup-force-same-channel-live')) document.getElementById('cfg-catchup-force-same-channel-live').value=s.catchup_force_same_channel_live||'1';
   if(document.getElementById('cfg-catchup-hard-lock')) document.getElementById('cfg-catchup-hard-lock').value=s.catchup_hard_lock||'1';
   if(document.getElementById('cfg-player-request-debug')) document.getElementById('cfg-player-request-debug').value=s.player_request_debug||'1';
@@ -3533,6 +3542,7 @@ async function saveHls() {
     catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1',
     catchup_sticky_recover:(document.getElementById('cfg-catchup-sticky-recover')||{}).value||'1',
     catchup_auto_live_on_program_change:(document.getElementById('cfg-catchup-auto-live-on-program-change')||{}).value||'1',
+    catchup_auto_live_keep_utc:(document.getElementById('cfg-catchup-auto-live-keep-utc')||{}).value||'1',
     catchup_force_same_channel_live:(document.getElementById('cfg-catchup-force-same-channel-live')||{}).value||'1',
     catchup_hard_lock:(document.getElementById('cfg-catchup-hard-lock')||{}).value||'1',
     player_request_debug:(document.getElementById('cfg-player-request-debug')||{}).value||'1'
