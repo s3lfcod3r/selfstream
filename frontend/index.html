@@ -901,6 +901,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <div class="form-hint">Gilt nur, wenn beim Catchup-<strong>Start</strong> die Master-<code>index.m3u8</code> schon <code>#EXT-X-ENDLIST</code> enthält (dann oft echtes Kurz-Archiv). Unter-Playlisten mit ENDLIST (Sliding Window) lösen diesen Timer <strong>nicht</strong> mehr aus — damit verhält sich die Idle-Zählung näher an einer direkten Anbieter-M3U. Höher = Session bleibt nach diesem Archiv-Ende länger als „aktiv“ gelistet, wenn der Player noch nichts anfragt.</div>
             </div>
             <div class="form-group">
+              <label class="form-label">🧰 Catchup Guard Master</label>
+              <select class="form-select" id="cfg-catchup-guard-master">
+                <option value="1" selected>Ein (empfohlen) - Catchup Schutzfunktionen aktiv</option>
+                <option value="0">Aus - Kein Catchup-Recover/Hard-Lock/Auto-Redirect</option>
+              </select>
+              <div class="form-hint">Globaler Schalter fuer Catchup-Guards. Die darunterliegenden Optionen wirken nur, wenn dieser Schalter auf Ein steht.</div>
+            </div>
+            <div class="form-group">
               <label class="form-label">🛡️ Catchup Strict Mode</label>
               <select class="form-select" id="cfg-catchup-strict-mode">
                 <option value="1" selected>Ein (empfohlen) - Kein Live-Fallback bei Catchup-Fehler</option>
@@ -931,6 +939,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="0">Aus - Keine Kanal-Korrektur</option>
               </select>
               <div class="form-hint">Wenn direkt nach Catchup ploetzlich ein Live-Request fuer einen anderen Kanal kommt, wird auf Live der zuletzt gesehenen Catchup-Quelle umgeleitet.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">🔒 Catchup Hard-Lock</label>
+              <select class="form-select" id="cfg-catchup-hard-lock">
+                <option value="1" selected>Ein (empfohlen) - Live ohne utc waehrend Catchup blockieren</option>
+                <option value="0">Aus - Nur Soft-Recover</option>
+              </select>
+              <div class="form-hint">Solange eine Catchup-Session aktiv ist, werden normale /stream-Live-Requests automatisch auf die letzte Catchup-Position zurueckgeleitet.</div>
             </div>
             <div class="form-group">
               <label class="form-label">🕵️ Player Request Diagnose</label>
@@ -3413,10 +3429,12 @@ async function loadSettings() {
   document.getElementById('cfg-prefetch').value=s.prefetch_segments||'2';
   if(document.getElementById('cfg-catchup-ttl')) document.getElementById('cfg-catchup-ttl').value=s.catchup_ttl||'120';
   if(document.getElementById('cfg-catchup-ttl-after-endlist')) document.getElementById('cfg-catchup-ttl-after-endlist').value=s.catchup_ttl_after_endlist||'30';
+  if(document.getElementById('cfg-catchup-guard-master')) document.getElementById('cfg-catchup-guard-master').value=s.catchup_guard_master||'1';
   if(document.getElementById('cfg-catchup-strict-mode')) document.getElementById('cfg-catchup-strict-mode').value=s.catchup_strict_mode||'1';
   if(document.getElementById('cfg-catchup-sticky-recover')) document.getElementById('cfg-catchup-sticky-recover').value=s.catchup_sticky_recover||'1';
   if(document.getElementById('cfg-catchup-auto-live-on-program-change')) document.getElementById('cfg-catchup-auto-live-on-program-change').value=s.catchup_auto_live_on_program_change||'1';
   if(document.getElementById('cfg-catchup-force-same-channel-live')) document.getElementById('cfg-catchup-force-same-channel-live').value=s.catchup_force_same_channel_live||'1';
+  if(document.getElementById('cfg-catchup-hard-lock')) document.getElementById('cfg-catchup-hard-lock').value=s.catchup_hard_lock||'1';
   if(document.getElementById('cfg-player-request-debug')) document.getElementById('cfg-player-request-debug').value=s.player_request_debug||'1';
   currentLogRetention = s.log_retention_days || '-1';
   const retEl = document.getElementById('cfg-log-retention');
@@ -3511,10 +3529,12 @@ async function saveHls() {
     prefetch_segments:document.getElementById('cfg-prefetch').value,
     catchup_ttl:(document.getElementById('cfg-catchup-ttl')||{}).value||'120',
     catchup_ttl_after_endlist:(document.getElementById('cfg-catchup-ttl-after-endlist')||{}).value||'30',
+    catchup_guard_master:(document.getElementById('cfg-catchup-guard-master')||{}).value||'1',
     catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1',
     catchup_sticky_recover:(document.getElementById('cfg-catchup-sticky-recover')||{}).value||'1',
     catchup_auto_live_on_program_change:(document.getElementById('cfg-catchup-auto-live-on-program-change')||{}).value||'1',
     catchup_force_same_channel_live:(document.getElementById('cfg-catchup-force-same-channel-live')||{}).value||'1',
+    catchup_hard_lock:(document.getElementById('cfg-catchup-hard-lock')||{}).value||'1',
     player_request_debug:(document.getElementById('cfg-player-request-debug')||{}).value||'1'
   });
   showToast('HLS-Einstellungen gespeichert');
