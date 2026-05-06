@@ -1997,35 +1997,26 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         try:
             timeout = catchup_upstream_httpx_timeout(hls)
             async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
+                _ck_live = _resolve_catchup_session_key(token, decoded_url)
+                _cv_live = _catchup_sessions.get(_ck_live) if _ck_live else None
+                if _cv_live and _cv_live.get("auto_live_pending"):
+                    _live_url = (_cv_live.get("live_url") or "").strip()
+                    if _live_url:
+                        _cv_live["auto_live_pending"] = False
+                        _redir_live = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url, safe='')}"
+                        diag_log(
+                            "INFO",
+                            "catchup",
+                            f"Catchup -> live hard redirect for {user.get('name', token[:8])}: {(_ck_live or '').split('::')[-1] or '?'}",
+                        )
+                        _log_player_request(
+                            "segment:catchup_auto_live_redirect",
+                            request,
+                            token,
+                            {"redirect_url": _redir_live, "trigger": "auto_live_pending", "is_ts": is_ts},
+                        )
+                        return RedirectResponse(url=_redir_live)
                 if not is_ts:
-                    _ck_live = _resolve_catchup_session_key(token, decoded_url)
-                    _cv_live = _catchup_sessions.get(_ck_live) if _ck_live else None
-                    if _cv_live and _cv_live.get("auto_live_pending"):
-                        _live_url = (_cv_live.get("live_url") or "").strip()
-                        if _live_url:
-                            _live_resp = await client.get(_live_url)
-                            _live_resp.raise_for_status()
-                            _live_pl = _live_resp.text
-                            rewritten_live = rewrite_hls_playlist(
-                                _live_pl, _live_url, public_url_seg, token, sid=sid, catchup=False
-                            )
-                            _cv_live["auto_live_pending"] = False
-                            diag_log(
-                                "INFO",
-                                "catchup",
-                                f"Catchup -> live handoff for {user.get('name', token[:8])}: {(_ck_live or '').split('::')[-1] or '?'}",
-                            )
-                            _log_player_request(
-                                "segment:catchup_auto_live_playlist_response",
-                                request,
-                                token,
-                                {"live_url": _live_url, "playlist_len": len(rewritten_live)},
-                            )
-                            return HTMLResponse(
-                                content=rewritten_live,
-                                media_type="application/vnd.apple.mpegurl",
-                                headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"},
-                            )
                     resp = await client.get(decoded_url)
                     resp.raise_for_status()
                     raw_pl = resp.text
