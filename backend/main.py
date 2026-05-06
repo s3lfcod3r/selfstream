@@ -757,9 +757,27 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         decoded_url.split("/")[-2] if "/ch" in decoded_url else decoded_url.split("/")[-1].split("?")[0]
     )
 
+    _req_ip_common = ""
+    if request:
+        _fwd_ip_common = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        _req_ip_common = _fwd_ip_common or (request.client.host if request.client else "")
+    _now_common = time.time()
+    _catchup_live_break_active = False
+    for _k_cb, _cv_cb in _catchup_sessions.items():
+        if _cv_cb.get("token") != token:
+            continue
+        _sess_ip_cb = (_cv_cb.get("ip") or "").strip()
+        if _req_ip_common and _sess_ip_cb and _sess_ip_cb != _req_ip_common:
+            continue
+        if (_now_common - float(_cv_cb.get("last_seen", 0))) > max(30, _catchup_idle_ttl_seconds(_cv_cb)):
+            continue
+        if _now_common < float(_cv_cb.get("allow_live_until", 0)):
+            _catchup_live_break_active = True
+            break
+
     # Catchup hard lock:
     # While a catchup session is active, force plain live stream requests back to catchup utc.
-    if not utc and is_catchup_guard_master_enabled() and is_catchup_hard_lock_enabled():
+    if not utc and (not _catchup_live_break_active) and is_catchup_guard_master_enabled() and is_catchup_hard_lock_enabled():
         _req_ip_hl = ""
         if request:
             _fwd_ip_hl = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
@@ -814,7 +832,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     # Sticky catchup recovery:
     # Some clients switch to live URL after a transient catchup failure.
     # If a recent catchup session exists for the same token/channel, redirect back to catchup UTC.
-    if not utc and is_catchup_guard_master_enabled() and is_catchup_force_same_channel_live_enabled():
+    if not utc and (not _catchup_live_break_active) and is_catchup_guard_master_enabled() and is_catchup_force_same_channel_live_enabled():
         _req_ip = ""
         if request:
             _fwd_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
@@ -850,7 +868,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 )
                 return RedirectResponse(url=_redir_live_same)
 
-    if not utc and is_catchup_guard_master_enabled() and is_catchup_sticky_recover_enabled():
+    if not utc and (not _catchup_live_break_active) and is_catchup_guard_master_enabled() and is_catchup_sticky_recover_enabled():
         _ck = f"catchup::{token}::{channel_name}"
         _cv = _catchup_sessions.get(_ck)
         if _cv:
@@ -968,6 +986,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     "catchup_time": dt_str,
                     "live_url": decoded_url,
                     "auto_live_pending": False,
+                    "allow_live_until": 0.0,
                     "last_dvr_dt_str": dt_str,
                     "saw_endlist": False,
                     "endlist_seen_at": None,
@@ -2081,6 +2100,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         else:
                             _redir_live = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url, safe='')}"
                             _mode = "true_live"
+                            _cv_live["allow_live_until"] = time.time() + 180
                         diag_log(
                             "INFO",
                             "catchup",
