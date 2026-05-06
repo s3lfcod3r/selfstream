@@ -771,9 +771,28 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             continue
         if (_now_common - float(_cv_cb.get("last_seen", 0))) > max(30, _catchup_idle_ttl_seconds(_cv_cb)):
             continue
-        if _now_common < float(_cv_cb.get("allow_live_until", 0)):
+        _cb_channel = _k_cb.split("::")[-1] if "::" in _k_cb else ""
+        _cb_live_url = (_cv_cb.get("live_url") or "").strip()
+        _same_channel_or_url = (_cb_channel == channel_name) or (_cb_live_url and _cb_live_url == decoded_url)
+        if _same_channel_or_url and _now_common < float(_cv_cb.get("allow_live_until", 0)):
             _catchup_live_break_active = True
             break
+
+    # During the live-break window, ignore incoming utc catchup requests for this channel
+    # so clients cannot immediately pull us back into catchup after auto-live redirect.
+    if utc and _catchup_live_break_active:
+        diag_log(
+            "INFO",
+            "catchup",
+            f"Catchup live-break: ignore utc and keep live for {user['name']} → {channel_name}",
+        )
+        _log_player_request(
+            "stream:ignore_utc_live_break",
+            request,
+            token,
+            {"channel": channel_name, "utc_in": utc},
+        )
+        utc = None
 
     # Catchup hard lock:
     # While a catchup session is active, force plain live stream requests back to catchup utc.
