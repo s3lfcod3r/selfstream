@@ -1752,6 +1752,11 @@ def is_catchup_auto_live_on_program_change_enabled() -> bool:
     return db.get_setting("catchup_auto_live_on_program_change", "1") == "1"
 
 
+def is_catchup_auto_live_keep_utc_enabled() -> bool:
+    """If enabled, auto-live redirect keeps utc parameter (stays in catchup timeline)."""
+    return db.get_setting("catchup_auto_live_keep_utc", "1") == "1"
+
+
 def is_catchup_force_same_channel_live_enabled() -> bool:
     """If enabled, unexpected live-channel jumps after catchup are redirected to the catchup channel."""
     return db.get_setting("catchup_force_same_channel_live", "1") == "1"
@@ -2070,20 +2075,22 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         _cw_live = (_cv_live.get("catchup_time") or "").strip()
                         _ct_live = _parse_catchup_wall_time(_cw_live) if _cw_live else None
                         _cv_live["auto_live_pending"] = False
-                        if _ct_live:
+                        if _ct_live and is_catchup_auto_live_keep_utc_enabled():
                             _redir_live = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url, safe='')}&utc={int(_ct_live.timestamp())}"
+                            _mode = "keep_utc"
                         else:
                             _redir_live = f"/iptv/{token}/stream?url={urllib.parse.quote(_live_url, safe='')}"
+                            _mode = "true_live"
                         diag_log(
                             "INFO",
                             "catchup",
-                            f"Catchup -> live hard redirect for {user.get('name', token[:8])}: {(_ck_live or '').split('::')[-1] or '?'}",
+                            f"Catchup -> live hard redirect ({_mode}) for {user.get('name', token[:8])}: {(_ck_live or '').split('::')[-1] or '?'}",
                         )
                         _log_player_request(
                             "segment:catchup_auto_live_redirect",
                             request,
                             token,
-                            {"redirect_url": _redir_live, "trigger": "auto_live_pending", "is_ts": is_ts},
+                            {"redirect_url": _redir_live, "trigger": "auto_live_pending", "is_ts": is_ts, "mode": _mode},
                         )
                         return RedirectResponse(url=_redir_live)
                 if not is_ts:
@@ -3416,6 +3423,7 @@ def get_settings(_=Depends(check_admin)):
         "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
         "catchup_sticky_recover":       s.get("catchup_sticky_recover", "1"),
         "catchup_auto_live_on_program_change": s.get("catchup_auto_live_on_program_change", "1"),
+        "catchup_auto_live_keep_utc":   s.get("catchup_auto_live_keep_utc", "1"),
         "catchup_force_same_channel_live": s.get("catchup_force_same_channel_live", "1"),
         "catchup_hard_lock":            s.get("catchup_hard_lock", "1"),
         "diagnostic_timezone":  s.get("diagnostic_timezone", "Europe/Berlin"),
@@ -3430,6 +3438,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",
+               "catchup_auto_live_keep_utc",
                "catchup_force_same_channel_live",
                "catchup_hard_lock",
                "diagnostic_timezone"}
