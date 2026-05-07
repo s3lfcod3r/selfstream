@@ -97,6 +97,14 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (May 2026)
+
+- **Catchup auto-live default changed** – `catchup_auto_live_on_program_change` now defaults to `0` (off) to avoid unwanted jumps from catchup to live.
+- **Global diagnostics switch** – New setting `diagnostics_enabled` lets you turn all diagnostic logging on/off from the admin panel when needed.
+- **Catchup diagnostics improved** – Logs now make it clearer whether behavior comes from DVR timeline progression, redirects, or session timeout handling.
+
+---
+
 ## Quick Start
 
 ### Option 1 – Unraid Community Apps (recommended)
@@ -180,6 +188,7 @@ docker-compose up -d
 | `hls_referer` | *(empty)* | Referer header (if required by provider) |
 | `hls_follow_redirects` | `1` | Follow HTTP redirects (`1` = yes, `0` = no) |
 | `prefetch_segments` | `2` | How many segments to prefetch ahead (0 = disabled) |
+| `diagnostics_enabled` | `1` | Global diagnostics master switch (`1` = write diagnostics logs, `0` = disable new diagnostics entries) |
 
 ### EPG
 
@@ -450,6 +459,14 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 
 ---
 
+## Neu seit Mai 2026
+
+- **Catchup Auto-Live Standard geaendert** – `catchup_auto_live_on_program_change` steht standardmaessig auf `0` (Aus), damit es keine ungewollten Spruenge von Catchup auf Live gibt.
+- **Globaler Diagnose-Schalter** – Neue Einstellung `diagnostics_enabled`, um Diagnose-Logging im Admin-Panel bei Bedarf komplett ein-/auszuschalten.
+- **Bessere Catchup-Diagnose** – Logs unterscheiden klarer zwischen DVR-Zeitfortschritt, Redirect-Verhalten und Session-Timeout-Ursachen.
+
+---
+
 ## Schnellstart
 
 ### Option 1 – Unraid Community Apps (empfohlen)
@@ -533,6 +550,7 @@ docker-compose up -d
 | `hls_referer` | *(leer)* | Referer-Header (falls vom Anbieter benötigt) |
 | `hls_follow_redirects` | `1` | HTTP-Redirects folgen (`1` = ja, `0` = nein) |
 | `prefetch_segments` | `2` | Wie viele Segmente vorab geladen werden (0 = deaktiviert) |
+| `diagnostics_enabled` | `1` | Globaler Diagnose-Master (`1` = Diagnose-Logs schreiben, `0` = neue Diagnose-Eintraege deaktivieren) |
 
 ### EPG
 
