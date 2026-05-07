@@ -3440,7 +3440,7 @@ async function loadSettings() {
   if(document.getElementById('cfg-catchup-guard-master')) document.getElementById('cfg-catchup-guard-master').value=s.catchup_guard_master||'1';
   if(document.getElementById('cfg-catchup-strict-mode')) document.getElementById('cfg-catchup-strict-mode').value=s.catchup_strict_mode||'1';
   if(document.getElementById('cfg-catchup-sticky-recover')) document.getElementById('cfg-catchup-sticky-recover').value=s.catchup_sticky_recover||'1';
-  if(document.getElementById('cfg-catchup-auto-live-on-program-change')) document.getElementById('cfg-catchup-auto-live-on-program-change').value=s.catchup_auto_live_on_program_change||'1';
+  if(document.getElementById('cfg-catchup-auto-live-on-program-change')) document.getElementById('cfg-catchup-auto-live-on-program-change').value=s.catchup_auto_live_on_program_change||'0';
   if(document.getElementById('cfg-catchup-auto-live-keep-utc')) document.getElementById('cfg-catchup-auto-live-keep-utc').value=s.catchup_auto_live_keep_utc||'1';
   if(document.getElementById('cfg-catchup-force-same-channel-live')) document.getElementById('cfg-catchup-force-same-channel-live').value=s.catchup_force_same_channel_live||'1';
   if(document.getElementById('cfg-catchup-hard-lock')) document.getElementById('cfg-catchup-hard-lock').value=s.catchup_hard_lock||'1';
@@ -3541,7 +3541,7 @@ async function saveHls() {
     catchup_guard_master:(document.getElementById('cfg-catchup-guard-master')||{}).value||'1',
     catchup_strict_mode:(document.getElementById('cfg-catchup-strict-mode')||{}).value||'1',
     catchup_sticky_recover:(document.getElementById('cfg-catchup-sticky-recover')||{}).value||'1',
-    catchup_auto_live_on_program_change:(document.getElementById('cfg-catchup-auto-live-on-program-change')||{}).value||'1',
+    catchup_auto_live_on_program_change:(document.getElementById('cfg-catchup-auto-live-on-program-change')||{}).value||'0',
     catchup_auto_live_keep_utc:(document.getElementById('cfg-catchup-auto-live-keep-utc')||{}).value||'1',
     catchup_force_same_channel_live:(document.getElementById('cfg-catchup-force-same-channel-live')||{}).value||'1',
     catchup_hard_lock:(document.getElementById('cfg-catchup-hard-lock')||{}).value||'1',
