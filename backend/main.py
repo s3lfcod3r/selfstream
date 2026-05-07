@@ -39,8 +39,15 @@ for a in (proxy_app, admin_app):
 db = Database()
 
 
+def is_diagnostics_enabled() -> bool:
+    """Global switch for writing diagnostic logs."""
+    return db.get_setting("diagnostics_enabled", "1") == "1"
+
+
 def diag_log(level: str, source: str, message: str):
     """Persist server diagnostics for the admin UI (~30 days). Must never affect requests."""
+    if not is_diagnostics_enabled():
+        return
     try:
         db.add_diagnostic_log(level, source, message)
     except Exception:
@@ -3487,6 +3494,7 @@ def get_settings(_=Depends(check_admin)):
         "m3u_last_refresh":     s.get("m3u_last_refresh", ""),
         "prefetch_segments":    s.get("prefetch_segments", "2"),
         "segment_debug":        s.get("segment_debug", "0"),
+        "diagnostics_enabled":  s.get("diagnostics_enabled", "1"),
         "player_request_debug": s.get("player_request_debug", "1"),
         "catchup_ttl":                  s.get("catchup_ttl", "900"),
         "catchup_ttl_after_endlist":    s.get("catchup_ttl_after_endlist", "900"),
@@ -3506,7 +3514,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
-               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "player_request_debug",
+               "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "diagnostics_enabled", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",
                "catchup_auto_live_keep_utc",
