@@ -1819,7 +1819,7 @@ def is_catchup_sticky_recover_enabled() -> bool:
 
 def is_catchup_auto_live_on_program_change_enabled() -> bool:
     """If enabled, catchup switches to live when the watched programme changes."""
-    return db.get_setting("catchup_auto_live_on_program_change", "1") == "1"
+    return db.get_setting("catchup_auto_live_on_program_change", "0") == "1"
 
 
 def is_catchup_auto_live_keep_utc_enabled() -> bool:
@@ -3493,7 +3493,7 @@ def get_settings(_=Depends(check_admin)):
         "catchup_guard_master":         s.get("catchup_guard_master", "1"),
         "catchup_strict_mode":          s.get("catchup_strict_mode", "1"),
         "catchup_sticky_recover":       s.get("catchup_sticky_recover", "1"),
-        "catchup_auto_live_on_program_change": s.get("catchup_auto_live_on_program_change", "1"),
+        "catchup_auto_live_on_program_change": s.get("catchup_auto_live_on_program_change", "0"),
         "catchup_auto_live_keep_utc":   s.get("catchup_auto_live_keep_utc", "1"),
         "catchup_force_same_channel_live": s.get("catchup_force_same_channel_live", "1"),
         "catchup_hard_lock":            s.get("catchup_hard_lock", "1"),
