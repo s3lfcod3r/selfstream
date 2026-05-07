@@ -199,6 +199,24 @@ docker-compose up -d
 
 ---
 
+## Recommended Catchup Settings (stable baseline)
+
+For most setups (especially with IPTV Pro / TiviMate), this profile gives stable catchup behavior with fewer unexpected jumps:
+
+- `catchup_guard_master = 1`
+- `catchup_strict_mode = 1`
+- `catchup_sticky_recover = 1`
+- `catchup_auto_live_on_program_change = 0` (prevents auto-jumps to live on programme boundary)
+- `catchup_auto_live_keep_utc = 0` (only relevant if auto-live is enabled)
+- `catchup_force_same_channel_live = 1`
+- `catchup_hard_lock = 0` (enable only if your client keeps escaping to live)
+- `diagnostics_enabled = 0` in daily use, set to `1` only during troubleshooting
+- `player_request_debug = 0` in daily use, set to `1` only for short diagnostic sessions
+
+Tip: after changing catchup guard settings, save and run one complete catchup test from start to programme boundary to verify behavior on your provider.
+
+---
+
 ## Setting Up Users
 
 1. Open Admin Panel → **Users** → **+ Add User**
@@ -558,6 +576,24 @@ docker-compose up -d
 |-------------|---------|-------------|
 | `epg_refresh_hours` | `6` | Wie oft der EPG-Cache erneuert wird (in Stunden) |
 | `epg_filter_channels` | `0` | EPG auf Kanäle aus dem Kanal-Manager filtern |
+
+---
+
+## Empfohlene Catchup-Einstellungen (stabile Basis)
+
+Fuer die meisten Setups (vor allem IPTV Pro / TiviMate) liefert dieses Profil stabiles Catchup-Verhalten mit weniger ungewollten Spruengen:
+
+- `catchup_guard_master = 1`
+- `catchup_strict_mode = 1`
+- `catchup_sticky_recover = 1`
+- `catchup_auto_live_on_program_change = 0` (verhindert Auto-Spruenge auf Live am Sendungswechsel)
+- `catchup_auto_live_keep_utc = 0` (nur relevant, wenn Auto-Live aktiviert ist)
+- `catchup_force_same_channel_live = 1`
+- `catchup_hard_lock = 0` (nur aktivieren, wenn dein Client staendig auf Live ausbricht)
+- `diagnostics_enabled = 0` im Alltag, fuer Fehlersuche kurz auf `1`
+- `player_request_debug = 0` im Alltag, fuer Diagnose-Sessions kurz auf `1`
+
+Tipp: Nach Aenderungen an Catchup-Guards speichern und einen kompletten Catchup-Test bis zur Sendungsgrenze durchlaufen lassen, um das Verhalten beim Anbieter zu pruefen.
 
 ---
 
