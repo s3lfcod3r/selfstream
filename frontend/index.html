@@ -2581,7 +2581,7 @@ async function loadUserGroups() {
     });
     // Save to backend
     await api('POST', '/api/user-groups/reorder', {ordered_ids: _ugOrder});
-    showToast('Reihenfolge gespeichert');
+    showToast('Reihenfolge gespeichert — Playlist in IPTV-App neu laden');
   };
 
   // Load channel previews for each group
