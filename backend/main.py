@@ -314,9 +314,23 @@ async def _m3u_watchdog():
         await asyncio.sleep(300)  # check every 5 minutes
 
 
+_startup_lock = threading.Lock()
+_startup_done = False
+
+
 @proxy_app.on_event("startup")
 @admin_app.on_event("startup")
 async def startup():
+    """server.py startet proxy_app und admin_app in zwei eigenen Threads mit
+    je eigenem Event-Loop. Ohne diesen Guard würden alle Watchdogs (EPG, M3U,
+    Catchup-EPG, Live-EPG) in BEIDEN Loops laufen → konkurrierende Splits beim
+    Sendungswechsel → doppelte watch_logs-Einträge."""
+    global _startup_done
+    with _startup_lock:
+        if _startup_done:
+            logger.info("startup already ran in another event loop — skipping")
+            return
+        _startup_done = True
     db.init()
     db.migrate_watch_logs()
     try:
@@ -1927,6 +1941,9 @@ def _catchup_mark_endlist(token: str, decoded_url: str) -> None:
 _last_cleanup = 0.0
 
 
+_split_global_lock = threading.Lock()
+
+
 def _split_watch_log_on_show_change(
     sess: dict,
     new_title: str,
@@ -1943,75 +1960,92 @@ def _split_watch_log_on_show_change(
     (Titel unverändert, kein alter Titel vorhanden, keine log_id, …) — der Aufrufer
     muss dann ggf. den Titel an Ort und Stelle aktualisieren (z.B. wenn EPG-Titel
     erst NACHTRÄGLICH bekannt wird).
+
+    Idempotent gegen parallele Aufrufe: ein per-Session Lock + Compare-and-Swap
+    auf `log_id` verhindert, dass zwei gleichzeitige Codepfade (z.B. zwei
+    Watchdogs in zwei Event-Loops, oder Watchdog + Catchup-DVR-Sync) doppelte
+    Einträge erzeugen.
     """
-    old_title = (sess.get("epg_title") or "").strip()
     new_title_clean = (new_title or "").strip()
     if not new_title_clean:
         return False
-    if not old_title:
-        return False
-    if old_title == new_title_clean:
-        return False
 
-    log_id_old = sess.get("log_id")
-    if not log_id_old:
-        return False
+    # Per-Session Lock holen (lazy, damit alte Sessions ohne das Feld weiterlaufen)
+    sess_lock = sess.get("_split_lock")
+    if sess_lock is None:
+        with _split_global_lock:
+            sess_lock = sess.get("_split_lock")
+            if sess_lock is None:
+                sess_lock = threading.Lock()
+                sess["_split_lock"] = sess_lock
 
-    user_id = sess.get("user_id")
-    if not user_id:
+    with sess_lock:
+        # Innerhalb des Locks: aktuellen Stand frisch lesen (CAS)
+        old_title = (sess.get("epg_title") or "").strip()
+        if not old_title:
+            return False
+        if old_title == new_title_clean:
+            return False
+
+        log_id_old = sess.get("log_id")
+        if not log_id_old:
+            return False
+
+        user_id = sess.get("user_id")
+        if not user_id:
+            try:
+                tok = sess.get("token")
+                if tok:
+                    _u = db.get_user_by_token(tok)
+                    if _u:
+                        user_id = _u["id"]
+                        sess["user_id"] = user_id
+            except Exception:
+                pass
+        if not user_id:
+            return False
+
+        now = time.time()
+        log_start = float(sess.get("log_start", sess.get("start", now)))
+        duration_old = max(0, int(now - log_start))
+
+        ch_name = channel or sess.get("channel") or ""
+        stream_url = sess.get("stream_url") or sess.get("live_url") or ""
+        ip_address = sess.get("ip_address") or sess.get("ip") or ""
+
         try:
-            tok = sess.get("token")
-            if tok:
-                _u = db.get_user_by_token(tok)
-                if _u:
-                    user_id = _u["id"]
-                    sess["user_id"] = user_id
-        except Exception:
-            pass
-    if not user_id:
-        return False
+            db.end_watch_log(log_id_old, duration_old, epg_title=old_title)
+        except Exception as _e:
+            logger.warning(f"split log end failed: {_e}")
+            return False
 
-    now = time.time()
-    log_start = float(sess.get("log_start", sess.get("start", now)))
-    duration_old = max(0, int(now - log_start))
+        try:
+            new_log_id = db.start_watch_log(
+                user_id=user_id,
+                channel=ch_name,
+                stream_url=stream_url,
+                ip_address=ip_address,
+                is_catchup=1 if is_catchup else 0,
+                catchup_time=catchup_time if is_catchup else None,
+                epg_title=new_title_clean,
+            )
+        except Exception as _e:
+            logger.warning(f"split log start failed: {_e}")
+            return False
 
-    ch_name = channel or sess.get("channel") or ""
-    stream_url = sess.get("stream_url") or sess.get("live_url") or ""
-    ip_address = sess.get("ip_address") or sess.get("ip") or ""
+        sess["log_id"] = new_log_id
+        sess["log_start"] = now
+        sess["epg_title"] = new_title_clean
+        if is_catchup and catchup_time:
+            sess["catchup_time"] = catchup_time
+            sess["last_dvr_dt_str"] = catchup_time
 
-    try:
-        db.end_watch_log(log_id_old, duration_old, epg_title=old_title)
-    except Exception as _e:
-        logger.warning(f"split log end failed: {_e}")
-        return False
-
-    try:
-        new_log_id = db.start_watch_log(
-            user_id=user_id,
-            channel=ch_name,
-            stream_url=stream_url,
-            ip_address=ip_address,
-            is_catchup=1 if is_catchup else 0,
-            catchup_time=catchup_time if is_catchup else None,
-            epg_title=new_title_clean,
+        diag_log(
+            "INFO",
+            "catchup" if is_catchup else "session",
+            f"Sendungswechsel → Log-Split: {ch_name} \"{old_title}\" ({duration_old}s) → \"{new_title_clean}\"",
         )
-    except Exception as _e:
-        logger.warning(f"split log start failed: {_e}")
-        return False
-
-    sess["log_id"] = new_log_id
-    sess["log_start"] = now
-    sess["epg_title"] = new_title_clean
-    if is_catchup and catchup_time:
-        sess["catchup_time"] = catchup_time
-        sess["last_dvr_dt_str"] = catchup_time
-
-    diag_log(
-        "INFO",
-        "catchup" if is_catchup else "session",
-        f"Sendungswechsel → Log-Split: {ch_name} \"{old_title}\" ({duration_old}s) → \"{new_title_clean}\"",
-    )
-    return True
+        return True
 
 
 def _cleanup_sessions():
