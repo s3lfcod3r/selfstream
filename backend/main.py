@@ -1048,33 +1048,88 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 if request:
                     _fwd = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
                     _catchup_ip = _fwd or (request.client.host if request.client else "")
-                log_id = db.start_watch_log(
-                    user_id=user["id"], channel=channel_name, stream_url=decoded_url,
-                    ip_address=_catchup_ip,
-                    is_catchup=1, catchup_time=dt_str, epg_title=_catchup_epg_title
-                )
-                # Don't end immediately – track duration via segment requests
                 _catchup_key = f"catchup::{token}::{channel_name}"
-                _catchup_sessions[_catchup_key] = {
-                    "log_id": log_id, "start": time.time(), "log_start": time.time(),
-                    "last_seen": time.time(),
-                    "token": token, "ip": _catchup_ip,
-                    "user_id": user["id"],
-                    "channel": channel_name,
-                    "epg_title": _catchup_epg_title or "",
-                    "catchup_time": dt_str,
-                    "live_url": decoded_url,
-                    "auto_live_pending": False,
-                    "allow_live_until": 0.0,
-                    "last_dvr_dt_str": dt_str,
-                    "saw_endlist": False,
-                    "endlist_seen_at": None,
-                }
-                # Show catchup in live sessions view
-                db.session_start(token, channel_name, _catchup_ip)
-                _cu_msg = f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})"
-                logger.info(_cu_msg)
-                diag_log("INFO", "catchup", _cu_msg)
+                now_cu = time.time()
+                existing_cu = _catchup_sessions.get(_catchup_key)
+
+                if existing_cu and now_cu - existing_cu.get("last_seen", 0) < _catchup_idle_ttl_seconds(existing_cu):
+                    # Player may request the catchup master playlist repeatedly.
+                    # Reuse the active log instead of creating one watch_log row per request.
+                    existing_cu["last_seen"] = now_cu
+                    existing_cu["live_url"] = decoded_url
+                    existing_cu["catchup_time"] = dt_str
+                    existing_cu["last_dvr_dt_str"] = dt_str
+                    db.session_refresh(token)
+
+                    old_epg = (existing_cu.get("epg_title") or "").strip()
+                    new_epg = (_catchup_epg_title or "").strip()
+                    if new_epg and old_epg and new_epg != old_epg:
+                        _split_watch_log_on_show_change(
+                            existing_cu,
+                            new_epg,
+                            is_catchup=True,
+                            catchup_time=dt_str,
+                            channel=channel_name,
+                        )
+                    else:
+                        if new_epg and not old_epg:
+                            existing_cu["epg_title"] = new_epg
+                        try:
+                            with db.conn() as con:
+                                if new_epg:
+                                    con.execute(
+                                        "UPDATE watch_logs SET catchup_time = ?, epg_title = ? WHERE id = ?",
+                                        (dt_str, new_epg, existing_cu["log_id"]),
+                                    )
+                                else:
+                                    con.execute(
+                                        "UPDATE watch_logs SET catchup_time = ? WHERE id = ?",
+                                        (dt_str, existing_cu["log_id"]),
+                                    )
+                        except Exception:
+                            pass
+                    _cu_msg = f"Catchup session reused: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})"
+                    logger.info(_cu_msg)
+                    diag_log("INFO", "catchup", _cu_msg)
+                else:
+                    if existing_cu:
+                        # Stale memory entry that cleanup has not processed yet.
+                        try:
+                            db.end_watch_log(
+                                existing_cu["log_id"],
+                                int(now_cu - existing_cu.get("log_start", existing_cu.get("start", now_cu))),
+                                epg_title=existing_cu.get("epg_title") or None,
+                            )
+                        except Exception:
+                            pass
+                        _catchup_sessions.pop(_catchup_key, None)
+
+                    log_id = db.start_watch_log(
+                        user_id=user["id"], channel=channel_name, stream_url=decoded_url,
+                        ip_address=_catchup_ip,
+                        is_catchup=1, catchup_time=dt_str, epg_title=_catchup_epg_title
+                    )
+                    # Don't end immediately – track duration via segment requests
+                    _catchup_sessions[_catchup_key] = {
+                        "log_id": log_id, "start": now_cu, "log_start": now_cu,
+                        "last_seen": now_cu,
+                        "token": token, "ip": _catchup_ip,
+                        "user_id": user["id"],
+                        "channel": channel_name,
+                        "epg_title": _catchup_epg_title or "",
+                        "catchup_time": dt_str,
+                        "live_url": decoded_url,
+                        "auto_live_pending": False,
+                        "allow_live_until": 0.0,
+                        "last_dvr_dt_str": dt_str,
+                        "saw_endlist": False,
+                        "endlist_seen_at": None,
+                    }
+                    # Show catchup in live sessions view
+                    db.session_start(token, channel_name, _catchup_ip)
+                    _cu_msg = f"Catchup logged: {user['name']} → {channel_name} @ {dt_str} ({_catchup_epg_title or 'no epg'})"
+                    logger.info(_cu_msg)
+                    diag_log("INFO", "catchup", _cu_msg)
                 if "#EXT-X-ENDLIST" in archive_content:
                     _catchup_mark_endlist(token, archive_url)
                     _diag_log_catchup_endlist_epg_context(
@@ -1164,6 +1219,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             if _sk_ls in _sessions:
                 _sessions[_sk_ls]["last_seen"] = _now_ls
                 db.session_refresh(token)
+                _live_check_show_change(_sessions[_sk_ls], channel_name, _now_ls)
             else:
                 # If not started yet (edge cases), align with segment path by creating a session here too.
                 max_s_ls = user.get("max_streams", 1) or 0
@@ -1944,6 +2000,51 @@ _last_cleanup = 0.0
 _split_global_lock = threading.Lock()
 
 
+def _live_check_show_change(sess: dict, channel_name: str, now_ts: float, min_interval: float = 15.0) -> None:
+    """Eager EPG-Sendungswechsel-Erkennung beim Touch einer laufenden Live-Session
+    (Playlist- oder Segment-Anfrage). Gedrosselt auf 1 Aufruf alle ~15s pro
+    Session, damit das XML-Parsing nicht bei jeder TS-Anfrage läuft. Das ergibt
+    eine effektive Erkennungslatenz von 0–15s statt der 45s-Watchdog-Periode.
+    """
+    try:
+        _last = float(sess.get("_last_epg_check", 0.0))
+    except Exception:
+        _last = 0.0
+    if now_ts - _last < min_interval:
+        return
+    sess["_last_epg_check"] = now_ts
+    try:
+        np = _get_now_playing(channel_name)
+        new_t = ((np.get("title") if np else "") or "").strip()
+        if not new_t:
+            return
+        old_t = (sess.get("epg_title") or "").strip()
+        if not old_t:
+            log_id = sess.get("log_id")
+            if not log_id:
+                return
+            try:
+                with db.conn() as con:
+                    con.execute(
+                        "UPDATE watch_logs SET epg_title=? WHERE id=?",
+                        (new_t, log_id),
+                    )
+                sess["epg_title"] = new_t
+            except Exception:
+                pass
+            return
+        if old_t == new_t:
+            return
+        _split_watch_log_on_show_change(
+            sess,
+            new_t,
+            is_catchup=False,
+            channel=channel_name,
+        )
+    except Exception:
+        pass
+
+
 def _split_watch_log_on_show_change(
     sess: dict,
     new_title: str,
@@ -2356,6 +2457,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             else:
                 _sessions[session_key]["last_seen"] = now0
                 db.session_refresh(token)
+                _live_check_show_change(_sessions[session_key], channel_name0, now0)
 
         if session_key not in _sessions:
             max_s0 = user.get("max_streams", 1) or 0
