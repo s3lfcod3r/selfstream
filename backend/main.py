@@ -598,14 +598,17 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
         provider_groups = [g for g in group_names if g not in all_user_group_names]
         result_channels = []
 
-        # Get sort_order for custom groups to prefix group-title for IPTV app ordering
-        all_user_groups = {g["name"]: g["sort_order"] for g in db.get_user_groups()}
+        # Position in the sorted list (ORDER BY sort_order, name) gives a stable,
+        # unique 1-based index for the IPTV app prefix — even when sort_order is
+        # 0 for every group (e.g. before the user reorders via drag & drop).
+        _ug_sorted = db.get_user_groups()
+        group_position = {g["name"]: idx for idx, g in enumerate(_ug_sorted)}
         use_prefix = db.get_setting("group_sort_prefix", "1") == "1"
 
         # Channels from custom user groups — override group_title with sorted name
         for ug_name in custom_groups:
             ug_channels = db.get_channels_for_user_groups([ug_name])
-            sort_idx = all_user_groups.get(ug_name, 99)
+            sort_idx = group_position.get(ug_name, len(_ug_sorted))
             if use_prefix:
                 display_name = f"{sort_idx + 1:02d}. {ug_name}"
             else:
