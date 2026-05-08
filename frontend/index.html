@@ -207,6 +207,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
 .ch-card.drag-over{border-color:var(--teal);border-style:dashed;background:rgba(0,229,200,.04);}
 [id^="ugrow-"].dragging{opacity:.35;border-color:var(--teal) !important;}
 [id^="ugrow-"].drag-over{border-color:var(--teal) !important;border-style:dashed !important;background:rgba(0,229,200,.04);}
+[id^="uglbl-"].dragging{opacity:.35;background:rgba(0,229,200,.06);}
+[id^="uglbl-"].drag-over{border-top:2px dashed var(--teal) !important;background:rgba(0,229,200,.04);}
 .ch-card.disabled{opacity:.38;}
 .ch-logo{width:26px;height:26px;object-fit:contain;flex-shrink:0;border-radius:2px;}
 .ch-ph{width:26px;height:26px;background:var(--bg3);border-radius:2px;
@@ -1921,7 +1923,8 @@ async function openAddUser(){
       wrap.innerHTML='<div style="font-size:11px;color:var(--text2);">Noch keine Kanäle oder Gruppen.</div>';
     } else {
       wrap.innerHTML=(userGroups.length?'<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:4px 0;">EIGENE GRUPPEN</div>':'')
-        +userGroups.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;">
+        +userGroups.map((g,idx)=>`<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;cursor:pointer;">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text2);min-width:22px;flex-shrink:0;">${String(idx+1).padStart(2,'0')}.</span>
           <input type="checkbox" value="${esc(g.name)}" style="accent-color:var(--teal);">
           <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
           <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>
@@ -1940,31 +1943,101 @@ async function userGroups(id, name, currentGroups){
   document.getElementById('modal-ugroups').classList.add('open');
   const wrap=document.getElementById('ugroups-content');
   wrap.innerHTML='<div class="empty-state">Lädt…</div>';
+
+  let _ugUserGroups = [];
+  let _ugProviderGroups = [];
+  let _ugSelected = new Set();
+  let _ugmDragId = null;
+
+  function _captureSelection(){
+    wrap.querySelectorAll('input[type=checkbox]').forEach(c=>{
+      if(c.checked) _ugSelected.add(c.value);
+      else _ugSelected.delete(c.value);
+    });
+  }
+
+  function _renderUgModal(){
+    if(!_ugUserGroups.length && !_ugProviderGroups.length){
+      wrap.innerHTML='<div class="empty-state">Noch keine Kanäle oder Gruppen.</div>';
+      return;
+    }
+    const customHtml = _ugUserGroups.length
+      ? '<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:6px 0 4px;display:flex;align-items:center;gap:8px;">'
+          +'<span>EIGENE GRUPPEN</span>'
+          +'<span style="color:var(--text2);font-family:inherit;text-transform:none;letter-spacing:0;font-weight:normal;">⠿ ziehen zum Sortieren — gilt global</span>'
+        +'</div>'
+        + _ugUserGroups.map((g, idx) => `
+          <label id="uglbl-${g.id}"
+                 draggable="true"
+                 ondragstart="ugmDragStart(event,${g.id})"
+                 ondragover="ugmDragOver(event,${g.id})"
+                 ondrop="ugmDrop(event,${g.id})"
+                 ondragend="ugmDragEnd()"
+                 style="display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:12px;cursor:grab;border-bottom:1px solid var(--border);">
+            <span style="color:var(--text2);cursor:grab;font-size:14px;flex-shrink:0;" title="Ziehen zum Sortieren">⠿</span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--text2);min-width:22px;flex-shrink:0;">${String(idx+1).padStart(2,'0')}.</span>
+            <input type="checkbox" value="${esc(g.name)}" ${_ugSelected.has(g.name)?'checked':''} style="accent-color:var(--teal);flex-shrink:0;">
+            <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
+            <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>
+          </label>
+        `).join('')
+      : '';
+    const provHtml = _ugProviderGroups.length
+      ? '<div style="font-size:10px;color:var(--text2);font-family:var(--mono);padding:6px 0 4px;">ANBIETER-GRUPPEN</div>'
+        + _ugProviderGroups.map(g => `
+          <label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
+            <input type="checkbox" value="${esc(g)}" ${_ugSelected.has(g)?'checked':''} style="accent-color:var(--teal);">
+            <span>${esc(g)}</span>
+          </label>
+        `).join('')
+      : '';
+    wrap.innerHTML = customHtml + provHtml;
+  }
+
+  window.ugmDragStart = (e, gid) => {
+    _ugmDragId = gid;
+    if(e.dataTransfer){ e.dataTransfer.effectAllowed = 'move'; }
+    setTimeout(()=>document.getElementById('uglbl-'+gid)?.classList.add('dragging'), 0);
+  };
+  window.ugmDragOver = (e, gid) => {
+    e.preventDefault();
+    document.querySelectorAll('[id^="uglbl-"]').forEach(el => el.classList.remove('drag-over'));
+    document.getElementById('uglbl-'+gid)?.classList.add('drag-over');
+  };
+  window.ugmDragEnd = () => {
+    document.querySelectorAll('[id^="uglbl-"]').forEach(el => el.classList.remove('dragging','drag-over'));
+  };
+  window.ugmDrop = async (e, targetId) => {
+    e.preventDefault();
+    ugmDragEnd();
+    const dragId = _ugmDragId;
+    _ugmDragId = null;
+    if(dragId == null || dragId === targetId) return;
+    _captureSelection();
+    const fromIdx = _ugUserGroups.findIndex(g => g.id === dragId);
+    const toIdx   = _ugUserGroups.findIndex(g => g.id === targetId);
+    if(fromIdx < 0 || toIdx < 0) return;
+    const moved = _ugUserGroups.splice(fromIdx, 1)[0];
+    _ugUserGroups.splice(toIdx, 0, moved);
+    _renderUgModal();
+    try {
+      await api('POST','/api/user-groups/reorder',{ordered_ids:_ugUserGroups.map(g=>g.id)});
+      showToast('Reihenfolge gespeichert — Playlist in IPTV-App neu laden');
+    } catch(err){
+      showToast('Speichern fehlgeschlagen: '+(err.message||err), true);
+    }
+  };
+
   try {
     const [providerGroups2, userGroups2] = await Promise.all([
       api('GET','/api/channels/groups'),
       api('GET','/api/user-groups')
     ]);
-    const selected=new Set((currentGroups||'').split(',').map(g=>g.trim()).filter(Boolean));
-    const allItems2 = [
-      ...userGroups2.map(g=>({name:g.name, label:`🏷 ${g.name}`, count:g.channel_count, isCustom:true})),
-      ...providerGroups2.map(g=>({name:g, label:g, count:null, isCustom:false}))
-    ];
-    if(!allItems2.length){
-      wrap.innerHTML='<div class="empty-state">Noch keine Kanäle oder Gruppen.</div>';
-    } else {
-      wrap.innerHTML=(userGroups2.length?'<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:6px 0 4px;">EIGENE GRUPPEN</div>':'')
-        +userGroups2.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
-          <input type="checkbox" value="${esc(g.name)}" ${selected.has(g.name)?'checked':''} style="accent-color:var(--teal);">
-          <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
-          <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>
-        </label>`).join('')
-        +(providerGroups2.length?'<div style="font-size:10px;color:var(--text2);font-family:var(--mono);padding:6px 0 4px;">ANBIETER-GRUPPEN</div>':'')
-        +providerGroups2.map(g=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
-          <input type="checkbox" value="${esc(g)}" ${selected.has(g)?'checked':''} style="accent-color:var(--teal);">
-          <span>${esc(g)}</span>
-        </label>`).join('');
-    }
+    _ugUserGroups = userGroups2 || [];
+    _ugProviderGroups = providerGroups2 || [];
+    _ugSelected = new Set((currentGroups||'').split(',').map(g=>g.trim()).filter(Boolean));
+    _renderUgModal();
+
     document.getElementById('ugroups-save-btn').onclick=async()=>{
       const checks=wrap.querySelectorAll('input[type=checkbox]:checked');
       const allowed_groups=[...checks].map(c=>c.value);
@@ -2056,7 +2129,40 @@ async function loadProviders() {
       const isLocal = (p.source_url||'').startsWith('local://');
       const rh = Number(p.refresh_hours||0);
       const refreshLabel = rh > 0 ? `Auto-Refresh alle ${rh}h` : 'Kein Auto-Refresh';
-      const lastRef = p.last_refresh && Number(p.last_refresh) > 0 ? `Zuletzt: ${timeAgo(new Date(Number(p.last_refresh)*1000).toISOString())}` : 'Noch nie';
+      const lastRefTs = Number(p.last_refresh || 0);
+      const _nowTs = Date.now() / 1000;
+      const _fmtAbs = ts => new Date(ts*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+      const _relPast = s => s<60?'Gerade eben':s<3600?`vor ${Math.floor(s/60)}m`:s<86400?`vor ${Math.floor(s/3600)}h`:`vor ${Math.floor(s/86400)}d`;
+      const _relFuture = s => s<60?'in <1m':s<3600?`in ${Math.floor(s/60)}m`:s<86400?`in ${Math.floor(s/3600)}h`:`in ${Math.floor(s/86400)}d`;
+      let lastRefHtml = '';
+      let nextRefHtml = '';
+      if (!isLocal) {
+        if (lastRefTs > 0) {
+          const ageS = _nowTs - lastRefTs;
+          let color = 'var(--teal)';
+          if (rh > 0) {
+            const overdueS = ageS - rh*3600;
+            if (overdueS > rh*3600) color = '#ff4444';
+            else if (overdueS > 0)  color = '#ffcc00';
+          }
+          lastRefHtml = `<span style="color:${color};">↻ Zuletzt: ${_relPast(ageS)}</span> <span style="color:var(--text3);">(${_fmtAbs(lastRefTs)})</span>`;
+        } else {
+          lastRefHtml = '<span style="color:var(--text2);">↻ Noch nie aktualisiert</span>';
+        }
+        if (rh > 0) {
+          if (lastRefTs > 0) {
+            const nextTs = lastRefTs + rh*3600;
+            const inS = nextTs - _nowTs;
+            if (inS > 0) {
+              nextRefHtml = ` <span style="color:var(--text2);">·</span> <span style="color:var(--text2);">📅 Nächster: ${_relFuture(inS)}</span> <span style="color:var(--text3);">(${_fmtAbs(nextTs)})</span>`;
+            } else {
+              nextRefHtml = ` <span style="color:var(--text2);">·</span> <span style="color:#ffcc00;">📅 Refresh überfällig</span>`;
+            }
+          } else {
+            nextRefHtml = ` <span style="color:var(--text2);">·</span> <span style="color:var(--text2);">📅 Nächster: beim nächsten Watchdog-Tick</span>`;
+          }
+        }
+      }
       return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
           <div style="flex:1;min-width:0;">
@@ -2067,7 +2173,8 @@ async function loadProviders() {
               ${rh > 0 ? `<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(0,229,200,.1);border:1px solid rgba(0,229,200,.3);color:var(--teal);font-family:var(--mono);">↻ ${refreshLabel}</span>` : ''}
             </div>
             <div style="font-size:11px;color:var(--text2);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px;" title="${esc(p.source_url||'')}">${isLocal ? '📁 '+esc((p.source_url||'').split('/').pop()) : esc(p.source_url||'—')}</div>
-            <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${users} Benutzer · ${isLocal ? '—' : lastRef}</div>
+            <div style="font-size:10px;color:var(--text3);font-family:var(--mono);">${users} Benutzer</div>
+            ${!isLocal ? `<div style="font-size:10px;font-family:var(--mono);margin-top:4px;line-height:1.5;">${lastRefHtml}${nextRefHtml}</div>` : ''}
             ${capacityHtml}
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;align-items:center;">
