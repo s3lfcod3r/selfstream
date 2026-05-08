@@ -1987,8 +1987,7 @@ async function addUser() {
   const allowed_groups=[...groupChecks].map(c=>c.value).join(',')||null;
   try {
     await api('POST','/api/users',{
-      name,notes,max_streams,allowed_groups,
-      provider_id: provider_id ? parseInt(provider_id) : null
+      name,notes,max_streams,allowed_groups
     });
     closeM('modal-adduser');
     document.getElementById('nu-name').value='';
