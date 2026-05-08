@@ -327,6 +327,7 @@ async def startup():
     asyncio.create_task(_epg_watchdog())
     asyncio.create_task(_m3u_watchdog())
     asyncio.create_task(_catchup_epg_watchdog())
+    asyncio.create_task(_live_epg_watchdog())
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -1038,8 +1039,11 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 # Don't end immediately – track duration via segment requests
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 _catchup_sessions[_catchup_key] = {
-                    "log_id": log_id, "start": time.time(), "last_seen": time.time(),
+                    "log_id": log_id, "start": time.time(), "log_start": time.time(),
+                    "last_seen": time.time(),
                     "token": token, "ip": _catchup_ip,
+                    "user_id": user["id"],
+                    "channel": channel_name,
                     "epg_title": _catchup_epg_title or "",
                     "catchup_time": dt_str,
                     "live_url": decoded_url,
@@ -1170,12 +1174,15 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     "channel": channel_name,
                     "log_id": _log_id_ls,
                     "start": _now_ls,
+                    "log_start": _now_ls,
                     "last_seen": _now_ls,
                     "user_id": user["id"],
                     "token": token,
                     "session_key": _sk_ls,
                     "epg_title": _epg_title_ls,
                     "user_name": user["name"],
+                    "stream_url": decoded_url,
+                    "ip_address": _ip2,
                 }
                 logger.info(f"Session started (playlist): {user['name']} ({_ip2}) → {channel_name}")
         except HTTPException:
@@ -1710,6 +1717,56 @@ def _catchup_sync_epg_from_dvr_url(token: str, decoded_url: str, user: dict, sou
         if pe_slot is not None and new_parsed < pe_slot:
             sticky = True
     resolved_epg = old_epg_clean if sticky else new_epg
+    real_show_change = (
+        not sticky
+        and bool(old_epg_clean)
+        and bool(new_epg)
+        and new_epg.strip() != old_epg_clean
+    )
+    if real_show_change:
+        # Split: alten Log-Eintrag mit alter Sendung + bisheriger Dauer schließen,
+        # neuen Eintrag für die neue Sendung anlegen. Catchup_time wird im neuen
+        # Eintrag gesetzt — der alte behält seinen ursprünglichen catchup_time.
+        if _split_watch_log_on_show_change(
+            cv,
+            new_epg,
+            is_catchup=True,
+            catchup_time=new_dt_str,
+            channel=ch_name,
+        ):
+            # Auto-Live-on-Programme-Change wie vorher armieren.
+            if (
+                is_catchup_guard_master_enabled()
+                and is_catchup_auto_live_on_program_change_enabled()
+            ):
+                cv["auto_live_pending"] = True
+                diag_log(
+                    "INFO",
+                    "catchup",
+                    f"Catchup programme changed ({old_epg_clean!r} -> {new_epg!r}) for {ch_name}; switch to live is armed.",
+                )
+            disp_epg = (cv.get("epg_title") or "").strip() or old_epg
+            diag_log(
+                "INFO",
+                "catchup",
+                _catchup_format_dvr_sync_message(
+                    user_name=user.get("name", "") or "",
+                    ch_name=ch_name,
+                    source=source,
+                    old_dt=old_dt,
+                    new_dt_str=new_dt_str,
+                    old_epg=old_epg,
+                    disp_epg=disp_epg,
+                    decoded_url=decoded_url,
+                    new_epg=new_epg,
+                    old_epg_clean=old_epg_clean,
+                    sticky=sticky,
+                    cur_parsed=cur_parsed,
+                    new_parsed=new_parsed,
+                    pe_slot=pe_slot,
+                ),
+            )
+            return True
     try:
         with db.conn() as con:
             if resolved_epg:
@@ -1866,6 +1923,94 @@ def _catchup_mark_endlist(token: str, decoded_url: str) -> None:
 
 _last_cleanup = 0.0
 
+
+def _split_watch_log_on_show_change(
+    sess: dict,
+    new_title: str,
+    *,
+    is_catchup: bool = False,
+    catchup_time: str = None,
+    channel: str = None,
+) -> bool:
+    """Bei Sendungswechsel innerhalb einer Session: aktuellen watch_logs-Eintrag mit
+    bisheriger Watch-Dauer + ALTEM Titel schließen und einen NEUEN Eintrag für die
+    neue Sendung anlegen. So bekommt jede Sendung ihre eigene Dauer in der History.
+
+    Liefert True, wenn gesplittet wurde. Liefert False, wenn nichts zu tun ist
+    (Titel unverändert, kein alter Titel vorhanden, keine log_id, …) — der Aufrufer
+    muss dann ggf. den Titel an Ort und Stelle aktualisieren (z.B. wenn EPG-Titel
+    erst NACHTRÄGLICH bekannt wird).
+    """
+    old_title = (sess.get("epg_title") or "").strip()
+    new_title_clean = (new_title or "").strip()
+    if not new_title_clean:
+        return False
+    if not old_title:
+        return False
+    if old_title == new_title_clean:
+        return False
+
+    log_id_old = sess.get("log_id")
+    if not log_id_old:
+        return False
+
+    user_id = sess.get("user_id")
+    if not user_id:
+        try:
+            tok = sess.get("token")
+            if tok:
+                _u = db.get_user_by_token(tok)
+                if _u:
+                    user_id = _u["id"]
+                    sess["user_id"] = user_id
+        except Exception:
+            pass
+    if not user_id:
+        return False
+
+    now = time.time()
+    log_start = float(sess.get("log_start", sess.get("start", now)))
+    duration_old = max(0, int(now - log_start))
+
+    ch_name = channel or sess.get("channel") or ""
+    stream_url = sess.get("stream_url") or sess.get("live_url") or ""
+    ip_address = sess.get("ip_address") or sess.get("ip") or ""
+
+    try:
+        db.end_watch_log(log_id_old, duration_old, epg_title=old_title)
+    except Exception as _e:
+        logger.warning(f"split log end failed: {_e}")
+        return False
+
+    try:
+        new_log_id = db.start_watch_log(
+            user_id=user_id,
+            channel=ch_name,
+            stream_url=stream_url,
+            ip_address=ip_address,
+            is_catchup=1 if is_catchup else 0,
+            catchup_time=catchup_time if is_catchup else None,
+            epg_title=new_title_clean,
+        )
+    except Exception as _e:
+        logger.warning(f"split log start failed: {_e}")
+        return False
+
+    sess["log_id"] = new_log_id
+    sess["log_start"] = now
+    sess["epg_title"] = new_title_clean
+    if is_catchup and catchup_time:
+        sess["catchup_time"] = catchup_time
+        sess["last_dvr_dt_str"] = catchup_time
+
+    diag_log(
+        "INFO",
+        "catchup" if is_catchup else "session",
+        f"Sendungswechsel → Log-Split: {ch_name} \"{old_title}\" ({duration_old}s) → \"{new_title_clean}\"",
+    )
+    return True
+
+
 def _cleanup_sessions():
     """Remove stale sessions from memory and end their DB records."""
     global _last_cleanup
@@ -1882,7 +2027,7 @@ def _cleanup_sessions():
             # Try EPG title at end - more reliable than at start
             epg_end = _get_now_playing(s["channel"])
             epg_title_end = s.get("epg_title") or (epg_end.get("title") if epg_end else None)
-            db.end_watch_log(s["log_id"], int(now - s["start"]), epg_title=epg_title_end)
+            db.end_watch_log(s["log_id"], int(now - s.get("log_start", s["start"])), epg_title=epg_title_end)
             logger.info(f"Session expired (TTL): {k} epg={epg_title_end}")
             diag_log(
                 "INFO",
@@ -1898,7 +2043,7 @@ def _cleanup_sessions():
     for k in stale_cu:
         s = _catchup_sessions.pop(k)
         try:
-            duration = int(now - s["start"])
+            duration = int(now - s.get("log_start", s["start"]))
             db.end_watch_log(s["log_id"], duration)
             tok = s.get("token", "")
             try:
@@ -2011,26 +2156,101 @@ async def _catchup_epg_watchdog():
                                 f"(start={_slot_w['start_xmltv'] or _slot_w['start_iso']}, "
                                 f"stop={_slot_w['stop_xmltv'] or _slot_w['stop_iso']})."
                             )
-                        try:
-                            with db.conn() as con:
-                                con.execute(
-                                    "UPDATE watch_logs SET epg_title=? WHERE id=?",
-                                    (_new_epg, _cv["log_id"])
-                                )
-                            _cv["epg_title"] = _new_epg
-                            logger.info(f"Catchup EPG updated: {row['channel']} → {_new_epg}")
+                        # Sync cv state with DB (catchup_time may have advanced via DVR sync)
+                        _cv["catchup_time"] = row["catchup_time"]
+                        if not _cv.get("channel"):
+                            _cv["channel"] = row["channel"]
+                        # Bei echtem Sendungswechsel splitten (alter Eintrag bekommt seine
+                        # eigene Dauer mit altem Titel; neuer Eintrag startet jetzt).
+                        _did_split = False
+                        if (row["epg_title"] or "").strip():
+                            _did_split = _split_watch_log_on_show_change(
+                                _cv,
+                                _new_epg,
+                                is_catchup=True,
+                                catchup_time=row["catchup_time"],
+                                channel=row["channel"],
+                            )
+                        if _did_split:
+                            logger.info(f"Catchup EPG split: {row['channel']} {_old_t!r} → {_new_epg!r}")
                             diag_log(
                                 "INFO",
                                 "catchup",
-                                f"Catchup EPG reconcile @ {row['catchup_time']}: {row['channel']} title {_old_t!r} → {_new_epg!r}. {_why}",
+                                f"Catchup EPG reconcile @ {row['catchup_time']}: {row['channel']} title {_old_t!r} → {_new_epg!r} (Log-Split). {_why}",
                             )
-                        except Exception:
-                            pass
+                        else:
+                            try:
+                                with db.conn() as con:
+                                    con.execute(
+                                        "UPDATE watch_logs SET epg_title=? WHERE id=?",
+                                        (_new_epg, _cv["log_id"])
+                                    )
+                                _cv["epg_title"] = _new_epg
+                                logger.info(f"Catchup EPG updated: {row['channel']} → {_new_epg}")
+                                diag_log(
+                                    "INFO",
+                                    "catchup",
+                                    f"Catchup EPG reconcile @ {row['catchup_time']}: {row['channel']} title {_old_t!r} → {_new_epg!r}. {_why}",
+                                )
+                            except Exception:
+                                pass
                 except Exception:
                     pass
         except Exception:
             pass
         await asyncio.sleep(120)  # check every 2 minutes
+
+
+async def _live_epg_watchdog():
+    """Periodisch prüfen, ob bei laufenden LIVE-Sessions die EPG-Sendung gewechselt
+    hat. Wenn ja: aktuellen watch_logs-Eintrag mit der alten Sendung + bisheriger
+    Watch-Dauer schließen und einen NEUEN Eintrag für die neue Sendung anlegen.
+    So bekommt jede Sendung in der History ihre eigene Dauer."""
+    await asyncio.sleep(20)  # wait for startup
+    while True:
+        try:
+            now = time.time()
+            for _sk, _s in list(_sessions.items()):
+                try:
+                    # Skip stale sessions (cleanup will handle them)
+                    if now - _s.get("last_seen", now) > SESSION_MEM_TTL:
+                        continue
+                    _ch = _s.get("channel")
+                    if not _ch:
+                        continue
+                    _now_play = _get_now_playing(_ch)
+                    _new_title = (_now_play.get("title") if _now_play else None) or ""
+                    _new_title = _new_title.strip()
+                    if not _new_title:
+                        continue
+                    _old_title = (_s.get("epg_title") or "").strip()
+                    if not _old_title:
+                        # EPG wurde erst jetzt verfügbar — Titel im laufenden Eintrag setzen,
+                        # nicht splitten (dieselbe Sendung läuft die ganze Zeit).
+                        try:
+                            with db.conn() as con:
+                                con.execute(
+                                    "UPDATE watch_logs SET epg_title=? WHERE id=?",
+                                    (_new_title, _s["log_id"]),
+                                )
+                            _s["epg_title"] = _new_title
+                        except Exception:
+                            pass
+                        continue
+                    if _old_title == _new_title:
+                        continue
+                    # Echter Sendungswechsel — Log splitten.
+                    _split_watch_log_on_show_change(
+                        _s,
+                        _new_title,
+                        is_catchup=False,
+                        channel=_ch,
+                    )
+                except Exception:
+                    pass
+        except Exception as _we:
+            logger.warning(f"Live EPG watchdog error: {_we}")
+        await asyncio.sleep(45)  # check every 45s
 
 
 @proxy_app.get("/iptv/{token}/segment")
@@ -2094,7 +2314,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 db.session_end(token)
                 epg_sw0 = _get_now_playing(existing0["channel"])
                 epg_title_sw0 = existing0.get("epg_title") or (epg_sw0.get("title") if epg_sw0 else None)
-                db.end_watch_log(existing0["log_id"], int(now0 - existing0["start"]), epg_title=epg_title_sw0)
+                db.end_watch_log(existing0["log_id"], int(now0 - existing0.get("log_start", existing0["start"])), epg_title=epg_title_sw0)
                 logger.info(f"Channel switch: {user['name']} ({client_ip0}) → {channel_name0}")
             else:
                 _sessions[session_key]["last_seen"] = now0
@@ -2126,12 +2346,15 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 "channel": channel_name0,
                 "log_id": log_id0,
                 "start": now0,
+                "log_start": now0,
                 "last_seen": now0,
                 "user_id": user_id0,
                 "token": token,
                 "session_key": session_key,
                 "epg_title": epg_title_now0,
                 "user_name": user["name"],
+                "stream_url": decoded_url,
+                "ip_address": client_ip0,
             }
             logger.info(f"Session started: {user['name']} ({client_ip0}) → {channel_name0}")
 
@@ -2430,7 +2653,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             if session_key and session_key in _sessions:
                 s = _sessions.pop(session_key)
                 db.session_end(token)
-                db.end_watch_log(s["log_id"], int(time.time() - s["start"]))
+                db.end_watch_log(s["log_id"], int(time.time() - s.get("log_start", s["start"])))
 
     media_type = "application/vnd.apple.mpegurl" if not is_ts else "video/mp2t"
     _log_player_request("segment:response_streaming", request, token, {"decoded_url": decoded_url, "is_ts": is_ts, "media_type": media_type})
@@ -2448,7 +2671,7 @@ async def stop_stream(token: str, request: Request = None):
     stale = [k for k, s in _sessions.items() if s["token"] == token]
     for k in stale:
         s = _sessions.pop(k)
-        db.end_watch_log(s["log_id"], int(time.time() - s["start"]))
+        db.end_watch_log(s["log_id"], int(time.time() - s.get("log_start", s["start"])))
     db.session_end(token)
     return {"ok": True}
 

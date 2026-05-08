@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import time
+import re
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
@@ -170,6 +171,17 @@ class Database:
                     FOREIGN KEY (channel_id) REFERENCES channels(id)    ON DELETE CASCADE
                 );
 
+                -- Stable channel identities assigned to custom user groups.
+                -- Keeps group assignments across M3U refreshes where channel IDs
+                -- are recreated and provider URLs may change.
+                CREATE TABLE IF NOT EXISTS user_group_channel_keys (
+                    group_id    INTEGER NOT NULL,
+                    channel_key TEXT NOT NULL,
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    PRIMARY KEY (group_id, channel_key),
+                    FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_user    ON watch_logs(user_id);
                 CREATE INDEX IF NOT EXISTS idx_watch_logs_started ON watch_logs(started_at);
                 CREATE INDEX IF NOT EXISTS idx_channels_group     ON channels(group_title);
@@ -179,6 +191,32 @@ class Database:
     # ── Settings ──────────────────────────────────────────────────────────────
 
     # ── User Groups ──────────────────────────────────────────────────────────────
+
+    def _norm_channel_key_part(self, value: Any) -> str:
+        return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+    def _channel_identity_keys(self, channel: Dict[str, Any]) -> List[str]:
+        """Stable identities for restoring custom group assignments after refresh."""
+        scope = str(channel.get("provider_id") if channel.get("provider_id") is not None else "_global")
+        keys: List[str] = []
+        tvg_id = self._norm_channel_key_part(channel.get("tvg_id"))
+        name = self._norm_channel_key_part(channel.get("name"))
+        url_base = str(channel.get("stream_url") or channel.get("url") or "").split("?")[0].strip().lower()
+        if tvg_id:
+            keys.append(f"tvg:{scope}:{tvg_id}")
+            keys.append(f"tvg:*:{tvg_id}")
+        if name:
+            keys.append(f"name:{scope}:{name}")
+        if url_base:
+            keys.append(f"url:{scope}:{url_base}")
+        return list(dict.fromkeys(keys))
+
+    def _save_user_group_channel_keys(self, con, group_id: int, channel: Dict[str, Any]):
+        for key in self._channel_identity_keys(channel):
+            con.execute(
+                "INSERT OR IGNORE INTO user_group_channel_keys (group_id, channel_key) VALUES (?, ?)",
+                (group_id, key)
+            )
 
     def get_user_groups(self) -> List[Dict]:
         with self.conn() as con:
@@ -219,12 +257,16 @@ class Database:
     def set_user_group_channels(self, group_id: int, channel_ids: List[int]):
         with self.conn() as con:
             con.execute("DELETE FROM user_group_channels WHERE group_id = ?", (group_id,))
+            con.execute("DELETE FROM user_group_channel_keys WHERE group_id = ?", (group_id,))
             for cid in channel_ids:
                 try:
                     con.execute(
                         "INSERT OR IGNORE INTO user_group_channels (group_id, channel_id) VALUES (?, ?)",
                         (group_id, cid)
                     )
+                    row = con.execute("SELECT * FROM channels WHERE id = ?", (cid,)).fetchone()
+                    if row:
+                        self._save_user_group_channel_keys(con, group_id, dict(row))
                 except Exception:
                     pass
 
@@ -234,6 +276,9 @@ class Database:
                 "INSERT OR IGNORE INTO user_group_channels (group_id, channel_id) VALUES (?, ?)",
                 (group_id, channel_id)
             )
+            row = con.execute("SELECT * FROM channels WHERE id = ?", (channel_id,)).fetchone()
+            if row:
+                self._save_user_group_channel_keys(con, group_id, dict(row))
 
     def remove_channel_from_user_group(self, group_id: int, channel_id: int):
         with self.conn() as con:
@@ -241,6 +286,13 @@ class Database:
                 "DELETE FROM user_group_channels WHERE group_id = ? AND channel_id = ?",
                 (group_id, channel_id)
             )
+            row = con.execute("SELECT * FROM channels WHERE id = ?", (channel_id,)).fetchone()
+            if row:
+                for key in self._channel_identity_keys(dict(row)):
+                    con.execute(
+                        "DELETE FROM user_group_channel_keys WHERE group_id = ? AND channel_key = ?",
+                        (group_id, key)
+                    )
 
     def get_channels_for_user_groups(self, group_names: List[str]) -> List[Dict]:
         """Get all channels that belong to any of the given user group names."""
@@ -736,15 +788,28 @@ class Database:
                     "group_title": row["group_title"],  # preserve custom group renames
                 }
 
-            # Preserve user_group_channels by old channel id → stream_url_base
-            ug_by_url = {}  # url_base → list of group_ids
+            # Preserve user_group_channels by old channel id → stable identities.
+            # channel IDs are recreated on each refresh, so the durable keys are
+            # what keep custom group assignments alive across restarts/updates.
+            ug_by_url = {}  # url_base → set(group_ids)
+            ug_by_key = {}  # stable channel key → set(group_ids)
             for row in con.execute("""
-                SELECT c.stream_url, ugc.group_id
+                SELECT c.*, ugc.group_id
                 FROM user_group_channels ugc
                 JOIN channels c ON c.id = ugc.channel_id
             """).fetchall():
                 url_base = row["stream_url"].split("?")[0]
-                ug_by_url.setdefault(url_base, []).append(row["group_id"])
+                ug_by_url.setdefault(url_base, set()).add(row["group_id"])
+                row_dict = dict(row)
+                for key in self._channel_identity_keys(row_dict):
+                    ug_by_key.setdefault(key, set()).add(row["group_id"])
+                    con.execute(
+                        "INSERT OR IGNORE INTO user_group_channel_keys (group_id, channel_key) VALUES (?, ?)",
+                        (row["group_id"], key)
+                    )
+
+            for row in con.execute("SELECT group_id, channel_key FROM user_group_channel_keys").fetchall():
+                ug_by_key.setdefault(row["channel_key"], set()).add(row["group_id"])
 
             if provider_id is not None:
                 con.execute("DELETE FROM channels WHERE provider_id = ? OR provider_id IS NULL", (provider_id,))
@@ -773,12 +838,26 @@ class Database:
 
                 new_id = cur.lastrowid
                 # Restore user group assignments for this channel
-                for gid in ug_by_url.get(url_base, []):
+                restore_group_ids = set(ug_by_url.get(url_base, set()))
+                new_channel = {
+                    "name": ch["name"],
+                    "tvg_id": ch.get("tvg_id", ""),
+                    "stream_url": url,
+                    "provider_id": provider_id,
+                }
+                for key in self._channel_identity_keys(new_channel):
+                    restore_group_ids.update(ug_by_key.get(key, set()))
+
+                for gid in restore_group_ids:
                     try:
                         con.execute(
                             "INSERT OR IGNORE INTO user_group_channels (group_id, channel_id) VALUES (?, ?)",
                             (gid, new_id)
                         )
+                        self._save_user_group_channel_keys(con, gid, {
+                            **new_channel,
+                            "stream_url": url,
+                        })
                     except Exception:
                         pass
 
@@ -1089,6 +1168,27 @@ class Database:
                         FOREIGN KEY (group_id)   REFERENCES user_groups(id) ON DELETE CASCADE,
                         FOREIGN KEY (channel_id) REFERENCES channels(id)    ON DELETE CASCADE
                     )
+                """)
+                con.execute("""
+                    CREATE TABLE IF NOT EXISTS user_group_channel_keys (
+                        group_id    INTEGER NOT NULL,
+                        channel_key TEXT NOT NULL,
+                        created_at  TEXT DEFAULT (datetime('now')),
+                        PRIMARY KEY (group_id, channel_key),
+                        FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE CASCADE
+                    )
+                """)
+                con.execute("""
+                    INSERT OR IGNORE INTO user_group_channel_keys (group_id, channel_key)
+                    SELECT ugc.group_id,
+                           CASE
+                             WHEN IFNULL(c.tvg_id, '') != '' THEN
+                               'tvg:' || IFNULL(c.provider_id, '_global') || ':' || lower(trim(c.tvg_id))
+                             ELSE
+                               'name:' || IFNULL(c.provider_id, '_global') || ':' || lower(trim(c.name))
+                           END
+                    FROM user_group_channels ugc
+                    JOIN channels c ON c.id = ugc.channel_id
                 """)
                 con.execute("""
                     CREATE TABLE IF NOT EXISTS provider_group_order (
