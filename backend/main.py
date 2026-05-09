@@ -3742,6 +3742,17 @@ def _get_now_playing(channel_name: str) -> dict:
         return {}
 
 
+def _stats_title_at_catchup_time(channel: str, catchup_time_str: str, epg_root) -> str:
+    """Programme title at the catchup wall-clock position — overrides stale stored epg_title."""
+    if not channel or not catchup_time_str or epg_root is None:
+        return ""
+    try:
+        t = _epg_title_at_time_half_open(channel, catchup_time_str.strip(), epg_root)
+        return (t or "").strip()
+    except Exception:
+        return ""
+
+
 @admin_app.get("/api/stats")
 def get_stats(_=Depends(check_admin)):
     users = db.get_all_users()
@@ -3750,9 +3761,26 @@ def get_stats(_=Depends(check_admin)):
     ch_stats = db.get_channels_count()
     recent_logs = db.get_all_logs(limit=20)
     epg_root_for_logs = _get_epg_root()
+    now_ts = time.time()
     sessions_out = []
     for s in active_sessions:
         now_playing = _get_now_playing(s["channel"])
+        tok = (s.get("token") or "").strip()
+        ch = (s.get("channel") or "").strip()
+        cu_key = f"catchup::{tok}::{ch}"
+        cv_cu = _catchup_sessions.get(cu_key)
+        if cv_cu and now_ts - cv_cu["last_seen"] < _catchup_idle_ttl_seconds(cv_cu):
+            ct = (cv_cu.get("catchup_time") or "").strip()
+            t_at = _stats_title_at_catchup_time(ch, ct, epg_root_for_logs)
+            disp = t_at or (cv_cu.get("epg_title") or "").strip()
+            if disp:
+                np_live = now_playing if isinstance(now_playing, dict) else {}
+                now_playing = {
+                    "title": disp,
+                    "desc": np_live.get("desc", ""),
+                    "start": np_live.get("start", ""),
+                    "stop": np_live.get("stop", ""),
+                }
         sessions_out.append({
             "user": s["user_name"],
             "channel": s["channel"],
@@ -3801,7 +3829,6 @@ def get_stats(_=Depends(check_admin)):
     # Build active catchup list from in-memory _catchup_sessions
     _cleanup_sessions()
     active_catchup_out = []
-    now_ts = time.time()
     for ck, cv in list(_catchup_sessions.items()):
         if now_ts - cv["last_seen"] < _catchup_idle_ttl_seconds(cv):
             # Get user name and epg title from DB log
@@ -3813,11 +3840,11 @@ def get_stats(_=Depends(check_admin)):
                         "WHERE wl.id = ?", (cv["log_id"],)
                     ).fetchone()
                 if row:
-                    _cu_title = (cv.get("epg_title") or row["epg_title"] or "").strip()
-                    if not _cu_title and epg_root_for_logs is not None and row["catchup_time"]:
-                        _cu_title = _epg_title_at_time(row["channel"], row["catchup_time"], epg_root_for_logs)
-                        if _cu_title:
-                            _catchup_sessions[ck]["epg_title"] = _cu_title
+                    _ct = (cv.get("catchup_time") or row["catchup_time"] or "").strip()
+                    _from_epg = _stats_title_at_catchup_time(row["channel"], _ct, epg_root_for_logs)
+                    _cu_title = _from_epg or (cv.get("epg_title") or row["epg_title"] or "").strip()
+                    if _from_epg and _from_epg != (cv.get("epg_title") or "").strip():
+                        _catchup_sessions[ck]["epg_title"] = _from_epg
                     active_catchup_out.append({
                         "user": row["user_name"],
                         "channel": row["channel"],
