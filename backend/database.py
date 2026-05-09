@@ -703,6 +703,12 @@ class Database:
             rows = con.execute("SELECT * FROM m3u_providers ORDER BY name").fetchall()
             return [dict(r) for r in rows]
 
+    def has_m3u_providers(self) -> bool:
+        """True if at least one row in m3u_providers (multi-provider / Anbieter-Modus)."""
+        with self.conn() as con:
+            row = con.execute("SELECT 1 FROM m3u_providers LIMIT 1").fetchone()
+            return row is not None
+
     def get_provider_capacity(self) -> List[Dict]:
         now = int(time.time())
         cutoff = now - self.SESSION_TTL

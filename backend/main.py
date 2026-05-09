@@ -274,8 +274,9 @@ async def _m3u_watchdog():
     await asyncio.sleep(10)  # wait for startup
     while True:
         try:
-            # Legacy global refresh
-            if db.get_m3u_refresh_due():
+            # Legacy global refresh — nur ohne Anbieter-Tabelle. Sonst würde source_m3u_url
+            # (oft noch alte URL vom ersten Import) alle Kanäle aller Anbieter überschreiben.
+            if db.get_m3u_refresh_due() and not db.has_m3u_providers():
                 url = db.get_setting("source_m3u_url", "")
                 if url:
                     logger.info("M3U watchdog: refreshing global channels...")
@@ -3477,8 +3478,11 @@ async def update_provider(provider_id: int, body: dict, _=Depends(check_admin)):
     extra: dict = {}
     if new_url != old_url:
         for u in db.get_all_users():
-            if u.get("provider_id") == provider_id:
+            src = (u.get("m3u_source") or "").strip()
+            if u.get("provider_id") == provider_id or (old_url and src == old_url):
                 db.update_user(u["id"], {"m3u_source": new_url})
+        if old_url and (db.get_setting("source_m3u_url", "") or "").strip() == old_url:
+            db.set_setting("source_m3u_url", new_url)
         if new_url and not new_url.startswith("local://"):
             count, err = await _reload_provider_m3u_channels(provider_id)
             if err:
@@ -3498,6 +3502,12 @@ def delete_provider(provider_id: int, _=Depends(check_admin)):
 
 @admin_app.post("/api/channels/refresh")
 async def refresh_channels(_=Depends(check_admin)):
+    if db.has_m3u_providers():
+        raise HTTPException(
+            status_code=400,
+            detail="Anbieter-Modus aktiv: bitte unter Anbieter pro Eintrag ↻ verwenden. "
+            "Der globale Refresh nutzt nur die gespeicherte Legacy-URL und würde sonst alle Kanäle überschreiben.",
+        )
     url = db.get_setting("source_m3u_url", "")
     if not url:
         raise HTTPException(status_code=400, detail="No source URL saved.")
