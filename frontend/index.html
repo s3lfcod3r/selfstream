@@ -584,20 +584,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <div class="empty-state" style="font-size:11px;">Lädt…</div>
           </div>
         </div>
-
-        <!-- EPG Sources per provider -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
-            <span style="font-size:10px;color:var(--text2);letter-spacing:.15em;text-transform:uppercase;font-family:var(--mono);">📅 EPG-Quellen pro Anbieter</span>
-            
-          </div>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:14px;font-family:var(--mono);">
-            Jeder Anbieter kann eine eigene EPG-Quelle haben. Die Spalte <strong>Anbieter</strong> in der EPG-Tabelle zeigt die Zuordnung. Über ✏️ bearbeiten und Anbieter zuordnen.
-          </p>
-          <div id="epg-per-provider-list">
-            <div class="empty-state" style="font-size:11px;">Lädt…</div>
-          </div>
-        </div>
       </div>
 
 
@@ -617,6 +603,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <div class="form-group" style="margin:0;flex:3;min-width:260px;">
               <label class="form-label">URL</label>
               <input class="form-input" id="epg-url" placeholder="http://epg.anbieter.tv/epg.xml">
+            </div>
+            <div class="form-group" style="margin:0;min-width:160px;">
+              <label class="form-label">Anbieter <span style="font-weight:400;color:var(--text2);">(opt.)</span></label>
+              <select class="form-select" id="epg-add-provider" style="min-width:160px;">
+                <option value="">—</option>
+              </select>
             </div>
             <button class="btn primary" onclick="addEpg()" style="margin-bottom:0;">+ Hinzufügen</button>
           </div>
@@ -653,7 +645,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Quellen-Tabelle -->
         <div class="table-wrap" style="margin-bottom:14px;">
           <table>
-            <thead><tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>URL</th><th>Anbieter</th><th>Status</th><th></th></tr></thead>
             <tbody id="epg-tbody"></tbody>
           </table>
         </div>
@@ -1407,6 +1399,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <label class="form-label">URL</label>
       <input class="form-input" id="epg-edit-url" placeholder="http://epg.anbieter.tv/epg.xml">
     </div>
+    <div class="form-group">
+      <label class="form-label">Anbieter <span style="font-weight:400;color:var(--text2);">(optional)</span></label>
+      <select class="form-select" id="epg-edit-provider">
+        <option value="">— Keiner —</option>
+      </select>
+      <div class="form-hint" style="margin-top:6px;">Nur zur Übersicht im Admin. In der M3U stehen weiterhin alle <strong>aktiven</strong> EPG-URLs (url-tvg), unabhängig von dieser Zuordnung.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeM('modal-epg-edit')">Abbrechen</button>
       <button class="btn primary" onclick="saveEpgEdit()">Speichern</button>
@@ -1634,7 +1633,7 @@ function nav(page, el) {
   if(page==='users') loadUsers();
   if(page==='channels') loadCh();
   if(page==='groups') { loadUserGroups(); loadProviderGroupOrderGroups(); loadGroupPrefixSettingGroups(); }
-  if(page==='providers') { loadProviders(); loadProviderGroupOrder(); loadGroupPrefixSetting(); loadEpgMini(); loadProviderImportDropdown(); loadChProviderFilter(); }
+  if(page==='providers') { loadProviders(); loadProviderGroupOrder(); loadGroupPrefixSetting(); loadProviderImportDropdown(); loadChProviderFilter(); }
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='channels') { loadChProviderFilter(); }
   if(page==='logs') loadLogs();
@@ -2239,14 +2238,21 @@ async function saveProvider() {
   if (!url) { showToast('URL erforderlich'); return; }
   try {
     if (editId) {
-      await api('PUT', `/api/providers/${editId}`, {name, source_url: url, line_capacity: lines, source_type: stype, refresh_hours});
-      showToast('Anbieter aktualisiert');
+      const upd = await api('PUT', `/api/providers/${editId}`, {name, source_url: url, line_capacity: lines, source_type: stype, refresh_hours});
+      if (upd.channel_refresh_error) {
+        showToast('Anbieter gespeichert, Kanal-Refresh fehlgeschlagen: ' + upd.channel_refresh_error, true);
+      } else if (typeof upd.channels_refreshed === 'number') {
+        showToast(`Anbieter gespeichert, ${upd.channels_refreshed} Kanäle aus neuer M3U geladen`);
+      } else {
+        showToast('Anbieter aktualisiert');
+      }
     } else {
       await api('POST', '/api/providers', {name, source_url: url, line_capacity: lines, source_type: stype, refresh_hours});
       showToast('Anbieter angelegt');
     }
     closeM('modal-provider');
     loadProviders();
+    loadCh().catch(() => {});
   } catch(e) {
     showToast('Fehler: ' + (e.message || e));
   }
@@ -2258,6 +2264,7 @@ async function refreshProviderNow(id, name) {
     const r = await api('POST', `/api/providers/${id}/refresh`);
     showToast(`✓ ${r.imported} Kanäle aktualisiert`);
     loadProviders();
+    loadCh().catch(() => {});
   } catch(e) { showToast('Fehler: ' + (e.message||e), true); }
 }
 
@@ -2317,84 +2324,13 @@ async function deleteProvider(id, name) {
   loadProviders();
 }
 
-// ── EPG per-provider view on Anbieter page ───────────────────────────────────
-async function loadEpgMini() {
-  return loadEpgPerProvider();
-}
-
-async function loadEpgPerProvider() {
-  const wrap = document.getElementById('epg-per-provider-list');
-  if (!wrap) return;
-  const [sources, providers] = await Promise.all([
-    api('GET', '/api/epg').catch(()=>[]),
-    api('GET', '/api/providers').catch(()=>[])
-  ]);
-  if (!providers.length) {
-    wrap.innerHTML = '<div class="empty-state" style="font-size:11px;">Noch keine Anbieter vorhanden.</div>';
-    return;
-  }
-  // Group EPG sources by provider_id
-  const epgByProvider = {};
-  sources.forEach(e => {
-    const key = e.provider_id || '__none__';
-    if (!epgByProvider[key]) epgByProvider[key] = [];
-    epgByProvider[key].push(e);
-  });
-  // Render one block per provider
-  wrap.innerHTML = providers.map(p => {
-    const provEpg = epgByProvider[p.id] || [];
-    const epgRows = provEpg.length
-      ? provEpg.map(e => `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
-          <span style="flex:0 0 120px;font-size:12px;font-weight:500;">${esc(e.name)}</span>
-          <span style="flex:1;font-family:var(--mono);font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(e.url)}">${esc(e.url)}</span>
-          ${e.active ? '<span class="badge green" style="flex-shrink:0;">Aktiv</span>' : '<span class="badge" style="flex-shrink:0;color:var(--text2);border-color:var(--border);">Inaktiv</span>'}
-          <div style="flex-shrink:0;display:flex;gap:4px;">
-            <button class="btn sm" onclick="openEditEpg(${e.id})">✏️</button>
-            <button class="btn sm" onclick="toggleEpg(${e.id},${e.active})">${e.active?'Deakt.':'Aktiv.'}</button>
-            <button class="btn sm danger" onclick="delEpg(${e.id});setTimeout(loadEpgPerProvider,400)">✕</button>
-          </div>
-        </div>`).join('')
-      : `<div style="font-size:11px;color:var(--text3);padding:8px 0;font-family:var(--mono);">Noch keine EPG-Quelle für diesen Anbieter</div>`;
-    return `<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:12px;overflow:hidden;">
-      <div style="padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
-        <span style="font-weight:600;font-size:13px;">${esc(p.name)}</span>
-        <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg2);border:1px solid var(--border);color:var(--text2);font-family:var(--mono);">${(p.source_type||'m3u').toUpperCase()}</span>
-        <button class="btn sm" style="margin-left:auto;font-size:10px;" onclick="openAddEpgForProvider(${p.id},'${esc(p.name)}')">+ EPG hinzufügen</button>
-      </div>
-      <div style="padding:0 14px 2px;">${epgRows}</div>
-    </div>`;
-  }).join('');
-  // Unassigned EPG sources
-  const unassigned = epgByProvider['__none__'] || [];
-  if (unassigned.length) {
-    const rows = unassigned.map(e => `
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
-        <span style="flex:0 0 120px;font-size:12px;">${esc(e.name)}</span>
-        <span style="flex:1;font-family:var(--mono);font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.url)}</span>
-        ${e.active ? '<span class="badge green" style="flex-shrink:0;">Aktiv</span>' : '<span class="badge" style="flex-shrink:0;">Inaktiv</span>'}
-        <button class="btn sm danger" onclick="delEpg(${e.id});setTimeout(loadEpgPerProvider,400)">✕</button>
-      </div>`).join('');
-    wrap.innerHTML += `<div style="border:1px solid var(--border);border-radius:6px;margin-bottom:12px;overflow:hidden;">
-      <div style="padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);">
-        <span style="font-size:12px;color:var(--text2);">🗂 Keinem Anbieter zugeordnet</span>
-      </div>
-      <div style="padding:0 14px 2px;">${rows}</div>
-    </div>`;
-  }
-}
-
-let _epgForProviderId = null;
-
-async function addEpgFromProviders() {
-  const name = document.getElementById('epg-name-p')?.value?.trim();
-  const url = document.getElementById('epg-url-p')?.value?.trim();
-  if (!name || !url) return showToast('Name und URL erforderlich', true);
-  await api('POST', '/api/epg', {name, url});
-  if (document.getElementById('epg-name-p')) document.getElementById('epg-name-p').value = '';
-  if (document.getElementById('epg-url-p')) document.getElementById('epg-url-p').value = '';
-  loadEpgPerProvider();
-  showToast('EPG-Quelle gespeichert');
+function _fillEpgProviderSelect(sel, selectedId) {
+  if (!sel) return;
+  const providers = window._epgProvidersCache || [];
+  const cur = selectedId != null && selectedId !== '' ? String(selectedId) : '';
+  sel.innerHTML = '<option value="">—</option>' + providers.map(p =>
+    `<option value="${p.id}"${String(p.id) === cur ? ' selected' : ''}>${esc(p.name)}</option>`
+  ).join('');
 }
 
 // ── Provider dropdown for import section ─────────────────────────────────────
@@ -3154,10 +3090,18 @@ async function forceEpgRefresh() {
 }
 
 async function loadEpg() {
-  const [sources, settings] = await Promise.all([api('GET','/api/epg'), api('GET','/api/settings')]);
+  const [sources, settings, providers] = await Promise.all([
+    api('GET','/api/epg'),
+    api('GET','/api/settings'),
+    api('GET','/api/providers').catch(()=>[])
+  ]);
+  window._epgProvidersCache = providers || [];
   const provMap = {};
+  (providers || []).forEach(p => { provMap[p.id] = p.name; });
   const proxyUrl = (settings.proxy_url || window.location.origin.replace('8081','8000').replace('8080','8000')).replace(/\/$/, '');
   const globalEpgUrl = proxyUrl + '/iptv/epg.xml';
+
+  _fillEpgProviderSelect(document.getElementById('epg-add-provider'), '');
 
   // Load EPG cache settings
   const refreshSel = document.getElementById('epg-refresh');
@@ -3178,14 +3122,14 @@ async function loadEpg() {
 
   const tbody=document.getElementById('epg-tbody');
   if(!sources.length){
-    tbody.innerHTML='<tr><td colspan="4"><div class="empty-state">Noch keine EPG-Quelle. Auf der Anbieter-Seite hinzufügen.</div></td></tr>';
+    tbody.innerHTML='<tr><td colspan="5"><div class="empty-state">Noch keine EPG-Quelle. Oben Name und URL eintragen und <strong>+ Hinzufügen</strong> wählen.</div></td></tr>';
   } else {
-    if (!sources.length) {
-      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">Noch keine EPG-Quelle</div></td></tr>';
-    } else {
-    tbody.innerHTML=sources.map(e=>`<tr>
+    tbody.innerHTML=sources.map(e=>{
+      const pnm = e.provider_id != null && provMap[e.provider_id] ? esc(provMap[e.provider_id]) : '—';
+      return `<tr>
       <td><strong>${esc(e.name)}</strong></td>
-      <td style="max-width:300px;overflow:hidden;"><span class="mono" style="font-size:10px;" title="${esc(e.url)}">${esc(e.url)}</span></td>
+      <td style="max-width:260px;overflow:hidden;"><span class="mono" style="font-size:10px;" title="${esc(e.url)}">${esc(e.url)}</span></td>
+      <td style="font-size:11px;color:var(--text2);white-space:nowrap;">${pnm}</td>
       <td>${e.active?'<span class="badge green">Aktiv</span>':'<span class="badge" style="color:var(--text2);border-color:var(--border)">Inaktiv</span>'}</td>
       <td>
         <div class="action-cell">
@@ -3194,8 +3138,8 @@ async function loadEpg() {
           <button class="btn sm danger" onclick="delEpg(${e.id})">✕</button>
         </div>
       </td>
-    </tr>`).join('');
-    }
+    </tr>`;
+    }).join('');
   }
 
   // Set global EPG URL + day variants
@@ -3230,7 +3174,10 @@ async function addEpg() {
   const name=document.getElementById('epg-name').value.trim();
   const url=document.getElementById('epg-url').value.trim();
   if(!name||!url) return showToast('Name und URL erforderlich',true);
-  await api('POST','/api/epg',{name,url});
+  const pidRaw = document.getElementById('epg-add-provider')?.value;
+  const body = {name, url};
+  if (pidRaw) body.provider_id = parseInt(pidRaw, 10);
+  await api('POST','/api/epg', body);
   document.getElementById('epg-name').value='';
   document.getElementById('epg-url').value='';
   loadEpg(); showToast('EPG-Quelle gespeichert');
@@ -3254,12 +3201,17 @@ async function delEpg(id) {
 }
 
 async function openEditEpg(id) {
-  const sources = await api('GET', '/api/epg').catch(()=>[]);
+  const [sources, providers] = await Promise.all([
+    api('GET', '/api/epg').catch(()=>[]),
+    api('GET', '/api/providers').catch(()=>[])
+  ]);
+  window._epgProvidersCache = providers || [];
   const e = sources.find(x => x.id === id);
   if (!e) return;
   document.getElementById('epg-edit-id').value = e.id;
   document.getElementById('epg-edit-name').value = e.name || '';
   document.getElementById('epg-edit-url').value = e.url || '';
+  _fillEpgProviderSelect(document.getElementById('epg-edit-provider'), e.provider_id);
   document.getElementById('modal-epg-edit').classList.add('open');
 }
 
@@ -3268,10 +3220,11 @@ async function saveEpgEdit() {
   const name = document.getElementById('epg-edit-name').value.trim();
   const url = document.getElementById('epg-edit-url').value.trim();
   if (!name || !url) return showToast('Name und URL erforderlich', true);
-  await api('PUT', `/api/epg/${id}`, {name, url});
+  const pidRaw = document.getElementById('epg-edit-provider')?.value;
+  const payload = {name, url, provider_id: pidRaw ? parseInt(pidRaw, 10) : null};
+  await api('PUT', `/api/epg/${id}`, payload);
   closeM('modal-epg-edit');
   loadEpg();
-  loadEpgPerProvider();
   showToast('EPG-Quelle gespeichert');
 }
 
