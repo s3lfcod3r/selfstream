@@ -3406,6 +3406,32 @@ def provider_capacity(_=Depends(check_admin)):
         p["overbooked_by"] = max(0, total_active - cap) if cap > 0 else 0
     return result
 
+
+async def _reload_provider_m3u_channels(provider_id: int) -> tuple[int, Optional[str]]:
+    """Fetch M3U for this provider and replace only that provider's channels in DB.
+
+    Returns (imported_count, error_message). error_message is None on success.
+    """
+    p = db.get_provider(provider_id)
+    if not p:
+        return 0, "provider not found"
+    url = (p.get("source_url") or "").strip()
+    if not url:
+        return 0, "no source URL"
+    if url.startswith("local://"):
+        return 0, "local file — upload a new M3U file to replace channels"
+    try:
+        async with make_iptv_client(timeout=60, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            channels = parse_m3u(resp.text)
+        db.upsert_channels(channels, provider_id=provider_id)
+        db.set_provider_last_refresh(provider_id)
+        return len(channels), None
+    except Exception as e:
+        return 0, str(e)
+
+
 @admin_app.post("/api/providers")
 def create_provider(body: dict, _=Depends(check_admin)):
     name = (body.get("name") or "").strip()
@@ -3426,32 +3452,41 @@ async def refresh_provider_now(provider_id: int, _=Depends(check_admin)):
     p = db.get_provider(provider_id)
     if not p:
         raise HTTPException(status_code=404, detail="provider not found")
-    url = p.get("source_url", "")
+    url = (p.get("source_url") or "").strip()
     if not url or url.startswith("local://"):
         raise HTTPException(status_code=400, detail="Provider has no refreshable URL (uploaded file)")
-    try:
-        async with make_iptv_client(timeout=60, follow_redirects=True) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            channels = parse_m3u(resp.text)
-        db.upsert_channels(channels)
-        db.set_provider_last_refresh(provider_id)
-        return {"ok": True, "imported": len(channels)}
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Refresh fehlgeschlagen: {e}")
+    count, err = await _reload_provider_m3u_channels(provider_id)
+    if err:
+        raise HTTPException(status_code=502, detail=f"Refresh fehlgeschlagen: {err}")
+    return {"ok": True, "imported": count}
 
 @admin_app.put("/api/providers/{provider_id}")
-def update_provider(provider_id: int, body: dict, _=Depends(check_admin)):
+async def update_provider(provider_id: int, body: dict, _=Depends(check_admin)):
     p = db.get_provider(provider_id)
     if not p:
         raise HTTPException(status_code=404, detail="provider not found")
+    old_url = (p.get("source_url") or "").strip()
     name = (body.get("name") or p["name"]).strip()
     url = (body.get("source_url") or p["source_url"]).strip()
     line_capacity = int(body.get("line_capacity") if body.get("line_capacity") is not None else p.get("line_capacity") or 0)
     source_type = (body.get("source_type") or p.get("source_type") or "m3u").strip().lower()
     refresh_hours = int(body.get("refresh_hours") if body.get("refresh_hours") is not None else p.get("refresh_hours") or 0)
     updated = db.update_provider(provider_id, name, url, line_capacity, source_type, refresh_hours)
-    return updated
+    new_url = (updated.get("source_url") or "").strip()
+
+    extra: dict = {}
+    if new_url != old_url:
+        for u in db.get_all_users():
+            if u.get("provider_id") == provider_id:
+                db.update_user(u["id"], {"m3u_source": new_url})
+        if new_url and not new_url.startswith("local://"):
+            count, err = await _reload_provider_m3u_channels(provider_id)
+            if err:
+                extra["channel_refresh_error"] = err
+            else:
+                extra["channels_refreshed"] = count
+
+    return {**updated, **extra} if extra else updated
 
 @admin_app.delete("/api/providers/{provider_id}")
 def delete_provider(provider_id: int, _=Depends(check_admin)):
