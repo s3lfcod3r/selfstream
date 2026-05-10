@@ -1364,7 +1364,12 @@ async def _get_segment(url: str, hls: dict) -> tuple:
         evt = _segment_in_progress[url]
         await asyncio.wait_for(evt.wait(), timeout=30)
         wait_elapsed = time.time() - t_wait_start
-        return _segment_cache.get(url, b""), wait_elapsed, True
+        # Leader only caches bodies >100 bytes. If upstream was empty/short, cache is empty
+        # but we must not treat that as a cache hit — otherwise every waiter logs LEER for the same URL.
+        data_wait = _segment_cache.get(url, b"")
+        if len(data_wait) > 100:
+            return data_wait, wait_elapsed, True
+        return await _get_segment(url, hls)
 
     # We are the first – fetch it
     evt = asyncio.Event()
