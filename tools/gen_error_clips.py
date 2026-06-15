@@ -20,7 +20,10 @@ ASSETS = os.path.join(REPO, "backend", "assets")
 LOGO = os.path.join(REPO, "frontend", "logo.png")
 
 WIDTH, HEIGHT = 1280, 720
-BG = (10, 14, 21)
+# Match the logo PNG's own (non-transparent) background so the logo blends into
+# the canvas seamlessly instead of showing a cut-off box. frontend/logo.png is
+# RGB with a (19, 22, 27) background.
+BG = (19, 22, 27)
 RED = (248, 81, 73)
 
 # A couple of common Windows font paths as a fallback to DejaVu (Linux).
