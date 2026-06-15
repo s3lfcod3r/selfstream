@@ -667,6 +667,32 @@ async def error_max_streams_jpg():
 _ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
+def _build_loop_playlist(clip_url: str) -> str:
+    """Endlos-Live-Playlist (KEIN #EXT-X-ENDLIST), die denselben Hinweis-Clip in
+    einer gleitenden Fenster-Sequenz loopt. Eine VOD-Playlist mit ENDLIST endet
+    nach 8 s → der Player denkt 'Stream zu Ende' und zappt automatisch auf den
+    nächsten Sender / lädt neu. Als Live-Stream ohne Ende bleibt der Player auf
+    dem Sender und zeigt die Meldung dauerhaft.
+
+    #EXT-X-DISCONTINUITY vor jedem Segment, weil jeder Clip-Durchlauf bei PTS 0
+    neu startet (ohne den Tag gäbe es Timestamp-Rücksprünge → Freeze/Sprung).
+    """
+    seq = int(time.time() // 8)
+    sep = "&" if "?" in clip_url else "?"
+    lines = [
+        "#EXTM3U",
+        "#EXT-X-VERSION:3",
+        "#EXT-X-TARGETDURATION:9",
+        f"#EXT-X-MEDIA-SEQUENCE:{seq}",
+        f"#EXT-X-DISCONTINUITY-SEQUENCE:{seq}",
+    ]
+    for i in range(3):
+        lines.append("#EXT-X-DISCONTINUITY")
+        lines.append("#EXTINF:8.000,")
+        lines.append(f"{clip_url}{sep}s={seq + i}")
+    return "\n".join(lines) + "\n"
+
+
 def _serve_error_clip(name: str):
     from fastapi.responses import FileResponse, Response
     ts_path = os.path.join(_ASSETS_DIR, name)
@@ -754,7 +780,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         _short = db.get_setting("short_domain", "")
         _pub = _short.rstrip("/") if _short else proxy_url
         banned_url = f"{_pub}/iptv/error-banned.ts"
-        banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
+        banned_m3u = _build_loop_playlist(banned_url)
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
 
@@ -1176,7 +1202,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
             diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
             _ms_url = f"{public_url}/iptv/error-max-streams.ts"
-            _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
+            _ms_m3u = _build_loop_playlist(_ms_url)
             return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
 
     try:
@@ -1224,7 +1250,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                         logger.warning(f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
                         diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
                         _ms_url = f"{public_url}/iptv/error-max-streams.ts"
-                        _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
+                        _ms_m3u = _build_loop_playlist(_ms_url)
                         return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
                 db.session_start(token, channel_name, ip_address=_ip2)
                 _epg_now_ls = _get_now_playing(channel_name)
@@ -2391,7 +2417,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         _short2 = db.get_setting("short_domain", "")
         _pub2 = _short2.rstrip("/") if _short2 else proxy_url
         banned_url = f"{_pub2}/iptv/error-banned.ts"
-        banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
+        banned_m3u = _build_loop_playlist(banned_url)
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
 

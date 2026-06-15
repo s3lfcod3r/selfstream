@@ -42,7 +42,11 @@ def test_second_device_gets_max_streams_image(proxy):
     # Player überspringen ein JPEG-"Segment"; daher zeigt die M3U jetzt auf einen
     # echten MPEG-TS-Clip (vorgerendert, statisch ausgeliefert).
     assert "error-max-streams.ts" in r.text
-    assert "#EXT-X-ENDLIST" in r.text
+    # Endlos-Live-Loop statt VOD: KEIN ENDLIST (sonst zappt der Player nach dem
+    # Clip automatisch weiter), dafür gleitende Media-Sequence + Discontinuity.
+    assert "#EXT-X-ENDLIST" not in r.text
+    assert "#EXT-X-MEDIA-SEQUENCE" in r.text
+    assert "#EXT-X-DISCONTINUITY" in r.text
 
 
 def test_max_streams_clip_endpoint_serves_mpegts(proxy):
