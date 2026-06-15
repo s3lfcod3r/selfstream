@@ -1373,6 +1373,7 @@ _segment_cache: dict = {}
 _segment_cache_time: dict = {}  # {url: timestamp}
 _segment_in_progress: dict = {}  # {url: asyncio.Event} – deduplication lock
 SEGMENT_CACHE_TTL = 30  # seconds
+_SEGMENT_MAX_RETRY = 3  # Obergrenze für die Waiter-Wiederholung bei leerem Leader-Ergebnis
 
 def _get_segment_cache_max() -> int:
     """Dynamic cache size: base 30 + 10 per active stream (prefetch 2 ahead each).
@@ -1397,7 +1398,7 @@ _prefetch_cache = _segment_cache
 
 _segment_cache_elapsed: dict = {}  # {url: elapsed_seconds} – original download time
 
-async def _get_segment(url: str, hls: dict) -> tuple:
+async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
     """Download a segment, sharing the result if another coroutine is already fetching it.
     Returns (data: bytes, elapsed: float, from_cache: bool).
     elapsed = actual download time for fresh fetch, near-zero for cache hits."""
@@ -1428,7 +1429,11 @@ async def _get_segment(url: str, hls: dict) -> tuple:
         data_wait = _segment_cache.get(url, b"")
         if len(data_wait) > 100:
             return data_wait, wait_elapsed, True
-        return await _get_segment(url, hls)
+        # Leader lieferte leer (z.B. CDN-Fehler). Begrenzte erneute Versuche, damit ein
+        # dauerhaft fehlendes Segment keine unbegrenzt tiefe Rekursionskette aufbaut.
+        if _depth >= _SEGMENT_MAX_RETRY:
+            return b"", wait_elapsed, False
+        return await _get_segment(url, hls, _depth + 1)
 
     # We are the first – fetch it
     evt = asyncio.Event()
