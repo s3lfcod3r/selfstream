@@ -5,6 +5,12 @@
 Sicherheits- und Stabilitäts-Release. Voll abwärtskompatibel — keine
 Konfigurationsänderung nötig, bestehende Tokens/Logins bleiben gültig.
 
+### Funktionen
+- **„Max. Streams erreicht"-Anzeige:** Öffnet ein Nutzer mehr gleichzeitige
+  Streams als erlaubt, zeigt der Player jetzt ein klares Hinweisbild (wie beim
+  gesperrten Konto) statt eines stummen Fehlers. Das Umschalten auf demselben
+  Gerät löst weiterhin keine Sperre aus.
+
 ### Sicherheit
 - **SSRF-Schutz:** Der öffentliche Proxy (`/iptv/{token}/stream` und `/segment`)
   prüft Ziel-URLs jetzt vor dem Abruf. Nur `http`/`https`; interne/private Ziele
