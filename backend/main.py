@@ -424,8 +424,23 @@ SOCKS_PORT = 1080
 _socks_process: Optional[subprocess.Popen] = None
 
 
-def make_iptv_client(**kwargs) -> httpx.AsyncClient:
-    """Create an httpx client with browser-like headers so IPTV servers don't block us."""
+async def _ssrf_guard_request(request: httpx.Request) -> None:
+    """httpx-Request-Hook: prüft JEDEN ausgehenden Request — auch Redirect-Ziele
+    (HTTP 302) — gegen die SSRF-Policy. assert_safe_upstream_url() prüft nur die
+    initiale URL; ohne diesen Hook könnte ein bösartiger/kompromittierter Upstream
+    per Weiterleitung auf eine interne/private Adresse zeigen. httpx löst Location
+    vor dem nächsten Request absolut auf, daher steht hier eine vollständige URL."""
+    assert_safe_upstream_url(str(request.url))
+
+
+def make_iptv_client(ssrf_guard: bool = False, **kwargs) -> httpx.AsyncClient:
+    """Create an httpx client with browser-like headers so IPTV servers don't block us.
+
+    ssrf_guard=True: jeden ausgehenden Request (inkl. Redirect-Hops) gegen die
+    SSRF-Policy prüfen. Nur für Fetches nutzer-/anbieter-beeinflusster Inhalts-URLs
+    (Stream/Segment/Catchup) — NICHT für admin-gesetzte EPG/M3U-Quellen, die bewusst
+    im LAN liegen dürfen.
+    """
     default_headers = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 11; Chromecast) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 CrKey/1.56.500000",
         "Accept": "*/*",
@@ -438,6 +453,10 @@ def make_iptv_client(**kwargs) -> httpx.AsyncClient:
         kwargs["headers"] = merged
     else:
         kwargs["headers"] = default_headers
+    if ssrf_guard:
+        hooks = dict(kwargs.get("event_hooks") or {})
+        hooks["request"] = list(hooks.get("request", [])) + [_ssrf_guard_request]
+        kwargs["event_hooks"] = hooks
     return httpx.AsyncClient(**kwargs)
 
 
@@ -1020,6 +1039,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             for _cu_attempt in range(3):
                 try:
                     async with make_iptv_client(
+                        ssrf_guard=True,
                         timeout=_cu_to,
                         follow_redirects=True,
                         headers=make_headers(hls),
@@ -1232,6 +1252,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         # For .ts URLs (Xtream live streams): check if it's really an M3U8 or a direct TS stream
         # HLS .m3u8 stream — fetch playlist and rewrite segment URLs
         async with make_iptv_client(
+            ssrf_guard=True,
             timeout=live_timeout,
             follow_redirects=hls["hls_follow_redirects"],
             headers=live_headers
@@ -1416,6 +1437,7 @@ async def _get_segment(url: str, hls: dict) -> tuple:
         buf = bytearray()
         t_start = time.time()
         async with make_iptv_client(
+            ssrf_guard=True,
             timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
             follow_redirects=hls["hls_follow_redirects"],
             headers=make_headers(hls)
@@ -2544,7 +2566,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             _catchup_warn_if_no_dvr_in_url(token, decoded_url)
         try:
             timeout = catchup_upstream_httpx_timeout(hls)
-            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
+            async with make_iptv_client(ssrf_guard=True, timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as client:
                 _ck_live = _resolve_catchup_session_key(token, decoded_url)
                 _cv_live = _catchup_sessions.get(_ck_live) if _ck_live else None
                 if is_catchup_guard_master_enabled() and _cv_live and _cv_live.get("auto_live_pending"):
@@ -2609,7 +2631,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                         try:
                             _cu_t0 = time.time()
                             _buf = bytearray()
-                            async with make_iptv_client(timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
+                            async with make_iptv_client(ssrf_guard=True, timeout=timeout, follow_redirects=hls["hls_follow_redirects"], headers=make_headers(hls)) as c2:
                                 async with c2.stream("GET", decoded_url) as r2:
                                     if r2.status_code not in (200, 206):
                                         raise HTTPException(status_code=502, detail=f"Catchup segment upstream HTTP {r2.status_code}")
@@ -2813,6 +2835,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
 
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
             async with make_iptv_client(
+                ssrf_guard=True,
                 timeout=timeout,
                 follow_redirects=hls["hls_follow_redirects"],
                 headers=make_headers(hls)
