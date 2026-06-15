@@ -47,3 +47,7 @@ desktop.ini
 # Test-/Build-Umgebung
 .venv/
 .pytest_cache/
+
+# Entwicklungs-/Werkzeug-Ordner (nur lokal, nicht im öffentlichen Repo)
+tests/
+tools/
