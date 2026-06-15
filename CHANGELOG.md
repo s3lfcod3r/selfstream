@@ -6,10 +6,14 @@ Sicherheits- und Stabilitäts-Release. Voll abwärtskompatibel — keine
 Konfigurationsänderung nötig, bestehende Tokens/Logins bleiben gültig.
 
 ### Funktionen
-- **„Max. Streams erreicht"-Anzeige:** Öffnet ein Nutzer mehr gleichzeitige
-  Streams als erlaubt, zeigt der Player jetzt ein klares Hinweisbild (wie beim
-  gesperrten Konto) statt eines stummen Fehlers. Das Umschalten auf demselben
-  Gerät löst weiterhin keine Sperre aus.
+- **„Max. Streams erreicht"- und „Gesperrt"-Anzeige als echtes Video:** Öffnet ein
+  Nutzer mehr gleichzeitige Streams als erlaubt (oder ist der Zugang gesperrt),
+  spielt der Player jetzt einen kurzen Hinweis-**Clip** ab. Vorher wurde ein
+  JPEG ausgeliefert, das VLC/Tablet-Player als HLS-„Segment" übersprungen haben –
+  daher kam beim Nutzer keine Meldung an. Die Clips sind vorgerenderte MPEG-TS-
+  Dateien (`backend/assets/*.ts`, erzeugt mit `tools/gen_error_clips.py`) und
+  werden statisch ausgeliefert: **kein ffmpeg im Container, keine Laufzeit-CPU-Last.**
+  Das Umschalten auf demselben Gerät löst weiterhin keine Sperre aus.
 
 ### Sicherheit
 - **SSRF-Schutz:** Der öffentliche Proxy (`/iptv/{token}/stream` und `/segment`)

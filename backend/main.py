@@ -660,6 +660,37 @@ async def error_max_streams_jpg():
     return Response(content=b"", media_type="image/jpeg")
 
 
+# Vorgerenderte MPEG-TS-Clips (committet in backend/assets, im Image unter
+# /app/assets). HLS-Player überspringen ein JPEG-"Segment", spielen aber ein
+# echtes TS-Video ab. Erzeugt von tools/gen_error_clips.py — kein ffmpeg auf
+# dem Server, reine statische Auslieferung (keine CPU-Last).
+_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+
+def _serve_error_clip(name: str):
+    from fastapi.responses import FileResponse, Response
+    ts_path = os.path.join(_ASSETS_DIR, name)
+    if os.path.exists(ts_path):
+        return FileResponse(
+            ts_path,
+            media_type="video/mp2t",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    return Response(content=b"", media_type="video/mp2t")
+
+
+@proxy_app.get("/iptv/error-max-streams.ts")
+async def error_max_streams_ts():
+    """Liefert den 'Max. Streams erreicht'-Videoclip (MPEG-TS) für den Player."""
+    return _serve_error_clip("error-max-streams.ts")
+
+
+@proxy_app.get("/iptv/error-banned.ts")
+async def error_banned_ts():
+    """Liefert den 'Zugang gesperrt'-Videoclip (MPEG-TS) für den Player."""
+    return _serve_error_clip("error-banned.ts")
+
+
 @proxy_app.get("/iptv/error-max-streams.png")
 async def error_image():
     """Serves a PNG error image for max streams reached."""
@@ -722,8 +753,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         proxy_url = db.get_proxy_url()
         _short = db.get_setting("short_domain", "")
         _pub = _short.rstrip("/") if _short else proxy_url
-        banned_url = f"{_pub}/iptv/error-banned.jpg"
-        banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
+        banned_url = f"{_pub}/iptv/error-banned.ts"
+        banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
 
@@ -1144,8 +1175,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         if len(other) >= max_s:
             logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
             diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
-            _ms_url = f"{public_url}/iptv/error-max-streams.jpg"
-            _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
+            _ms_url = f"{public_url}/iptv/error-max-streams.ts"
+            _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
             return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
 
     try:
@@ -1192,8 +1223,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     if len(_other_ls) >= max_s_ls:
                         logger.warning(f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
                         diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
-                        _ms_url = f"{public_url}/iptv/error-max-streams.jpg"
-                        _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
+                        _ms_url = f"{public_url}/iptv/error-max-streams.ts"
+                        _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
                         return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
                 db.session_start(token, channel_name, ip_address=_ip2)
                 _epg_now_ls = _get_now_playing(channel_name)
@@ -2359,8 +2390,8 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         proxy_url = db.get_proxy_url()
         _short2 = db.get_setting("short_domain", "")
         _pub2 = _short2.rstrip("/") if _short2 else proxy_url
-        banned_url = f"{_pub2}/iptv/error-banned.jpg"
-        banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
+        banned_url = f"{_pub2}/iptv/error-banned.ts"
+        banned_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:9\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:8.000,\n" + banned_url + "\n#EXT-X-ENDLIST\n"
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
 

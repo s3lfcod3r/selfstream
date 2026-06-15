@@ -39,12 +39,23 @@ def test_second_device_gets_max_streams_image(proxy):
 
     assert r.status_code == 200
     assert "application/x-mpegURL" in r.headers.get("content-type", "")
-    assert "error-max-streams.jpg" in r.text
+    # Player überspringen ein JPEG-"Segment"; daher zeigt die M3U jetzt auf einen
+    # echten MPEG-TS-Clip (vorgerendert, statisch ausgeliefert).
+    assert "error-max-streams.ts" in r.text
     assert "#EXT-X-ENDLIST" in r.text
 
 
-def test_max_streams_image_endpoint_serves_jpeg_or_empty(proxy):
-    # Endpunkt existiert und antwortet als image/jpeg (Bild kommt aus /data zur Laufzeit)
-    r = proxy.get("/iptv/error-max-streams.jpg")
+def test_max_streams_clip_endpoint_serves_mpegts(proxy):
+    # Vorgerenderter Clip wird als MPEG-TS ausgeliefert und beginnt mit dem
+    # TS-Sync-Byte 0x47 (echtes Video, nicht leer).
+    r = proxy.get("/iptv/error-max-streams.ts")
     assert r.status_code == 200
-    assert "image/jpeg" in r.headers.get("content-type", "")
+    assert "video/mp2t" in r.headers.get("content-type", "")
+    assert r.content[:1] == b"\x47"
+
+
+def test_banned_clip_endpoint_serves_mpegts(proxy):
+    r = proxy.get("/iptv/error-banned.ts")
+    assert r.status_code == 200
+    assert "video/mp2t" in r.headers.get("content-type", "")
+    assert r.content[:1] == b"\x47"
