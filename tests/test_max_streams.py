@@ -17,6 +17,7 @@ def proxy(tmp_path, monkeypatch):
     main._startup_done = True
     main._sessions.clear()
     main._catchup_sessions.clear()
+    main._block_anchors.clear()
     main._last_cleanup = time.time()  # Cleanup-Body via Throttle überspringen
     return TestClient(main.proxy_app)
 
@@ -47,6 +48,25 @@ def test_second_device_gets_max_streams_image(proxy):
     assert "#EXT-X-ENDLIST" not in r.text
     assert "#EXT-X-MEDIA-SEQUENCE" in r.text
     assert "#EXT-X-DISCONTINUITY" in r.text
+
+
+def test_max_streams_playlist_uses_low_media_sequence(proxy):
+    # Die Block-Loop muss eine NIEDRIGE Media-Sequence nutzen (pro Episode bei 0
+    # startend), nicht die an die Unix-Zeit gekoppelte Riesenzahl (~2e8). Sonst
+    # übernimmt der Player den echten Stream nach dem Entsperren nicht, weil dessen
+    # kleinere Sequence wie ein Rücksprung aussieht und verworfen wird.
+    user = main.db.create_user(name="LowSeq", token="lowseqtok", m3u_source="http://prov")
+    main.db.update_user(user["id"], {"max_streams": 1})
+    now = time.time()
+    main._sessions["other-dev"] = {
+        "user_id": user["id"], "session_key": "other-key", "last_seen": now,
+    }
+
+    r = proxy.get("/iptv/lowseqtok/stream", params={"url": "http://8.8.8.8/live.m3u8"})
+
+    seq_line = next(l for l in r.text.splitlines() if l.startswith("#EXT-X-MEDIA-SEQUENCE:"))
+    seq = int(seq_line.split(":", 1)[1])
+    assert seq < 100
 
 
 def test_max_streams_clip_endpoint_serves_mpegts(proxy):

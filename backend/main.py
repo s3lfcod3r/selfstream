@@ -667,28 +667,52 @@ async def error_max_streams_jpg():
 _ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
-def _build_loop_playlist(clip_url: str) -> str:
+# Dauer der vorgerenderten Hinweis-Clips (backend/assets/*.ts) in Sekunden.
+BLOCK_SEG_DUR = 8
+
+# Pro Block-Episode gemerkter Startzeitpunkt, damit die Loop-Media-Sequence bei 0
+# beginnt (siehe _blocked_seq). {block_key: {"t0": float, "seen": float}}
+_block_anchors: dict = {}
+
+
+def _blocked_seq(block_key: str) -> int:
+    """Niedrige, monotone Media-Sequence für die Block-Loop, pro Episode bei 0
+    startend. Entscheidend fürs automatische Fortsetzen: fällt die Sperre, hat der
+    echte Stream eine eigene (meist höhere) Sequence. Eine an die Unix-Zeit
+    gekoppelte Riesen-Sequence (~2e8) würde den Player den echten Stream als
+    'rückwärts springend' verwerfen lassen → er bliebe auf dem Hinweis hängen.
+    Der Anker wird per _cleanup_sessions aufgeräumt, sobald nicht mehr blockiert."""
+    now = time.time()
+    anchor = _block_anchors.get(block_key)
+    if anchor is None:
+        anchor = {"t0": now, "seen": now}
+        _block_anchors[block_key] = anchor
+    anchor["seen"] = now
+    return int((now - anchor["t0"]) // BLOCK_SEG_DUR)
+
+
+def _build_loop_playlist(clip_url: str, seq: int) -> str:
     """Endlos-Live-Playlist (KEIN #EXT-X-ENDLIST), die denselben Hinweis-Clip in
     einer gleitenden Fenster-Sequenz loopt. Eine VOD-Playlist mit ENDLIST endet
-    nach 8 s → der Player denkt 'Stream zu Ende' und zappt automatisch auf den
-    nächsten Sender / lädt neu. Als Live-Stream ohne Ende bleibt der Player auf
-    dem Sender und zeigt die Meldung dauerhaft.
+    nach dem Clip → der Player denkt 'Stream zu Ende' und zappt automatisch auf den
+    nächsten Sender / lädt neu. Als Live-Stream ohne Ende bleibt der Player auf dem
+    Sender und zeigt die Meldung dauerhaft.
 
-    #EXT-X-DISCONTINUITY vor jedem Segment, weil jeder Clip-Durchlauf bei PTS 0
-    neu startet (ohne den Tag gäbe es Timestamp-Rücksprünge → Freeze/Sprung).
+    `seq` kommt aus _blocked_seq() und ist bewusst NIEDRIG, damit der echte Stream
+    nach dem Entsperren übernommen wird. #EXT-X-DISCONTINUITY vor jedem Segment,
+    weil jeder Clip-Durchlauf bei PTS 0 neu startet (sonst Freeze/Sprung).
     """
-    seq = int(time.time() // 8)
     sep = "&" if "?" in clip_url else "?"
     lines = [
         "#EXTM3U",
         "#EXT-X-VERSION:3",
-        "#EXT-X-TARGETDURATION:9",
+        f"#EXT-X-TARGETDURATION:{BLOCK_SEG_DUR + 1}",
         f"#EXT-X-MEDIA-SEQUENCE:{seq}",
         f"#EXT-X-DISCONTINUITY-SEQUENCE:{seq}",
     ]
     for i in range(3):
         lines.append("#EXT-X-DISCONTINUITY")
-        lines.append("#EXTINF:8.000,")
+        lines.append(f"#EXTINF:{BLOCK_SEG_DUR}.000,")
         lines.append(f"{clip_url}{sep}s={seq + i}")
     return "\n".join(lines) + "\n"
 
@@ -780,7 +804,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         _short = db.get_setting("short_domain", "")
         _pub = _short.rstrip("/") if _short else proxy_url
         banned_url = f"{_pub}/iptv/error-banned.ts"
-        banned_m3u = _build_loop_playlist(banned_url)
+        banned_m3u = _build_loop_playlist(banned_url, _blocked_seq(f"{token}::banned"))
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
 
@@ -1202,7 +1226,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
             diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
             _ms_url = f"{public_url}/iptv/error-max-streams.ts"
-            _ms_m3u = _build_loop_playlist(_ms_url)
+            _ms_m3u = _build_loop_playlist(_ms_url, _blocked_seq(_this_key))
             return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
 
     try:
@@ -1250,7 +1274,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                         logger.warning(f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
                         diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
                         _ms_url = f"{public_url}/iptv/error-max-streams.ts"
-                        _ms_m3u = _build_loop_playlist(_ms_url)
+                        _ms_m3u = _build_loop_playlist(_ms_url, _blocked_seq(_sk_ls))
                         return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
                 db.session_start(token, channel_name, ip_address=_ip2)
                 _epg_now_ls = _get_now_playing(channel_name)
@@ -2170,6 +2194,11 @@ def _cleanup_sessions():
     if now - _last_cleanup < 10:
         return
     _last_cleanup = now
+    # Block-Loop-Anker freigeben, sobald ein Gerät >60s nicht mehr geblockt wird
+    # (Sperre aufgehoben oder Player weg). So startet die Sequence beim nächsten
+    # Block wieder niedrig statt unbegrenzt weiterzuwachsen.
+    for _bk in [k for k, v in _block_anchors.items() if now - v["seen"] > 60]:
+        _block_anchors.pop(_bk, None)
     stale = [k for k, v in _sessions.items() if now - v["last_seen"] > SESSION_MEM_TTL]
     for k in stale:
         s = _sessions.pop(k)
@@ -2417,7 +2446,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
         _short2 = db.get_setting("short_domain", "")
         _pub2 = _short2.rstrip("/") if _short2 else proxy_url
         banned_url = f"{_pub2}/iptv/error-banned.ts"
-        banned_m3u = _build_loop_playlist(banned_url)
+        banned_m3u = _build_loop_playlist(banned_url, _blocked_seq(f"{token}::banned"))
         return HTMLResponse(content=banned_m3u, media_type="application/x-mpegURL",
                            headers={"Cache-Control": "no-cache"})
 
