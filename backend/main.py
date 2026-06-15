@@ -674,6 +674,15 @@ BLOCK_SEG_DUR = 8
 # beginnt (siehe _blocked_seq). {block_key: {"t0": float, "seen": float}}
 _block_anchors: dict = {}
 
+# Auto-Resume nach Sperre: pro Session ein Sequence-Offset, mit dem der echte
+# Stream als Fortsetzung desselben Live-Streams ausgeliefert wird (siehe
+# _splice_resume). {session_key: {"offset": int, "spliced": bool, "expires": float}}
+_resume_offsets: dict = {}
+
+# Sicherheitsabstand zwischen letzter Loop-Sequence und erstem echten Segment, damit
+# der Player den echten Stream sicher als "vorwärts" akzeptiert (Loop-Fenster = 3 Segm.).
+RESUME_SEQ_GAP = 10
+
 
 def _blocked_seq(block_key: str) -> int:
     """Niedrige, monotone Media-Sequence für die Block-Loop, pro Episode bei 0
@@ -687,8 +696,75 @@ def _blocked_seq(block_key: str) -> int:
     if anchor is None:
         anchor = {"t0": now, "seen": now}
         _block_anchors[block_key] = anchor
+        # Neue Block-Episode → alten Resume-Offset verwerfen (sonst würde er auf den
+        # frisch bei 0 startenden Loop falsch angewandt).
+        _resume_offsets.pop(block_key, None)
     anchor["seen"] = now
     return int((now - anchor["t0"]) // BLOCK_SEG_DUR)
+
+
+def _parse_media_seq(playlist: str) -> int:
+    """Liest #EXT-X-MEDIA-SEQUENCE aus einer Playlist (Default 0, wenn nicht vorhanden)."""
+    for line in playlist.split("\n"):
+        s = line.strip()
+        if s.startswith("#EXT-X-MEDIA-SEQUENCE:"):
+            try:
+                return int(s.split(":", 1)[1].strip())
+            except ValueError:
+                return 0
+    return 0
+
+
+def _splice_resume(rewritten: str, session_key: str) -> str:
+    """Liefert den echten Live-Stream als Fortsetzung der Block-Loop aus, wenn dieses
+    Gerät gerade noch geblockt war. Erhöht die Media-Sequence der echten Playlist um
+    einen pro Session fixen Offset (monotone Fortsetzung der Loop-Sequence) und setzt
+    beim ersten Mal eine #EXT-X-DISCONTINUITY vor das erste echte Segment (PTS-Reset
+    vom Hinweis-Clip auf den echten Stream). Ohne diese Fortsetzung verwirft der Player
+    die plötzlich andere Playlist und bleibt am Hinweis-Loop hängen.
+
+    Greift NUR für eine Session, die zuvor geblockt war (Anker vorhanden) bzw. einen
+    aktiven Offset hat — der normale Live-Pfad bleibt unverändert."""
+    resume = _resume_offsets.get(session_key)
+    blk = _block_anchors.pop(session_key, None)
+    if blk is not None and resume is None:
+        last_loop_seq = int((blk["seen"] - blk["t0"]) // BLOCK_SEG_DUR)
+        prov_seq = _parse_media_seq(rewritten)
+        resume = {
+            "offset": (last_loop_seq + RESUME_SEQ_GAP) - prov_seq,
+            "spliced": False,
+            "expires": time.time() + 3600,
+        }
+        _resume_offsets[session_key] = resume
+    if resume is None:
+        return rewritten
+
+    add_disc = not resume["spliced"]
+    out = []
+    has_seq = False
+    disc_done = False
+    for line in rewritten.split("\n"):
+        s = line.strip()
+        if s.startswith("#EXT-X-MEDIA-SEQUENCE:"):
+            has_seq = True
+            out.append(f"#EXT-X-MEDIA-SEQUENCE:{_parse_media_seq(line) + resume['offset']}")
+            continue
+        if add_disc and not disc_done and s.startswith("#EXTINF"):
+            out.append("#EXT-X-DISCONTINUITY")
+            disc_done = True
+        out.append(line)
+    if not has_seq:
+        # Provider-Playlist ohne Media-Sequence → eine einfügen (P=0 + offset).
+        res = []
+        inserted = False
+        for line in out:
+            res.append(line)
+            if not inserted and line.strip() == "#EXTM3U":
+                res.append(f"#EXT-X-MEDIA-SEQUENCE:{resume['offset']}")
+                inserted = True
+        out = res
+    resume["spliced"] = True
+    return "\n".join(out)
 
 
 def _build_loop_playlist(clip_url: str, seq: int) -> str:
@@ -1250,6 +1326,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         _ua2 = request.headers.get("user-agent","")[:60]
         sid = hashlib.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
         rewritten = rewrite_hls_playlist(playlist_content, decoded_url, public_url, token, sid=sid)
+        # Auto-Resume: war dieses Gerät gerade noch geblockt (Hinweis-Loop), den echten
+        # Stream als Fortsetzung ausliefern, damit der Player nicht am Loop hängen bleibt.
+        rewritten = _splice_resume(rewritten, f"{token}::sid::{sid}")
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
 
         # Keep live session alive on playlist refreshes (ExoPlayer polls m3u8 frequently).
@@ -2199,6 +2278,9 @@ def _cleanup_sessions():
     # Block wieder niedrig statt unbegrenzt weiterzuwachsen.
     for _bk in [k for k, v in _block_anchors.items() if now - v["seen"] > 60]:
         _block_anchors.pop(_bk, None)
+    # Abgelaufene Resume-Offsets entfernen (Session lange vorbei).
+    for _rk in [k for k, v in _resume_offsets.items() if v.get("expires", 0) < now]:
+        _resume_offsets.pop(_rk, None)
     stale = [k for k, v in _sessions.items() if now - v["last_seen"] > SESSION_MEM_TTL]
     for k in stale:
         s = _sessions.pop(k)
