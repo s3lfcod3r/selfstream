@@ -650,6 +650,16 @@ async def error_banned_jpg():
     return Response(content=b"", media_type="image/jpeg")
 
 
+@proxy_app.get("/iptv/error-max-streams.jpg")
+async def error_max_streams_jpg():
+    """Liefert das generierte 'Max. Streams erreicht'-JPEG für die Player-Anzeige."""
+    from fastapi.responses import FileResponse, Response
+    jpg_path = "/data/error-max-streams.jpg"
+    if os.path.exists(jpg_path):
+        return FileResponse(jpg_path, media_type="image/jpeg")
+    return Response(content=b"", media_type="image/jpeg")
+
+
 @proxy_app.get("/iptv/error-max-streams.png")
 async def error_image():
     """Serves a PNG error image for max streams reached."""
@@ -1134,7 +1144,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         if len(other) >= max_s:
             logger.warning(f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
             diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(other)}/{max_s} from {_ip3}")
-            raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
+            _ms_url = f"{public_url}/iptv/error-max-streams.jpg"
+            _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
+            return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
 
     try:
         live_timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
@@ -1180,7 +1192,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     if len(_other_ls) >= max_s_ls:
                         logger.warning(f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
                         diag_log("WARNING", "stream", f"Stream blocked: {user['name']} {len(_other_ls)}/{max_s_ls} from {_ip2}")
-                        raise HTTPException(status_code=429, detail="Max. Streams erreicht.")
+                        _ms_url = f"{public_url}/iptv/error-max-streams.jpg"
+                        _ms_m3u = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:10.0,\n" + _ms_url + "\n#EXT-X-ENDLIST\n"
+                        return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
                 db.session_start(token, channel_name, ip_address=_ip2)
                 _epg_now_ls = _get_now_playing(channel_name)
                 _epg_title_ls = _epg_now_ls.get("title") if _epg_now_ls else None
