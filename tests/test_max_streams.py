@@ -18,7 +18,6 @@ def proxy(tmp_path, monkeypatch):
     main._sessions.clear()
     main._catchup_sessions.clear()
     main._block_anchors.clear()
-    main._resume_offsets.clear()
     main._last_cleanup = time.time()  # Cleanup-Body via Throttle überspringen
     return TestClient(main.proxy_app)
 
@@ -68,39 +67,6 @@ def test_max_streams_playlist_uses_low_media_sequence(proxy):
     seq_line = next(l for l in r.text.splitlines() if l.startswith("#EXT-X-MEDIA-SEQUENCE:"))
     seq = int(seq_line.split(":", 1)[1])
     assert seq < 100
-
-
-def test_splice_resume_continues_sequence_after_block(proxy):
-    # Nach dem Entsperren muss der echte Stream als Fortsetzung der Loop ausgeliefert
-    # werden: Media-Sequence = letzte Loop-Sequence + GAP (kein Rücksprung) und beim
-    # ersten Mal eine Discontinuity (PTS-Reset Clip→echter Stream).
-    key = "tok::sid::abc"
-    now = time.time()
-    main._block_anchors[key] = {"t0": now - 24, "seen": now}  # last_loop_seq = 24/8 = 3
-    real = ("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MEDIA-SEQUENCE:5\n"
-            "#EXTINF:6.0,\nseg0.ts\n#EXTINF:6.0,\nseg1.ts\n")
-
-    out = main._splice_resume(real, key)
-
-    assert main._parse_media_seq(out) == 3 + main.RESUME_SEQ_GAP
-    assert "#EXT-X-DISCONTINUITY" in out.split("\n")           # echter Übergangs-Tag
-    assert f"#EXT-X-DISCONTINUITY-SEQUENCE:{3 + main.RESUME_SEQ_GAP}" in out
-    assert key not in main._block_anchors          # Anker verbraucht
-    assert key in main._resume_offsets             # Offset bleibt für Folge-Reloads
-
-    # Zweiter Reload: Offset weiter angewandt, aber KEINE neue Discontinuity.
-    out2 = main._splice_resume("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:6\n#EXTINF:6.0,\nseg2.ts\n", key)
-    assert main._parse_media_seq(out2) == 6 + (3 + main.RESUME_SEQ_GAP - 5)
-    assert "#EXT-X-DISCONTINUITY" not in out2.split("\n")      # kein neuer Tag mehr
-    # Discontinuity-Sequence bleibt konstant (ein Übergang, kein erneuter Reset).
-    assert f"#EXT-X-DISCONTINUITY-SEQUENCE:{3 + main.RESUME_SEQ_GAP}" in out2
-
-
-def test_splice_resume_noop_for_unblocked_session(proxy):
-    # Eine Session, die nie geblockt war, bleibt unverändert (normaler Live-Pfad).
-    key = "tok::sid::xyz"
-    real = "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:5\n#EXTINF:6.0,\nseg.ts\n"
-    assert main._splice_resume(real, key) == real
 
 
 def test_max_streams_clip_endpoint_serves_mpegts(proxy):
