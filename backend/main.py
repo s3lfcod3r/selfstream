@@ -730,8 +730,10 @@ def _splice_resume(rewritten: str, session_key: str) -> str:
     if blk is not None and resume is None:
         last_loop_seq = int((blk["seen"] - blk["t0"]) // BLOCK_SEG_DUR)
         prov_seq = _parse_media_seq(rewritten)
+        base = last_loop_seq + RESUME_SEQ_GAP
         resume = {
-            "offset": (last_loop_seq + RESUME_SEQ_GAP) - prov_seq,
+            "offset": base - prov_seq,
+            "disc_seq": base,
             "spliced": False,
             "expires": time.time() + 3600,
         }
@@ -748,19 +750,25 @@ def _splice_resume(rewritten: str, session_key: str) -> str:
         if s.startswith("#EXT-X-MEDIA-SEQUENCE:"):
             has_seq = True
             out.append(f"#EXT-X-MEDIA-SEQUENCE:{_parse_media_seq(line) + resume['offset']}")
+            # Eigene Discontinuity-Sequence direkt mitführen, damit der Player den
+            # Übergang als echten Reset erkennt (Provider-Wert ggf. weiter unten verworfen).
+            out.append(f"#EXT-X-DISCONTINUITY-SEQUENCE:{resume['disc_seq']}")
             continue
+        if s.startswith("#EXT-X-DISCONTINUITY-SEQUENCE:"):
+            continue  # Provider-Wert verwerfen – wir setzen unseren eigenen (s.o.)
         if add_disc and not disc_done and s.startswith("#EXTINF"):
             out.append("#EXT-X-DISCONTINUITY")
             disc_done = True
         out.append(line)
     if not has_seq:
-        # Provider-Playlist ohne Media-Sequence → eine einfügen (P=0 + offset).
+        # Provider-Playlist ohne Media-Sequence → Media- + Discontinuity-Sequence einfügen.
         res = []
         inserted = False
         for line in out:
             res.append(line)
             if not inserted and line.strip() == "#EXTM3U":
                 res.append(f"#EXT-X-MEDIA-SEQUENCE:{resume['offset']}")
+                res.append(f"#EXT-X-DISCONTINUITY-SEQUENCE:{resume['disc_seq']}")
                 inserted = True
         out = res
     resume["spliced"] = True

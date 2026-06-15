@@ -83,14 +83,17 @@ def test_splice_resume_continues_sequence_after_block(proxy):
     out = main._splice_resume(real, key)
 
     assert main._parse_media_seq(out) == 3 + main.RESUME_SEQ_GAP
-    assert "#EXT-X-DISCONTINUITY" in out
+    assert "#EXT-X-DISCONTINUITY" in out.split("\n")           # echter Übergangs-Tag
+    assert f"#EXT-X-DISCONTINUITY-SEQUENCE:{3 + main.RESUME_SEQ_GAP}" in out
     assert key not in main._block_anchors          # Anker verbraucht
     assert key in main._resume_offsets             # Offset bleibt für Folge-Reloads
 
     # Zweiter Reload: Offset weiter angewandt, aber KEINE neue Discontinuity.
     out2 = main._splice_resume("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:6\n#EXTINF:6.0,\nseg2.ts\n", key)
     assert main._parse_media_seq(out2) == 6 + (3 + main.RESUME_SEQ_GAP - 5)
-    assert "#EXT-X-DISCONTINUITY" not in out2
+    assert "#EXT-X-DISCONTINUITY" not in out2.split("\n")      # kein neuer Tag mehr
+    # Discontinuity-Sequence bleibt konstant (ein Übergang, kein erneuter Reset).
+    assert f"#EXT-X-DISCONTINUITY-SEQUENCE:{3 + main.RESUME_SEQ_GAP}" in out2
 
 
 def test_splice_resume_noop_for_unblocked_session(proxy):
