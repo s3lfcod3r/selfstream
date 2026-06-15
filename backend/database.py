@@ -508,11 +508,17 @@ class Database:
             return dict(row) if row else None
 
     def generate_short_token(self, user_id: int) -> str:
-        """Generate a short 8-char alphanumeric token."""
-        import random, string
+        """Generate a short 8-char alphanumeric token.
+
+        Nutzt secrets (kryptografisch sicher) statt random, da Short-Tokens als
+        öffentliche Playlist-URLs ausgegeben werden. Bricht nach MAX_ATTEMPTS ab,
+        damit eine volle/korrupte DB keine Endlosschleife verursacht.
+        """
+        import secrets, string
         chars = string.ascii_letters + string.digits
-        while True:
-            short = ''.join(random.choices(chars, k=8))
+        MAX_ATTEMPTS = 20
+        for _ in range(MAX_ATTEMPTS):
+            short = ''.join(secrets.choice(chars) for _ in range(8))
             with self.conn() as con:
                 exists = con.execute(
                     "SELECT id FROM users WHERE short_token = ?", (short,)
@@ -520,6 +526,7 @@ class Database:
                 if not exists:
                     con.execute("UPDATE users SET short_token = ? WHERE id = ?", (short, user_id))
                     return short
+        raise RuntimeError("Konnte keinen eindeutigen Short-Token erzeugen")
 
     def regenerate_token(self, user_id: int) -> str:
         import uuid
@@ -887,11 +894,15 @@ class Database:
             return [dict(r) for r in rows]
 
     def delete_group_mapping(self, original_name: str):
-        """Remove mapping and revert channels to original group name."""
+        """Remove mapping and revert channels to original group name.
+
+        Reihenfolge ist wichtig: erst Kanäle zurückbenennen (solange die
+        custom_name-Zuordnung noch existiert), DANN das Mapping löschen.
+        """
         with self.conn() as con:
-            con.execute("DELETE FROM group_mappings WHERE original_name = ?", (original_name,))
             con.execute("UPDATE channels SET group_title = ? WHERE group_title IN (SELECT custom_name FROM group_mappings WHERE original_name = ?)",
                         (original_name, original_name))
+            con.execute("DELETE FROM group_mappings WHERE original_name = ?", (original_name,))
 
     def rename_group(self, old_name: str, new_name: str):
         """Rename a group in channels table and update/create mapping."""

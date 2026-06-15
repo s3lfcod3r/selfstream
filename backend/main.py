@@ -15,6 +15,8 @@ import re
 import json
 import io
 import csv
+import socket
+import ipaddress
 import xml.etree.ElementTree as ET
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
@@ -25,6 +27,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import Database
 from m3u_parser import parse_m3u, build_m3u
+from timeparse import (
+    _sanitize_diagnostic_timezone, _parse_xmltv_datetime, _parse_catchup_wall_time,
+    _epg_programme_contains_instant, _epg_programme_contains_instant_half_open,
+    _DVR_PATH_RE, _dvr_wall_time_from_url,
+)
+from hls import rewrite_hls_playlist
+from security_util import (
+    _host_is_internal, assert_safe_upstream_url,
+    _PBKDF2_ITERATIONS, _hash_admin_token, _verify_admin_token,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,8 +45,25 @@ proxy_app = FastAPI(title="selfstream proxy")
 admin_app = FastAPI(title="selfstream admin")
 
 for a in (proxy_app, admin_app):
-    a.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+    # allow_credentials=False: die App authentifiziert über den X-Admin-Token-Header
+    # bzw. Pfad-Token, nicht über Cookies. Die Kombination "*" + credentials=True ist
+    # laut CORS-Spec ungültig und wäre eine unnötige Angriffsfläche.
+    a.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
                      allow_methods=["*"], allow_headers=["*"])
+
+
+@proxy_app.middleware("http")
+@admin_app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """Setzt grundlegende Sicherheits-Header auf allen Antworten beider Apps."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
+
+# SSRF-Schutz (_host_is_internal, assert_safe_upstream_url) liegt in security_util.py
 
 db = Database()
 
@@ -94,56 +123,9 @@ def _log_player_request(stage: str, request: Request | None, token: str, extra: 
         pass
 
 
-def _sanitize_diagnostic_timezone(val) -> str:
-    """IANA zone for UI, or 'browser' for client-local formatting."""
-    v = str(val or "").strip()
-    if not v or v.lower() == "browser":
-        return "browser"
-    if len(v) > 80:
-        v = v[:80]
-    if not re.match(r"^[A-Za-z0-9_/+\-]+$", v):
-        return "Europe/Berlin"
-    return v
-
-
-def _parse_xmltv_datetime(value: str):
-    """Parse XMLTV programme start/stop. Supports 'YYYYMMDDHHMMSS +ZZZZ' and 'YYYYMMDDHHMMSSZZZZ'."""
-    if not value or not str(value).strip():
-        return None
-    s = str(value).strip()
-    for fmt in ("%Y%m%d%H%M%S %z", "%Y%m%d%H%M%S%z"):
-        try:
-            return datetime.strptime(s, fmt)
-        except ValueError:
-            continue
-    return None
-
-
-def _parse_catchup_wall_time(value: str):
-    """Parse catchup_time from DB: 'YYYY-MM-DD HH:MM:SS' (preferred) or legacy 'YYYY-MM-DD HH:MM' (UTC)."""
-    if not value or not str(value).strip():
-        return None
-    s = str(value).strip()
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return None
-
-
-def _epg_programme_contains_instant(ps: datetime, pe: datetime, ct: datetime) -> bool:
-    """True if instant ct falls in the programme window (inclusive both ends — matches v1.0 / many provider EPGs)."""
-    if ps is None or pe is None or ct is None:
-        return False
-    return ps <= ct <= pe
-
-
-def _epg_programme_contains_instant_half_open(ps: datetime, pe: datetime, ct: datetime) -> bool:
-    """XMLTV-style window [start, stop): avoids double-match when programmes share a boundary."""
-    if ps is None or pe is None or ct is None:
-        return False
-    return ps <= ct < pe
+# Reine Zeit-/EPG-Parser (_sanitize_diagnostic_timezone, _parse_xmltv_datetime,
+# _parse_catchup_wall_time, _epg_programme_contains_instant[_half_open]) liegen in
+# timeparse.py und werden oben importiert.
 
 
 def _epg_title_at_time(channel_name: str, catchup_time_str: str, root) -> str:
@@ -525,43 +507,7 @@ def make_headers(hls: dict) -> dict:
     return h
 
 
-def rewrite_hls_playlist(content: str, original_url: str, proxy_base: str, token: str, sid: str = None, catchup: bool = False) -> str:
-    # Base URL: directory of the playlist file
-    # For DVR playlists like .../tracks-v1a1/index-xxx.m3u8
-    # segments may be like dvr-2026/05/01/.../xx.ts (relative to tracks-v1a1/)
-    base = original_url.rsplit("/", 1)[0] + "/"
-    lines = content.splitlines()
-    out = []
-    _oul = original_url.lower()
-    # Treat archive catchup master (/index.m3u8) like DVR for ENDLIST handling so logs and client both see ENDLIST.
-    is_dvr = "dvr" in original_url or "index-" in original_url or "/index.m3u8" in _oul
-    for line in lines:
-        stripped = line.strip()
-        # Strip ENDLIST for plain live/VOD masters so players keep polling; keep ENDLIST for DVR/archive playlists.
-        if stripped == "#EXT-X-ENDLIST" and not is_dvr:
-            continue
-        if stripped.startswith("#"):
-            out.append(line)
-            continue
-        if not stripped:
-            out.append(line)
-            continue
-        # Resolve relative URLs against the playlist base directory
-        if stripped.startswith("http"):
-            abs_url = stripped
-        elif stripped.startswith("//"):
-            scheme = "https" if original_url.startswith("https") else "http"
-            abs_url = scheme + ":" + stripped
-        else:
-            abs_url = base + stripped
-        encoded = urllib.parse.quote(abs_url, safe="")
-        if catchup:
-            out.append(f"{proxy_base}/iptv/{token}/segment?catchup=1&url={encoded}")
-        elif sid:
-            out.append(f"{proxy_base}/iptv/{token}/segment?sid={sid}&url={encoded}")
-        else:
-            out.append(f"{proxy_base}/iptv/{token}/segment?url={encoded}")
-    return "\n".join(out)
+# rewrite_hls_playlist liegt jetzt in hls.py und wird oben importiert.
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -772,6 +718,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                            headers={"Cache-Control": "no-cache"})
 
     decoded_url = urllib.parse.unquote(url)
+    assert_safe_upstream_url(decoded_url)  # SSRF-Schutz
     hls = get_hls_settings()
     proxy_url = db.get_proxy_url()
     short_domain = db.get_setting("short_domain", "")
@@ -1453,18 +1400,7 @@ async def _catchup_segment_idle_heartbeat(token: str, decoded_url: str) -> None:
         return
 
 
-_DVR_PATH_RE = re.compile(r"/(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})")
-
-
-def _dvr_wall_time_from_url(decoded_url: str) -> Optional[str]:
-    m = _DVR_PATH_RE.search(decoded_url)
-    if m:
-        return f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}:00"
-    # Xtream-style: ...dvr-2026/05/01/12/05/...
-    m2 = re.search(r"dvr-(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})", decoded_url, re.I)
-    if m2:
-        return f"{m2.group(1)}-{m2.group(2)}-{m2.group(3)} {m2.group(4)}:{m2.group(5)}:00"
-    return None
+# _DVR_PATH_RE und _dvr_wall_time_from_url liegen jetzt in timeparse.py.
 
 
 def _epg_title_from_wall_time_channel(channel_name: str, wall_dt_str: str) -> Optional[str]:
@@ -2415,6 +2351,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                            headers={"Cache-Control": "no-cache"})
 
     decoded_url = urllib.parse.unquote(url)
+    assert_safe_upstream_url(decoded_url)  # SSRF-Schutz
     hls = get_hls_settings()
     proxy_url = db.get_proxy_url()
     short_domain_seg = db.get_setting("short_domain", "")
@@ -3016,6 +2953,10 @@ async def proxy_root():
 def setup_status():
     return {"setup_done": db.is_setup_done()}
 
+# Admin-Token-Hashing (_hash_admin_token, _verify_admin_token, _PBKDF2_ITERATIONS)
+# liegt in security_util.py und wird oben importiert.
+
+
 @admin_app.post("/api/setup")
 def do_setup(body: dict):
     if db.is_setup_done():
@@ -3027,7 +2968,7 @@ def do_setup(body: dict):
         raise HTTPException(status_code=400, detail="Token must be at least 8 characters")
     if not base_url:
         raise HTTPException(status_code=400, detail="Base URL required")
-    db.set_setting("admin_token", token)
+    db.set_setting("admin_token", _hash_admin_token(token))
     db.set_setting("base_url", base_url)
     if proxy_url:
         db.set_setting("proxy_url", proxy_url)
@@ -3039,13 +2980,16 @@ MAX_ATTEMPTS = 10
 BLOCK_SECONDS = 300  # 5 minutes
 
 def check_admin(x_admin_token: str = Header(...), request: Request = None):
-    # Get client IP
+    # Echte Verbindungs-IP verwenden. X-Forwarded-For ist client-seitig fälschbar und
+    # würde den Brute-Force-Zähler aushebeln; das Admin-Panel läuft ohnehin nur im LAN.
     ip = ""
-    if request:
-        fwd = request.headers.get("x-forwarded-for", "")
-        ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "")
+    if request and request.client:
+        ip = request.client.host
 
     now = time.time()
+    # Abgelaufene Sperren aufräumen (verhindert unbegrenztes Wachstum des Dicts)
+    for _k in [k for k, v in _failed_attempts.items() if v.get("blocked_until", 0) < now and v.get("count", 0) == 0]:
+        _failed_attempts.pop(_k, None)
     attempt = _failed_attempts.get(ip, {"count": 0, "blocked_until": 0})
 
     # Check if blocked
@@ -3055,8 +2999,7 @@ def check_admin(x_admin_token: str = Header(...), request: Request = None):
 
     admin_token = db.get_admin_token()
 
-    # Use hmac.compare_digest to prevent timing attacks
-    if not admin_token or not hmac.compare_digest(x_admin_token, admin_token):
+    if not admin_token or not _verify_admin_token(x_admin_token, admin_token):
         attempt["count"] += 1
         if attempt["count"] >= MAX_ATTEMPTS:
             attempt["blocked_until"] = now + BLOCK_SECONDS
@@ -3064,6 +3007,14 @@ def check_admin(x_admin_token: str = Header(...), request: Request = None):
             diag_log("WARNING", "admin", f"Admin login blocked for {ip} after {MAX_ATTEMPTS} failed attempts")
         _failed_attempts[ip] = attempt
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Erfolg: alten Klartext-Token transparent auf einen Hash migrieren
+    # (nur wenn er in der DB liegt – nicht bei festem ADMIN_TOKEN aus der Env).
+    if not os.getenv("ADMIN_TOKEN") and not admin_token.startswith("pbkdf2_sha256$"):
+        try:
+            db.set_setting("admin_token", _hash_admin_token(x_admin_token))
+        except Exception:
+            pass
 
     # Success – reset counter
     if ip in _failed_attempts:
@@ -3995,7 +3946,7 @@ def change_password(body: dict, _=Depends(check_admin)):
         raise HTTPException(status_code=400, detail="Min 8 characters")
     if os.getenv("ADMIN_TOKEN"):
         raise HTTPException(status_code=400, detail="Password set via environment variable")
-    db.set_setting("admin_token", new_token)
+    db.set_setting("admin_token", _hash_admin_token(new_token))
     return {"ok": True}
 
 FRONTEND = "/app/frontend"
@@ -4052,6 +4003,8 @@ async def upload_logo(request: Request, _=Depends(check_admin)):
     import shutil
     form = await request.form()
     logo_type = form.get("type", "login")  # login or app
+    if logo_type not in ("login", "app"):
+        raise HTTPException(status_code=400, detail="Invalid logo type")
     file = form.get("file")
     if not file:
         raise HTTPException(status_code=400, detail="No file")
@@ -4064,6 +4017,8 @@ async def upload_logo(request: Request, _=Depends(check_admin)):
 @admin_app.delete("/api/settings/upload-logo")
 async def delete_logo(body: dict, _=Depends(check_admin)):
     logo_type = body.get("type", "login")
+    if logo_type not in ("login", "app"):
+        raise HTTPException(status_code=400, detail="Invalid logo type")
     filename = f"/data/custom_{logo_type}_logo.png"
     if os.path.exists(filename):
         os.remove(filename)
