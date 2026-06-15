@@ -2,7 +2,7 @@
 # selfstream – Unraid Setup Script
 # Ausführen mit: bash setup.sh
 
-set -e
+set -euo pipefail
 
 echo ""
 echo "╔══════════════════════════════════════╗"
@@ -45,9 +45,11 @@ fi
 
 # 4. Docker Compose starten
 echo ""
-echo "🐳 Docker Container werden gebaut und gestartet..."
+echo "🐳 Docker Container wird geladen und gestartet..."
 cd "$INSTALL_DIR"
-docker-compose up -d --build
+# Image-basiertes Compose (kein lokaler Build-Kontext) -> Image ziehen und starten
+docker-compose pull
+docker-compose up -d
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
@@ -55,6 +57,6 @@ echo "║  ✅  selfstream läuft!                               ║"
 echo "║                                                      ║"
 
 UNRAID_IP_DISPLAY=$(grep BASE_URL "$INSTALL_DIR/.env" | cut -d'/' -f3 | cut -d':' -f1)
-echo "║  Admin Panel:  http://$UNRAID_IP_DISPLAY:8000/admin        ║"
+echo "║  Admin Panel:  http://$UNRAID_IP_DISPLAY:8080/admin        ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""

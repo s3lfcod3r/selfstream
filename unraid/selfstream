@@ -12,7 +12,7 @@
   <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/logo.png</Icon>
   <Network>bridge</Network>
   <Shell>bash</Shell>
-  <Privileged>true</Privileged>
+  <Privileged>false</Privileged>
   <ExtraParams>--cap-add=NET_ADMIN --device=/dev/net/tun</ExtraParams>
   <Config Name="Daten-Pfad" Target="/data" Default="/mnt/user/appdata/selfstream/data" Mode="rw" Description="Path where the database and logs are stored." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/selfstream/data</Config>
   <Config Name="IPTV Proxy Port" Target="8000" Default="8000" Mode="tcp" Description="Port for IPTV streams and M3U playlists. This is the URL that goes into the IPTV app." Type="Port" Display="always" Required="true" Mask="false">8000</Config>

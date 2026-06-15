@@ -2,6 +2,12 @@
 # selfstream – Direktes Update-Script
 # Verwendung: bash update.sh
 # Holt die neuesten Backend-Dateien direkt von GitHub und spielt sie in den Container ein
+#
+# HINWEIS: Dieses Live-Patching ist für schnelle Hotfixes gedacht. Die Dateien
+# gehen bei einem 'docker pull'/Recreate wieder verloren. Für dauerhafte Updates
+# das offizielle Image-Tag verwenden.
+
+set -euo pipefail
 
 REPO="kabelsalatundklartext/selfstream"
 BRANCH="main"
@@ -47,9 +53,13 @@ for FILE in "${FILES[@]}"; do
             CONTAINER_PATH="/app/${FILE##*/}"
         fi
         
-        docker cp "$DEST" "${CONTAINER}:${CONTAINER_PATH}" 2>/dev/null
-        echo "   ✅ ${FILE##*/}"
-        UPDATED=$((UPDATED + 1))
+        if docker cp "$DEST" "${CONTAINER}:${CONTAINER_PATH}"; then
+            echo "   ✅ ${FILE##*/}"
+            UPDATED=$((UPDATED + 1))
+        else
+            echo "   ⚠️  ${FILE##*/} – docker cp fehlgeschlagen"
+            ERRORS=$((ERRORS + 1))
+        fi
     else
         echo "   ⚠️  ${FILE##*/} – nicht gefunden (übersprungen)"
         ERRORS=$((ERRORS + 1))

@@ -12,11 +12,14 @@ services:
       - /mnt/user/appdata/selfstream/data:/data
     environment:
       - DB_PATH=/data/selfstream.db
-      # Optional: direkt setzen statt Web-Einrichtung
-      # - ADMIN_TOKEN=dein-token
-      # - BASE_URL=http://192.168.1.69:8080      # Admin Panel URL
-      # ── Proxy URL: URL über die Streams erreichbar sind ──────────────────────
-      # Lokal (nur Heimnetz):
-      # - PROXY_URL=http://192.168.1.69:8000
-      # Subdomain (auch Internet) – Reverse Proxy muss Port 8000 weiterleiten:
-      # - PROXY_URL=https://iptv.deine-domain.de
+      # Werte aus einer .env-Datei im selben Verzeichnis werden hier übernommen
+      # (so wirkt das von setup.sh erzeugte .env). Leere Defaults = kein Fehler,
+      # falls keine .env vorhanden ist; dann greift die Web-Einrichtung.
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      - BASE_URL=${BASE_URL:-}
+      - PROXY_URL=${PROXY_URL:-}
+      # ── Hinweise ──────────────────────────────────────────────────────────────
+      # BASE_URL  = Admin-Panel-URL, z.B. http://192.168.1.69:8080
+      # PROXY_URL = URL über die Streams erreichbar sind:
+      #   Lokal (nur Heimnetz):       http://192.168.1.69:8000
+      #   Subdomain (auch Internet):  https://iptv.deine-domain.de  (Reverse Proxy auf 8000)

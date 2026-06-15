@@ -44,5 +44,6 @@ desktop.ini
 # Logs
 *.log
 
-# Test artifacts
-{backend,frontend,data}/
+# Test-/Build-Umgebung
+.venv/
+.pytest_cache/
