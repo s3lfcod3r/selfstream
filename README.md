@@ -97,6 +97,18 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (June 2026 – v1.1)
+
+Security & stability release. Fully backward compatible — no config changes, existing tokens/logins stay valid.
+
+- **SSRF protection** – The public proxy validates target URLs before fetching (only `http`/`https`, internal/private targets blocked) — **including redirect hops**, so a malicious upstream can't redirect into your LAN.
+- **Admin token hashed** – Stored as PBKDF2-HMAC-SHA256 instead of plaintext; existing plaintext tokens migrate automatically on next login.
+- **Cryptographically secure short tokens** – `secrets` instead of `random` for public short URLs.
+- **"Max. streams" / "Banned" as a real video clip** – Players now show a short notice clip instead of a skipped JPEG segment (no ffmpeg, no runtime CPU load).
+- **Admin panel XSS hardening** – Server-supplied names/IDs in inline handlers are encoded so playlist data can't break out.
+
+---
+
 ## What's New (May 2026)
 
 - **Catchup auto-live default changed** – `catchup_auto_live_on_program_change` now defaults to `0` (off) to avoid unwanted jumps from catchup to live.
@@ -474,6 +486,18 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juni 2026 (v1.1)
+
+Sicherheits- und Stabilitäts-Release. Voll abwärtskompatibel — keine Konfigurationsänderung, bestehende Tokens/Logins bleiben gültig.
+
+- **SSRF-Schutz** – Der öffentliche Proxy prüft Ziel-URLs vor dem Abruf (nur `http`/`https`, interne/private Ziele blockiert) — **inklusive Redirect-Zielen**, sodass ein bösartiger Anbieter nicht per Weiterleitung in dein LAN zeigen kann.
+- **Admin-Token gehasht** – Speicherung als PBKDF2-HMAC-SHA256 statt Klartext; bestehende Klartext-Tokens werden beim nächsten Login automatisch migriert.
+- **Kryptografisch sichere Short-Tokens** – `secrets` statt `random` für öffentliche Short-URLs.
+- **„Max. Streams" / „Gesperrt" als echter Video-Clip** – Player zeigen jetzt einen kurzen Hinweis-Clip statt eines übersprungenen JPEG-Segments (kein ffmpeg, keine Laufzeit-CPU-Last).
+- **XSS-Härtung im Admin-Panel** – Server-gelieferte Namen/IDs in Inline-Handlern werden kodiert, sodass Playlist-Daten nicht ausbrechen können.
 
 ---
 
