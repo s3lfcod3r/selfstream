@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>selfstream · Admin</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
+<script>(function(){try{if(localStorage.getItem('ss_theme')==='light'){document.documentElement.setAttribute('data-theme','light');}}catch(e){}})();</script>
 <style>
 :root{
   --bg:#0d1117;--bg2:#161b22;--bg3:#1c2333;
@@ -14,6 +15,17 @@
   --text:#e6edf3;--text2:#8b949e;--text3:#484f58;
   --mono:'IBM Plex Mono',monospace;--sans:'Exo 2',sans-serif;
 }
+/* ── Light theme (opt-in; dark stays the default selfstream look) ── */
+html[data-theme="light"]{
+  --bg:#eef1f6;--bg2:#ffffff;--bg3:#f1f4f8;
+  --border:#d6dde6;--border2:#c2cbd6;
+  --teal:#0a9d8c;--teal2:#0a9d8c;--blue:#1184c9;
+  --green:#1f9d3f;--red:#d83a30;--yellow:#a8780f;
+  --text:#1a2230;--text2:#5b6776;--text3:#9aa5b1;
+}
+html[data-theme="light"] .login-bg{background:#e6ebf1;}
+html[data-theme="light"] .login-box{background:rgba(255,255,255,.94);box-shadow:0 24px 60px rgba(20,30,50,.18);}
+html[data-theme="light"] tr:hover td{background:rgba(0,0,0,.03);}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;min-height:100vh;}
 a{color:inherit;text-decoration:none;}
@@ -341,6 +353,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
     <span class="topbar-sep"></span>
     <div class="live-dot" id="live-dot"></div>
     <span class="live-label" id="live-label">0 aktive Streams</span>
+    <button class="btn sm" id="theme-toggle-btn" onclick="toggleTheme()" title="Hell / Dunkel">🌙</button>
     <button class="btn sm" onclick="logout()">Logout</button>
   </div>
 
@@ -1622,6 +1635,21 @@ function toggleSidebar() {
   const btn = document.getElementById('menu-toggle-btn');
   if (btn) btn.textContent = nextCollapsed ? '→' : '☰';
 }
+
+// ── Theme (dark default, opt-in light) ─────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  if (isLight) document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', 'light');
+  try { localStorage.setItem('ss_theme', isLight ? 'dark' : 'light'); } catch (e) {}
+  updateThemeIcon();
+  if (typeof drawTrafficChart === 'function') { try { drawTrafficChart(); } catch (e) {} }
+}
+function updateThemeIcon() {
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) btn.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? '☀' : '🌙';
+}
+document.addEventListener('DOMContentLoaded', updateThemeIcon);
 
 // ── Navigation ────────────────────────────────────────────────────────────────
 function nav(page, el) {
@@ -4269,6 +4297,8 @@ function drawTrafficChart() {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
+  // Neutral ink for gridlines/labels adapts to the active theme.
+  const ink = document.documentElement.getAttribute('data-theme') === 'light' ? '20,28,40' : '255,255,255';
 
   const pts = getVisiblePoints();
   const PAD_L = 36; // left padding for Y-axis labels
@@ -4286,10 +4316,10 @@ function drawTrafficChart() {
   for (let i = 0; i <= ySteps; i++) {
     const val = Math.round((yMax / ySteps) * i);
     const y = PAD_T + chartH - (val / yMax) * chartH;
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.strokeStyle = `rgba(${ink},0.06)`;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillStyle = `rgba(${ink},0.35)`;
     ctx.font = `${9 * dpr / dpr}px monospace`;
     ctx.textAlign = 'right';
     ctx.fillText(val, PAD_L - 4, y + 3);
@@ -4299,14 +4329,14 @@ function drawTrafficChart() {
   ctx.save();
   ctx.translate(10, PAD_T + chartH / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillStyle = `rgba(${ink},0.3)`;
   ctx.font = '9px monospace';
   ctx.textAlign = 'center';
   ctx.fillText('STREAMS', 0, 0);
   ctx.restore();
 
   if (pts.length < 2) {
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillStyle = `rgba(${ink},0.2)`;
     ctx.font = '11px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('Noch zu wenig Daten…', W/2, H/2);
@@ -4358,7 +4388,7 @@ function drawTrafficChart() {
   });
 
   // X-axis time labels
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillStyle = `rgba(${ink},0.3)`;
   ctx.font = '9px monospace';
   ctx.textAlign = 'center';
   const labelCount = Math.min(6, pts.length);
