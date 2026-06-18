@@ -4110,6 +4110,15 @@ async def logo():
         return FileResponse(custom)
     return FileResponse(f"{FRONTEND}/logo.png", media_type="image/png")
 
+@admin_app.get("/shield.png")
+async def shield():
+    from fastapi.responses import FileResponse
+    # Login-Emblem (quadratisches Schild). Custom-Login-Upload überschreibt es weiterhin.
+    custom = "/data/custom_login_logo.png"
+    if os.path.exists(custom):
+        return FileResponse(custom)
+    return FileResponse(f"{FRONTEND}/shield.png", media_type="image/png")
+
 @admin_app.get("/logo-app.png")
 async def logo_app():
     from fastapi.responses import FileResponse

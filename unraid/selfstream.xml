@@ -9,7 +9,7 @@
   <Category>MediaServer: Tools:</Category>
   <WebUI>http://[IP]:[PORT:8080]/admin</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/main/selfstream.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/logo.png</Icon>
+  <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/avatar-512.png</Icon>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
