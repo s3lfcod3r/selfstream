@@ -4119,6 +4119,11 @@ async def logo_app():
     custom_login = "/data/custom_login_logo.png"
     if os.path.exists(custom_login):
         return FileResponse(custom_login)
+    # Default: breite Wortmarke passt besser ins Topbar-Format als das
+    # gestapelte logo.png; nur wenn sie fehlt, auf logo.png zurückfallen.
+    app_default = f"{FRONTEND}/custom_app_logo.png"
+    if os.path.exists(app_default):
+        return FileResponse(app_default, media_type="image/png")
     return FileResponse(f"{FRONTEND}/logo.png", media_type="image/png")
 
 @admin_app.post("/api/settings/upload-logo")
