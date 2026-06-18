@@ -350,10 +350,8 @@ def _generate_error_video():
         img = Image.new("RGB", (1280, 720), color=(10, 14, 21))
         draw = ImageDraw.Draw(img)
 
-        # Try to load selfstream logo
-        logo_path = "/data/custom_login_logo.png"
-        if not os.path.exists(logo_path):
-            logo_path = "/app/frontend/logo.png"
+        # Festes selfstream-Logo (kein Custom-Upload mehr)
+        logo_path = "/app/frontend/logo.png"
 
         try:
             logo = Image.open(logo_path).convert("RGBA")
@@ -4093,74 +4091,29 @@ async def setup_page():
     with open(f"{FRONTEND}/setup.html") as f:
         return HTMLResponse(f.read())
 
+# Logos sind fest im Image verdrahtet (kein Custom-Upload mehr).
 @admin_app.get("/favicon.ico")
 async def favicon():
     from fastapi.responses import FileResponse
-    favicon_path = "/data/favicon.ico"
-    if os.path.exists(favicon_path):
-        return FileResponse(favicon_path, media_type="image/x-icon")
     return FileResponse(f"{FRONTEND}/favicon.ico", media_type="image/x-icon")
 
 @admin_app.get("/logo.png")
 async def logo():
     from fastapi.responses import FileResponse
-    # Check for custom logo first
-    custom = "/data/custom_login_logo.png"
-    if os.path.exists(custom):
-        return FileResponse(custom)
+    # Gestapeltes Logo (Setup-Seite, Fehler-Clips).
     return FileResponse(f"{FRONTEND}/logo.png", media_type="image/png")
 
-@admin_app.get("/shield.png")
-async def shield():
+@admin_app.get("/icon.png")
+async def icon():
     from fastapi.responses import FileResponse
-    # Login-Emblem (quadratisches Schild). Custom-Login-Upload überschreibt es weiterhin.
-    custom = "/data/custom_login_logo.png"
-    if os.path.exists(custom):
-        return FileResponse(custom)
-    return FileResponse(f"{FRONTEND}/shield.png", media_type="image/png")
+    # Schild-Emblem (Login), identisch zum Docker-/App-Icon.
+    return FileResponse(f"{FRONTEND}/icon.png", media_type="image/png")
 
 @admin_app.get("/logo-app.png")
 async def logo_app():
     from fastapi.responses import FileResponse
-    custom = "/data/custom_app_logo.png"
-    if os.path.exists(custom):
-        return FileResponse(custom)
-    custom_login = "/data/custom_login_logo.png"
-    if os.path.exists(custom_login):
-        return FileResponse(custom_login)
-    # Default: breite Wortmarke passt besser ins Topbar-Format als das
-    # gestapelte logo.png; nur wenn sie fehlt, auf logo.png zurückfallen.
-    app_default = f"{FRONTEND}/custom_app_logo.png"
-    if os.path.exists(app_default):
-        return FileResponse(app_default, media_type="image/png")
-    return FileResponse(f"{FRONTEND}/logo.png", media_type="image/png")
-
-@admin_app.post("/api/settings/upload-logo")
-async def upload_logo(request: Request, _=Depends(check_admin)):
-    from fastapi import UploadFile, Form
-    import shutil
-    form = await request.form()
-    logo_type = form.get("type", "login")  # login or app
-    if logo_type not in ("login", "app"):
-        raise HTTPException(status_code=400, detail="Invalid logo type")
-    file = form.get("file")
-    if not file:
-        raise HTTPException(status_code=400, detail="No file")
-    filename = f"/data/custom_{logo_type}_logo.png"
-    with open(filename, "wb") as f:
-        content_bytes = await file.read()
-        f.write(content_bytes)
-    return {"ok": True, "path": filename}
-
-@admin_app.delete("/api/settings/upload-logo")
-async def delete_logo(body: dict, _=Depends(check_admin)):
-    logo_type = body.get("type", "login")
-    if logo_type not in ("login", "app"):
-        raise HTTPException(status_code=400, detail="Invalid logo type")
-    filename = f"/data/custom_{logo_type}_logo.png"
-    if os.path.exists(filename):
-        os.remove(filename)
-    return {"ok": True}
+    # Breite Wortmarke für die Topbar.
+    return FileResponse(f"{FRONTEND}/custom_app_logo.png", media_type="image/png")
 
 
 # ── VPN (OpenVPN) Integration ──────────────────────────────────────────────────
