@@ -4095,7 +4095,8 @@ async def setup_page():
 @admin_app.get("/favicon.ico")
 async def favicon():
     from fastapi.responses import FileResponse
-    return FileResponse(f"{FRONTEND}/favicon.ico", media_type="image/x-icon")
+    # Schild-Icon auch für direkte /favicon.ico-Anfragen (konsistent mit SelfArchiver).
+    return FileResponse(f"{FRONTEND}/icon.png", media_type="image/png")
 
 @admin_app.get("/logo.png")
 async def logo():
