@@ -13,8 +13,8 @@
     - M3U and EPG auto-refresh
     - Setup wizard on first start
 
-    Source and documentation: https://github.com/kabelsalatundklartext/selfstream
+    Source and documentation: https://github.com/s3lfcod3r/selfstream
   </Profile>
-  <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/icon.png</Icon>
-  <WebPage>https://github.com/kabelsalatundklartext/selfstream</WebPage>
+  <Icon>https://raw.githubusercontent.com/s3lfcod3r/selfstream/refs/heads/main/frontend/icon.png</Icon>
+  <WebPage>https://github.com/s3lfcod3r/selfstream</WebPage>
 </CommunityApplications>

@@ -1,7 +1,7 @@
 # selfstream
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/logo.png" width="120" alt="selfstream logo">
+  <img src="https://raw.githubusercontent.com/s3lfcod3r/selfstream/refs/heads/main/frontend/logo.png" width="120" alt="selfstream logo">
 </p>
 
 <p align="center">
@@ -138,7 +138,7 @@ docker run -d \
   -p 8000:8000 \
   -p 8080:8080 \
   -v /mnt/user/appdata/selfstream/data:/data \
-  ghcr.io/kabelsalatundklartext/selfstream:latest
+  ghcr.io/s3lfcod3r/selfstream:latest
 ```
 
 Then open `http://YOUR-IP:8080/admin` and follow the Setup Wizard.
@@ -148,7 +148,7 @@ Then open `http://YOUR-IP:8080/admin` and follow the Setup Wizard.
 ### Option 3 – docker-compose
 
 ```bash
-git clone https://github.com/kabelsalatundklartext/selfstream.git
+git clone https://github.com/s3lfcod3r/selfstream.git
 cd selfstream
 docker-compose up -d
 ```
@@ -404,7 +404,7 @@ A **separate** small Docker image for debugging catchup in the browser (hls.js +
 | ✅ Commercial use allowed | ❌ Closed-source forks forbidden |
 | ✅ Forks must stay GPL-3.0 | ✅ Source code must always be open |
 
-> *"selfstream" by kabelsalatundklartext — [GitHub](https://github.com/kabelsalatundklartext/selfstream)*
+> *"selfstream" by s3lfcod3r — [GitHub](https://github.com/s3lfcod3r/selfstream)*
 
 ---
 ---
@@ -530,7 +530,7 @@ docker run -d \
   -p 8000:8000 \
   -p 8080:8080 \
   -v /mnt/user/appdata/selfstream/data:/data \
-  ghcr.io/kabelsalatundklartext/selfstream:latest
+  ghcr.io/s3lfcod3r/selfstream:latest
 ```
 
 Dann `http://DEINE-IP:8080/admin` öffnen und Setup-Wizard folgen.
@@ -540,7 +540,7 @@ Dann `http://DEINE-IP:8080/admin` öffnen und Setup-Wizard folgen.
 ### Option 3 – docker-compose
 
 ```bash
-git clone https://github.com/kabelsalatundklartext/selfstream.git
+git clone https://github.com/s3lfcod3r/selfstream.git
 cd selfstream
 docker-compose up -d
 ```
@@ -796,4 +796,4 @@ Eigenes kleines Docker-Image zum Debuggen von Catchup im Browser (**hls.js** + E
 | ✅ Kommerzieller Einsatz erlaubt | ❌ Closed-Source-Abwandlungen verboten |
 | ✅ Forks müssen GPL-3.0 bleiben | ✅ Quellcode muss immer offen bleiben |
 
-> *"selfstream" von kabelsalatundklartext — [GitHub](https://github.com/kabelsalatundklartext/selfstream)*
+> *"selfstream" von s3lfcod3r — [GitHub](https://github.com/s3lfcod3r/selfstream)*

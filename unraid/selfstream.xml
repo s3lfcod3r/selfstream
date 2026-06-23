@@ -1,15 +1,15 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>selfstream</Name>
-  <Repository>ghcr.io/kabelsalatundklartext/selfstream:latest</Repository>
-  <Registry>https://github.com/kabelsalatundklartext/selfstream/pkgs/container/selfstream</Registry>
-  <Project>https://github.com/kabelsalatundklartext/selfstream</Project>
-  <Support>https://github.com/kabelsalatundklartext/selfstream/issues</Support>
+  <Repository>ghcr.io/s3lfcod3r/selfstream:latest</Repository>
+  <Registry>https://github.com/s3lfcod3r/selfstream/pkgs/container/selfstream</Registry>
+  <Project>https://github.com/s3lfcod3r/selfstream</Project>
+  <Support>https://github.com/s3lfcod3r/selfstream/issues</Support>
   <Overview>Self-hosted IPTV proxy with user management, stream protection, EPG integration and watch tracking. Every family member gets their own M3U URL with token. Max streams per user configurable. Custom channel groups for kids, sports etc. Single Docker container — no Redis, no external database.</Overview>
   <Category>MediaServer: Tools:</Category>
   <WebUI>http://[IP]:[PORT:8080]/admin</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/main/selfstream.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/kabelsalatundklartext/selfstream/refs/heads/main/frontend/icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/s3lfcod3r/selfstream/main/selfstream.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/s3lfcod3r/selfstream/refs/heads/main/frontend/icon.png</Icon>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>

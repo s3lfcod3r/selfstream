@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   selfstream:
-    image: ghcr.io/kabelsalatundklartext/selfstream:latest
+    image: ghcr.io/s3lfcod3r/selfstream:latest
     container_name: selfstream
     restart: unless-stopped
     ports:

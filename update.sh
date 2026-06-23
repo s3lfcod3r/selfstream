@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-REPO="kabelsalatundklartext/selfstream"
+REPO="s3lfcod3r/selfstream"
 BRANCH="main"
 CONTAINER="selfstream"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
