@@ -1,4 +1,3 @@
-# selfstream
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/s3lfcod3r/selfstream/refs/heads/main/assets/logo.png" width="240" alt="selfstream logo">
