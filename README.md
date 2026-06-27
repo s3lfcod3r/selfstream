@@ -106,6 +106,8 @@ Security & stability release. Fully backward compatible — no config changes, e
 - **"Max. streams" / "Banned" as a real video clip** – Players now show a short notice clip instead of a skipped JPEG segment (no ffmpeg, no runtime CPU load).
 - **Admin panel XSS hardening** – Server-supplied names/IDs in inline handlers are encoded so playlist data can't break out.
 
+> Full release notes (features, security, fixes, tooling) are in the **[CHANGELOG](CHANGELOG.md)**.
+
 ---
 
 ## What's New (May 2026)
@@ -497,6 +499,8 @@ Sicherheits- und Stabilitäts-Release. Voll abwärtskompatibel — keine Konfigu
 - **Kryptografisch sichere Short-Tokens** – `secrets` statt `random` für öffentliche Short-URLs.
 - **„Max. Streams" / „Gesperrt" als echter Video-Clip** – Player zeigen jetzt einen kurzen Hinweis-Clip statt eines übersprungenen JPEG-Segments (kein ffmpeg, keine Laufzeit-CPU-Last).
 - **XSS-Härtung im Admin-Panel** – Server-gelieferte Namen/IDs in Inline-Handlern werden kodiert, sodass Playlist-Daten nicht ausbrechen können.
+
+> Vollständige Release-Notes (Funktionen, Sicherheit, Fixes, Tooling) im **[CHANGELOG](CHANGELOG.md)**.
 
 ---
 
