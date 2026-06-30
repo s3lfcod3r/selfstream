@@ -368,7 +368,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('users',this)" title="Benutzer"><span class="nav-icon">👥</span><span class="nav-label">Benutzer</span></div>
       <div class="nav-section">Quellen</div>
       <div class="nav-item" onclick="nav('providers',this)" title="Anbieter"><span class="nav-icon">🌐</span><span class="nav-label">Anbieter</span></div>
-      <div class="nav-item" onclick="nav('channels',this)" title="Kanaele"><span class="nav-icon">📺</span><span class="nav-label">Kanäle</span></div>
+      <div class="nav-item" onclick="nav('channels',this)" title="Kanäle"><span class="nav-icon">📺</span><span class="nav-label">Kanäle</span></div>
       <div class="nav-item" onclick="nav('groups',this)" title="Gruppen"><span class="nav-icon">🏷</span><span class="nav-label">Gruppen</span></div>
       <div class="nav-item" onclick="nav('epg',this)" title="EPG"><span class="nav-icon">📅</span><span class="nav-label">EPG</span></div>
       <div class="nav-section">System</div>
@@ -914,7 +914,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="1" selected>Ein (empfohlen) - Catchup Schutzfunktionen aktiv</option>
                 <option value="0">Aus - Kein Catchup-Recover/Hard-Lock/Auto-Redirect</option>
               </select>
-              <div class="form-hint">Globaler Schalter fuer Catchup-Guards. Die darunterliegenden Optionen wirken nur, wenn dieser Schalter auf Ein steht.</div>
+              <div class="form-hint">Globaler Schalter für Catchup-Guards. Die darunterliegenden Optionen wirken nur, wenn dieser Schalter auf Ein steht.</div>
             </div>
             <div class="form-group">
               <label class="form-label">🛡️ Catchup Strict Mode</label>
@@ -922,23 +922,23 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="1" selected>Ein (empfohlen) - Kein Live-Fallback bei Catchup-Fehler</option>
                 <option value="0">Aus - Bei Catchup-Fehler auf Live fallen</option>
               </select>
-              <div class="form-hint">Wenn aktiviert, liefert selfstream bei Catchup-Fehlern einen klaren Fehler statt still auf Live zu springen. Das verhindert ungewollte Spruenge auf den Live-Sender.</div>
+              <div class="form-hint">Wenn aktiviert, liefert selfstream bei Catchup-Fehlern einen klaren Fehler statt still auf Live zu springen. Das verhindert ungewollte Sprünge auf den Live-Sender.</div>
             </div>
             <div class="form-group">
               <label class="form-label">🧲 Catchup Sticky Recover</label>
               <select class="form-select" id="cfg-catchup-sticky-recover">
-                <option value="1" selected>Ein (empfohlen) - Live-Anfragen zurueck auf Catchup lenken</option>
-                <option value="0">Aus - Kein automatisches Zuruecklenken</option>
+                <option value="1" selected>Ein (empfohlen) - Live-Anfragen zurück auf Catchup lenken</option>
+                <option value="0">Aus - Kein automatisches Zurücklenken</option>
               </select>
-              <div class="form-hint">Wenn ein Client bei Catchup-Aussetzern ploetzlich die Live-URL anfragt, wird dieselbe Quelle auf die letzte Catchup-Position zurueckgeleitet.</div>
+              <div class="form-hint">Wenn ein Client bei Catchup-Aussetzern plötzlich die Live-URL anfragt, wird dieselbe Quelle auf die letzte Catchup-Position zurückgeleitet.</div>
             </div>
             <div class="form-group">
               <label class="form-label">📺 Catchup -> Live bei Sendungswechsel</label>
               <select class="form-select" id="cfg-catchup-auto-live-on-program-change">
-                <option value="1" selected>Ein - Bei naechster Sendung automatisch auf Live umschalten</option>
+                <option value="1" selected>Ein - Bei nächster Sendung automatisch auf Live umschalten</option>
                 <option value="0">Aus - In Catchup weiterlaufen lassen</option>
               </select>
-              <div class="form-hint">Wenn die Catchup-Position in den naechsten EPG-Slot wechselt, liefert selfstream beim naechsten Playlist-Refresh die Live-Playlist desselben Senders.</div>
+              <div class="form-hint">Wenn die Catchup-Position in den nächsten EPG-Slot wechselt, liefert selfstream beim nächsten Playlist-Refresh die Live-Playlist desselben Senders.</div>
             </div>
             <div class="form-group">
               <label class="form-label">🧷 Auto-Live Redirect mit UTC-Lock</label>
@@ -951,18 +951,18 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <div class="form-group">
               <label class="form-label">🧭 Catchup Live Kanal-Schutz</label>
               <select class="form-select" id="cfg-catchup-force-same-channel-live">
-                <option value="1" selected>Ein (empfohlen) - Unerwartete Live-Spruenge auf anderen Kanal korrigieren</option>
+                <option value="1" selected>Ein (empfohlen) - Unerwartete Live-Sprünge auf anderen Kanal korrigieren</option>
                 <option value="0">Aus - Keine Kanal-Korrektur</option>
               </select>
-              <div class="form-hint">Wenn direkt nach Catchup ploetzlich ein Live-Request fuer einen anderen Kanal kommt, wird auf Live der zuletzt gesehenen Catchup-Quelle umgeleitet.</div>
+              <div class="form-hint">Wenn direkt nach Catchup plötzlich ein Live-Request für einen anderen Kanal kommt, wird auf Live der zuletzt gesehenen Catchup-Quelle umgeleitet.</div>
             </div>
             <div class="form-group">
               <label class="form-label">🔒 Catchup Hard-Lock</label>
               <select class="form-select" id="cfg-catchup-hard-lock">
-                <option value="1" selected>Ein (empfohlen) - Live ohne utc waehrend Catchup blockieren</option>
+                <option value="1" selected>Ein (empfohlen) - Live ohne utc während Catchup blockieren</option>
                 <option value="0">Aus - Nur Soft-Recover</option>
               </select>
-              <div class="form-hint">Solange eine Catchup-Session aktiv ist, werden normale /stream-Live-Requests automatisch auf die letzte Catchup-Position zurueckgeleitet.</div>
+              <div class="form-hint">Solange eine Catchup-Session aktiv ist, werden normale /stream-Live-Requests automatisch auf die letzte Catchup-Position zurückgeleitet.</div>
             </div>
             <div class="form-group">
               <label class="form-label">📋 Diagnose Master</label>
@@ -970,7 +970,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="1" selected>Ein - Diagnose-Logs schreiben</option>
                 <option value="0">Aus - Keine Diagnose-Logs speichern</option>
               </select>
-              <div class="form-hint">Globaler Schalter fuer Diagnose-Logs (catchup/session/admin/player-request). Bei Aus werden keine neuen Diagnose-Eintraege gespeichert.</div>
+              <div class="form-hint">Globaler Schalter für Diagnose-Logs (catchup/session/admin/player-request). Bei Aus werden keine neuen Diagnose-Einträge gespeichert.</div>
             </div>
             <div class="form-group">
               <label class="form-label">🕵️ Player Request Diagnose</label>
@@ -978,7 +978,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="1" selected>Ein - Alle Player-Requests/Headers/Parameter loggen</option>
                 <option value="0">Aus - Nur normale Diagnose-Logs</option>
               </select>
-              <div class="form-hint">Loggt fuer `playlist`, `stream`, `segment`, `catchup` die komplette Anfrage (Pfad, Query, Header, IP) und Response-Ereignisse. Achtung: erzeugt viele Logs.</div>
+              <div class="form-hint">Loggt für `playlist`, `stream`, `segment`, `catchup` die komplette Anfrage (Pfad, Query, Header, IP) und Response-Ereignisse. Achtung: erzeugt viele Logs.</div>
             </div>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
@@ -1005,7 +1005,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <label class="form-label">Aufbewahrung Watch-Logs</label>
               <select class="form-select" id="cfg-log-retention">
                 <option value="-1">∞ Unbegrenzt</option>
-                <option value="0">Deaktiviert (alles loeschen)</option>
+                <option value="0">Deaktiviert (alles löschen)</option>
                 <option value="3">3 Tage</option>
                 <option value="7">7 Tage</option>
                 <option value="30">30 Tage</option>
@@ -1013,7 +1013,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </select>
               <div class="form-hint">
                 Gespeichert werden Watch-Verlauf (Zeit, Benutzer, IP, Kanal, Sendung, Dauer).<br>
-                Wenn du auf kuerzere Aufbewahrung oder Deaktiviert stellst, werden alte Logs sofort geloescht.
+                Wenn du auf kürzere Aufbewahrung oder Deaktiviert stellst, werden alte Logs sofort gelöscht.
               </div>
             </div>
             <button class="btn primary" onclick="saveLogRetention()">Speichern</button>
@@ -1485,9 +1485,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <input class="form-input" id="import-provider-name" placeholder="z.B. Provider A">
     </div>
     <div class="form-group">
-      <label class="form-label">Verfuegbare Lines</label>
+      <label class="form-label">Verfügbare Lines</label>
       <input class="form-input" id="import-provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
-      <div class="form-hint">0 = unbekannt/unbegrenzt (nur Tracking ohne Kapazitaetsgrenze).</div>
+      <div class="form-hint">0 = unbekannt/unbegrenzt (nur Tracking ohne Kapazitätsgrenze).</div>
     </div>
     <div class="form-group">
       <label class="form-label">Quellentyp</label>
@@ -3311,7 +3311,7 @@ async function loadLogs(pageArg) {
   if (meta) {
     const shownFrom = logs.length ? ((logsPage - 1) * pageSize + 1) : 0;
     const shownTo = logs.length ? ((logsPage - 1) * pageSize + logs.length) : 0;
-    meta.textContent = `Gespeichert: ${payload.stored_total || 0} Eintraege | Gefiltert: ${payload.total || 0} | Anzeige: ${shownFrom}-${shownTo}`;
+    meta.textContent = `Gespeichert: ${payload.stored_total || 0} Einträge | Gefiltert: ${payload.total || 0} | Anzeige: ${shownFrom}-${shownTo}`;
   }
   if (pageInfo) {
     pageInfo.textContent = `Seite ${logsPage} / ${logsTotalPages}`;
@@ -3346,7 +3346,7 @@ function scheduleLogsReload() {
 
 async function clearLogs() {
   const days=parseInt(currentLogRetention || '-1');
-  const msg=days===-1?'Wirklich ALLE Einträge loeschen?':days===0?'Verlauf komplett loeschen?':`Eintraege aelter als ${days} Tage loeschen?`;
+  const msg=days===-1?'Wirklich ALLE Einträge löschen?':days===0?'Verlauf komplett löschen?':`Einträge älter als ${days} Tage löschen?`;
   if(!confirm(msg)) return;
   await api('POST','/api/logs/clear',{days:days===-1?0:days});
   loadLogs(1); showToast('Verlauf bereinigt');
@@ -3604,8 +3604,8 @@ async function saveLogRetention() {
   const old = parseInt(currentLogRetention || '-1');
   if (isRetentionTightened(old, next)) {
     const warn = next === 0
-      ? 'Warnung: Du deaktivierst die Verlaufspeicherung. Alle vorhandenen Logs werden sofort geloescht. Fortfahren?'
-      : `Warnung: Du verkuerzt die Aufbewahrung auf ${next} Tage. Aeltere Logs werden sofort geloescht. Fortfahren?`;
+      ? 'Warnung: Du deaktivierst die Verlaufspeicherung. Alle vorhandenen Logs werden sofort gelöscht. Fortfahren?'
+      : `Warnung: Du verkürzt die Aufbewahrung auf ${next} Tage. Ältere Logs werden sofort gelöscht. Fortfahren?`;
     if (!confirm(warn)) return;
   }
   await api('POST','/api/settings',{log_retention_days:String(next)});

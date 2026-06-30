@@ -506,7 +506,7 @@ Sicherheits- und Stabilitäts-Release. Voll abwärtskompatibel — keine Konfigu
 
 ## Neu seit Mai 2026
 
-- **Catchup Auto-Live Standard geaendert** – `catchup_auto_live_on_program_change` steht standardmaessig auf `0` (Aus), damit es keine ungewollten Spruenge von Catchup auf Live gibt.
+- **Catchup Auto-Live Standard geändert** – `catchup_auto_live_on_program_change` steht standardmäßig auf `0` (Aus), damit es keine ungewollten Sprünge von Catchup auf Live gibt.
 - **Globaler Diagnose-Schalter** – Neue Einstellung `diagnostics_enabled`, um Diagnose-Logging im Admin-Panel bei Bedarf komplett ein-/auszuschalten.
 - **Bessere Catchup-Diagnose** – Logs unterscheiden klarer zwischen DVR-Zeitfortschritt, Redirect-Verhalten und Session-Timeout-Ursachen.
 
@@ -595,7 +595,7 @@ docker-compose up -d
 | `hls_referer` | *(leer)* | Referer-Header (falls vom Anbieter benötigt) |
 | `hls_follow_redirects` | `1` | HTTP-Redirects folgen (`1` = ja, `0` = nein) |
 | `prefetch_segments` | `2` | Wie viele Segmente vorab geladen werden (0 = deaktiviert) |
-| `diagnostics_enabled` | `1` | Globaler Diagnose-Master (`1` = Diagnose-Logs schreiben, `0` = neue Diagnose-Eintraege deaktivieren) |
+| `diagnostics_enabled` | `1` | Globaler Diagnose-Master (`1` = Diagnose-Logs schreiben, `0` = neue Diagnose-Einträge deaktivieren) |
 
 ### EPG
 
@@ -608,19 +608,19 @@ docker-compose up -d
 
 ## Empfohlene Catchup-Einstellungen (stabile Basis)
 
-Fuer die meisten Setups (vor allem IPTV Pro / TiviMate) liefert dieses Profil stabiles Catchup-Verhalten mit weniger ungewollten Spruengen:
+Für die meisten Setups (vor allem IPTV Pro / TiviMate) liefert dieses Profil stabiles Catchup-Verhalten mit weniger ungewollten Sprüngen:
 
 - `catchup_guard_master = 1`
 - `catchup_strict_mode = 1`
 - `catchup_sticky_recover = 1`
-- `catchup_auto_live_on_program_change = 0` (verhindert Auto-Spruenge auf Live am Sendungswechsel)
+- `catchup_auto_live_on_program_change = 0` (verhindert Auto-Sprünge auf Live am Sendungswechsel)
 - `catchup_auto_live_keep_utc = 0` (nur relevant, wenn Auto-Live aktiviert ist)
 - `catchup_force_same_channel_live = 1`
-- `catchup_hard_lock = 0` (nur aktivieren, wenn dein Client staendig auf Live ausbricht)
-- `diagnostics_enabled = 0` im Alltag, fuer Fehlersuche kurz auf `1`
-- `player_request_debug = 0` im Alltag, fuer Diagnose-Sessions kurz auf `1`
+- `catchup_hard_lock = 0` (nur aktivieren, wenn dein Client ständig auf Live ausbricht)
+- `diagnostics_enabled = 0` im Alltag, für Fehlersuche kurz auf `1`
+- `player_request_debug = 0` im Alltag, für Diagnose-Sessions kurz auf `1`
 
-Tipp: Nach Aenderungen an Catchup-Guards speichern und einen kompletten Catchup-Test bis zur Sendungsgrenze durchlaufen lassen, um das Verhalten beim Anbieter zu pruefen.
+Tipp: Nach Änderungen an Catchup-Guards speichern und einen kompletten Catchup-Test bis zur Sendungsgrenze durchlaufen lassen, um das Verhalten beim Anbieter zu prüfen.
 
 ---
 
