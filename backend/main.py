@@ -60,6 +60,12 @@ async def _security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
+        "object-src 'none'; frame-ancestors 'none'",
+    )
     return response
 
 
@@ -90,6 +96,55 @@ def _clip_text(v, max_len: int = 6000) -> str:
     return s[:max_len] + f"... [truncated {len(s) - max_len} chars]"
 
 
+# Referenzen auf fire-and-forget Hintergrund-Tasks festhalten, damit der GC sie
+# nicht mitten im Lauf einsammelt (asyncio hält nur schwache Referenzen).
+_background_tasks: set = set()
+
+
+def _track_background_task(task) -> None:
+    """Starke Referenz auf einen Hintergrund-Task halten und nach Abschluss wieder freigeben."""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+# Zugangsdaten in URLs/Strings maskieren, bevor sie in Logs/Diagnose landen.
+# Betrifft Query-/Pfad-Werte von username/password/token/pw (Provider-Credentials).
+_CRED_KEYS_RE = re.compile(
+    r"(?i)\b(username|password|passwd|pwd|pw|token|api[_-]?key|auth|secret)"
+    r"(\s*[=:]\s*|/)"
+    r"([^&\s/\"']+)"
+)
+
+
+def _mask_creds(s) -> str:
+    """Ersetzt die Werte sensibler Parameter (username/password/token/pw/...) durch ***.
+
+    Deckt sowohl Query-Form (key=value / key:value) als auch Pfad-Form (/key/value)
+    ab, wie sie bei Xtream-/Stalker-Portalen üblich ist. Best-effort, wirft nie."""
+    try:
+        return _CRED_KEYS_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***", str(s))
+    except Exception:
+        return str(s)
+
+
+# Sensible Keys, deren Werte in Query-Param-Dicts vor dem Loggen maskiert werden.
+_SENSITIVE_QUERY_KEYS = frozenset({
+    "username", "password", "passwd", "pwd", "pw", "token",
+    "api_key", "apikey", "auth", "secret",
+})
+
+
+def _mask_query_dict(params: dict) -> dict:
+    """Kopiert ein Query-Param-Dict und maskiert die Werte sensibler Keys."""
+    masked = {}
+    for k, v in params.items():
+        if k.lower() in _SENSITIVE_QUERY_KEYS:
+            masked[k] = "***"
+        else:
+            masked[k] = v
+    return masked
+
+
 def is_player_request_debug_enabled() -> bool:
     """Log detailed player HTTP requests/responses to diagnostics."""
     return db.get_setting("player_request_debug", "1") == "1"
@@ -103,19 +158,29 @@ def _log_player_request(stage: str, request: Request | None, token: str, extra: 
         hdrs = {}
         if request:
             for k, v in request.headers.items():
-                hdrs[k.lower()] = v
+                lk = k.lower()
+                # Authorization/Cookie können Provider-Credentials enthalten → maskieren.
+                if lk in ("authorization", "cookie", "proxy-authorization"):
+                    hdrs[lk] = "***"
+                else:
+                    hdrs[lk] = _mask_creds(v)
+        # Extra-Werte (z.B. url_raw, decoded_url, redirect_url) können Upstream-URLs
+        # mit Zugangsdaten enthalten → String-Werte maskieren.
+        safe_extra = {}
+        for _ek, _ev in (extra or {}).items():
+            safe_extra[_ek] = _mask_creds(_ev) if isinstance(_ev, str) else _ev
         payload = {
             "stage": stage,
             "token_prefix": (token or "")[:8],
             "method": request.method if request else "",
             "path": request.url.path if request else "",
-            "query": dict(request.query_params) if request else {},
+            "query": _mask_query_dict(dict(request.query_params)) if request else {},
             "headers": hdrs,
             "client": {
                 "x_forwarded_for": (request.headers.get("x-forwarded-for", "") if request else ""),
                 "remote_addr": (request.client.host if request and request.client else ""),
             },
-            "extra": extra or {},
+            "extra": safe_extra,
         }
         msg = _clip_text(json.dumps(payload, ensure_ascii=True, sort_keys=True))
         diag_log(level, "player-request", msg)
@@ -321,10 +386,10 @@ async def startup():
     except Exception:
         pass
     _generate_error_video()
-    asyncio.create_task(_epg_watchdog())
-    asyncio.create_task(_m3u_watchdog())
-    asyncio.create_task(_catchup_epg_watchdog())
-    asyncio.create_task(_live_epg_watchdog())
+    _track_background_task(asyncio.create_task(_epg_watchdog()))
+    _track_background_task(asyncio.create_task(_m3u_watchdog()))
+    _track_background_task(asyncio.create_task(_catchup_epg_watchdog()))
+    _track_background_task(asyncio.create_task(_live_epg_watchdog()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -559,8 +624,9 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
                 resp.raise_for_status()
                 channels_raw = parse_m3u(resp.text)
         except Exception as e:
-            logger.error(f"Failed to fetch m3u for {user['name']}: {e}")
-            diag_log("ERROR", "m3u", f"Failed to fetch m3u for {user['name']}: {e}")
+            _e_m3u = _mask_creds(e)
+            logger.error(f"Failed to fetch m3u for {user['name']}: {_e_m3u}")
+            diag_log("ERROR", "m3u", f"Failed to fetch m3u for {user['name']}: {_e_m3u}")
             raise HTTPException(status_code=502, detail="Failed to fetch source playlist")
         channels = [{"name": c["name"], "raw_extinf": c["raw_extinf"],
                      "stream_url": c["url"], "tvg_id": c["tvg_id"],
@@ -1336,7 +1402,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                         break
             if prefetch_count > 0:
                 for seg_url in seg_urls:
-                    asyncio.create_task(_prefetch_segment(seg_url, hls))
+                    _track_background_task(asyncio.create_task(_prefetch_segment(seg_url, hls)))
         except Exception:
             pass
         _log_player_request(
@@ -1354,10 +1420,11 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             }
         )
     except Exception as e:
-        _log_player_request("stream:error", request, token, {"channel": channel_name, "error": repr(e)}, level="ERROR")
-        logger.error(f"Failed to fetch stream for {user['name']}: {e}")
-        diag_log("ERROR", "stream", f"Failed to fetch stream for {user['name']}: {e}")
-        raise HTTPException(status_code=502, detail=f"Stream fetch failed: {e}")
+        _e_str = _mask_creds(e)
+        _log_player_request("stream:error", request, token, {"channel": channel_name, "error": _mask_creds(repr(e))}, level="ERROR")
+        logger.error(f"Failed to fetch stream for {user['name']}: {_e_str}")
+        diag_log("ERROR", "stream", f"Failed to fetch stream for {user['name']}: {_e_str}")
+        raise HTTPException(status_code=502, detail="Stream fetch failed")
 
 
 # In-memory session tracking
@@ -1431,6 +1498,9 @@ async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
         # dauerhaft fehlendes Segment keine unbegrenzt tiefe Rekursionskette aufbaut.
         if _depth >= _SEGMENT_MAX_RETRY:
             return b"", wait_elapsed, False
+        # Kurzes exponentielles Backoff, damit ein zeitweise leeres Segment vom CDN
+        # nicht in einer engen Retry-Schleife dauernd neu angefragt wird.
+        await asyncio.sleep(min(2.0, 0.25 * 2 ** _depth))
         return await _get_segment(url, hls, _depth + 1)
 
     # We are the first – fetch it
@@ -2941,7 +3011,7 @@ async def global_epg(force: str = None):
         )
 
     try:
-        logger.info(f"Fetching EPG from {source_url}")
+        logger.info(f"Fetching EPG from {_mask_creds(source_url)}")
         async with make_iptv_client(timeout=120, follow_redirects=True) as client:
             resp = await client.get(source_url)
             resp.raise_for_status()
@@ -2966,12 +3036,13 @@ async def global_epg(force: str = None):
         return HTMLResponse(content=content_text, media_type="application/xml",
                            headers={"X-EPG-Cache": "MISS"})
     except Exception as e:
+        _e_epg = _mask_creds(e)
         if _epg_cache["content"]:
-            logger.warning(f"EPG fetch failed, serving stale cache: {e}")
-            diag_log("WARNING", "epg", f"EPG fetch failed, serving stale cache: {e}")
+            logger.warning(f"EPG fetch failed, serving stale cache: {_e_epg}")
+            diag_log("WARNING", "epg", f"EPG fetch failed, serving stale cache: {_e_epg}")
             return HTMLResponse(content=_epg_cache["content"], media_type="application/xml",
                                headers={"X-EPG-Cache": "STALE"})
-        raise HTTPException(status_code=502, detail=f"EPG fetch failed: {e}")
+        raise HTTPException(status_code=502, detail="EPG fetch failed")
 
 
 def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7) -> str:
@@ -4284,6 +4355,11 @@ def vpn_stop() -> dict:
     return {"ok": True}
 
 
+# Platzhalter, der dem Client statt des echten VPN-Passworts gesendet wird.
+# Kommt er beim Speichern unverändert zurück, bleibt das bestehende Passwort erhalten.
+_VPN_PASSWORD_PLACEHOLDER = "••••••••"
+
+
 @admin_app.get("/api/vpn")
 def get_vpn_settings(_=Depends(check_admin)):
     s = db.get_all_settings()
@@ -4291,10 +4367,12 @@ def get_vpn_settings(_=Depends(check_admin)):
     ovpn_files = []
     if os.path.exists(VPN_OVPN_DIR):
         ovpn_files = [f for f in os.listdir(VPN_OVPN_DIR) if f.endswith(".ovpn") and f != "split.ovpn"]
+    # Passwort niemals im Klartext an den Client geben – nur ob eines gesetzt ist.
+    has_password = bool(s.get("vpn_password", ""))
     return {
         "vpn_enabled":  s.get("vpn_enabled", "0"),
         "vpn_user":     s.get("vpn_user", ""),
-        "vpn_password": s.get("vpn_password", ""),
+        "vpn_password": _VPN_PASSWORD_PLACEHOLDER if has_password else "",
         "vpn_ovpn_path": s.get("vpn_ovpn_path", ""),
         "vpn_running":  vpn_is_running(),
         "ovpn_files":   ovpn_files,
@@ -4304,8 +4382,13 @@ def get_vpn_settings(_=Depends(check_admin)):
 @admin_app.post("/api/vpn")
 def update_vpn_settings(body: dict, _=Depends(check_admin)):
     for key, val in body.items():
-        if key in VPN_SETTINGS_KEYS:
-            db.set_setting(key, str(val))
+        if key not in VPN_SETTINGS_KEYS:
+            continue
+        # Kommt der Platzhalter zurück, hat der Admin das Passwort nicht geändert →
+        # bestehendes Passwort behalten, nicht mit dem Platzhalter überschreiben.
+        if key == "vpn_password" and str(val) == _VPN_PASSWORD_PLACEHOLDER:
+            continue
+        db.set_setting(key, str(val))
     return {"ok": True}
 
 
@@ -4377,9 +4460,10 @@ async def vpn_upload_ovpn(request: Request, _=Depends(check_admin)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"VPN upload error: {e}")
-        diag_log("ERROR", "vpn", f"VPN upload error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _e_vpn = _mask_creds(e)
+        logger.error(f"VPN upload error: {_e_vpn}")
+        diag_log("ERROR", "vpn", f"VPN upload error: {_e_vpn}")
+        raise HTTPException(status_code=500, detail="VPN upload failed")
 
 
 @admin_app.delete("/api/vpn/ovpn/{filename}")
