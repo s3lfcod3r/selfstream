@@ -3108,14 +3108,14 @@ async function saveEpgSettings() {
 }
 
 async function forceEpgRefresh() {
+  // Reload via the admin app (same-origin, port 8080). The old code fetched the
+  // proxy app on port 8000 / the public domain cross-origin, which browsers block
+  // with 'Failed to fetch' even though the server-side reload succeeds.
   try {
-    const settings = await api('GET', '/api/settings');
-    const proxyUrl = (settings.proxy_url || window.location.origin.replace('8081','8000').replace('8080','8000')).replace(/\/$/, '');
-    const r = await fetch(proxyUrl + '/iptv/epg.xml?force=1');
-    const age = r.headers.get('X-EPG-Cache');
-    showToast('EPG neu geladen! (' + (r.headers.get('X-EPG-Age-Minutes')||'0') + 'min alt)');
+    const r = await api('POST', '/api/epg/refresh');
+    showToast('EPG neu geladen! (' + (r.size_kb || 0) + ' KB)');
     loadEpg();
-  } catch(e) { showToast('Fehler beim EPG-Laden', true); }
+  } catch(e) { showToast('Fehler beim EPG-Laden: ' + (e.message || e), true); }
 }
 
 async function loadEpg() {

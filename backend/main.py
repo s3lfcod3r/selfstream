@@ -3796,6 +3796,50 @@ def epg_status(_=Depends(check_admin)):
         "source_url": _epg_cache.get("url", ""),
     }
 
+@admin_app.post("/api/epg/refresh")
+async def refresh_epg(_=Depends(check_admin)):
+    """Force-reload EPG from source into the shared cache.
+
+    Same behaviour as the public GET /iptv/epg.xml?force=1, but exposed on the
+    admin app (port 8080) so the panel can trigger it same-origin. The old
+    button fetched proxy_app (port 8000) cross-origin, which browsers block
+    ('Failed to fetch') even though the server-side reload succeeds.
+    """
+    global _epg_cache
+    epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
+    if not epg_sources:
+        raise HTTPException(status_code=404, detail="Keine aktive EPG-Quelle konfiguriert")
+
+    source_url = epg_sources[0]
+    now = int(time.time())
+    try:
+        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+            resp = await client.get(source_url)
+            resp.raise_for_status()
+            content_text = resp.text
+
+        if db.get_setting("epg_filter_channels", "0") == "1":
+            content_text = _filter_epg_xml(content_text, days_back=7)
+
+        _epg_cache = {"content": content_text, "fetched_at": now, "url": source_url}
+        _epg_tree_cache["root"] = None  # invalidate parsed tree
+        _tvg_id_cache.clear()           # invalidate tvg_id lookup cache
+        size_kb = len(content_text) // 1024
+        logger.info(f"EPG manually refreshed ({size_kb}KB)")
+        try:
+            with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
+                _f.write(content_text)
+        except Exception as _e:
+            logger.warning(f"EPG disk cache write failed: {_e}")
+            diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
+        return {"ok": True, "size_kb": size_kb, "fetched_at": now}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"EPG manual refresh failed: {e}")
+        diag_log("WARNING", "epg", f"EPG manual refresh failed: {e}")
+        raise HTTPException(status_code=502, detail=f"EPG-Abruf fehlgeschlagen: {e}")
+
 @admin_app.post("/api/epg")
 def add_epg(body: dict, _=Depends(check_admin)):
     name = body.get("name", "").strip()
