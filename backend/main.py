@@ -371,8 +371,8 @@ _startup_done = False
 async def startup():
     """server.py startet proxy_app und admin_app in zwei eigenen Threads mit
     je eigenem Event-Loop. Ohne diesen Guard würden alle Watchdogs (EPG, M3U,
-    Catchup-EPG, Live-EPG) in BEIDEN Loops laufen → konkurrierende Splits beim
-    Sendungswechsel → doppelte watch_logs-Einträge."""
+    Catchup-EPG, Live-EPG, VPN) in BEIDEN Loops laufen → konkurrierende Splits
+    beim Sendungswechsel → doppelte watch_logs-Einträge / doppelte VPN-Neustarts."""
     global _startup_done
     with _startup_lock:
         if _startup_done:
@@ -398,6 +398,8 @@ async def startup():
         else:
             logger.warning(f"VPN auto-start failed: {result.get('error')}")
             diag_log("WARNING", "vpn", f"VPN auto-start failed: {result.get('error')}")
+    # VPN-Wächter: reconnectet den Tunnel automatisch, wenn er wegbricht
+    _track_background_task(asyncio.create_task(_vpn_watchdog()))
     logger.info("selfstream started")
 
 
@@ -4244,6 +4246,17 @@ VPN_OVPN_DIR = "/data/vpn"
 VPN_AUTH_FILE = "/data/vpn/auth.txt"
 VPN_LOG_MAX = 200
 
+# ── VPN-Wächter (Auto-Reconnect) ────────────────────────────────────────────
+# OpenVPN reconnectet zwar selbst (ping-restart 60), aber wenn der Tunnel ganz
+# wegbricht (TLS-Handshake scheitert dauerhaft, oder der Prozess stirbt), bleibt
+# er unten – und weil ALLER IPTV-Verkehr durchs VPN läuft, sind dann alle Streams
+# tot, bis jemand von Hand neu startet. Dieser Wächter prüft periodisch, ob
+# Prozess UND tun0 leben, und startet OpenVPN nach einer Kulanzzeit selbst neu.
+VPN_WATCHDOG_INTERVAL = 30   # Sekunden zwischen zwei Gesundheits-Checks
+VPN_WATCHDOG_GRACE = 3       # so viele Checks am Stück ungesund → Neustart (~90s)
+_vpn_unhealthy_count = 0     # aktueller Zähler aufeinanderfolgender Fehl-Checks
+_vpn_restart_lock = threading.Lock()  # verhindert parallele Neustarts
+
 
 def _vpn_log_add(line: str):
     _vpn_log.append(line)
@@ -4352,10 +4365,14 @@ def vpn_start() -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def vpn_stop() -> dict:
+def _vpn_teardown():
+    """OpenVPN + SOCKS5 hart abbauen und warten, bis tun weg ist.
+
+    Ändert BEWUSST nicht das Flag ``vpn_enabled`` – teilt sich diese Logik doch
+    zwischen dem manuellen Stopp (Flag → 0) und dem Wächter-Neustart (Flag bleibt
+    1). Blockierend (subprocess + kurze Sleeps); aus async-Kontext via to_thread.
+    """
     global _vpn_process, _socks_process
-    # Set DB flag FIRST to prevent auto-restart
-    db.set_setting("vpn_enabled", "0")
 
     # Stop SOCKS proxy
     if _socks_process is not None and _socks_process.poll() is None:
@@ -4395,8 +4412,87 @@ def vpn_stop() -> dict:
             break
         time.sleep(0.5)
 
+
+def vpn_stop() -> dict:
+    # Set DB flag FIRST to prevent auto-restart (Wächter + Auto-Start)
+    db.set_setting("vpn_enabled", "0")
+    _vpn_teardown()
     _vpn_log_add("🔴 OpenVPN + SOCKS5 Proxy gestoppt.")
     return {"ok": True}
+
+
+def _vpn_healthy() -> tuple[bool, bool, str]:
+    """Gesundheit des Tunnels prüfen. Gibt (gesund, prozess_läuft, tun_ip) zurück.
+
+    ``vpn_is_running()`` allein reicht nicht: ein hängender OpenVPN-Prozess lebt
+    zwar (poll() is None), hat aber kein tun0 → Streams tot. Gesund ist nur, wenn
+    der Prozess läuft UND tun0 eine IP hat. Blockierend (subprocess).
+    """
+    proc_alive = _vpn_process is not None and _vpn_process.poll() is None
+    tun_ip = vpn_get_tun_ip()
+    return (proc_alive and bool(tun_ip), proc_alive, tun_ip)
+
+
+def _vpn_restart() -> dict:
+    """Tunnel abbauen und frisch starten, ohne ``vpn_enabled`` auf 0 zu setzen.
+
+    Serialisiert über ein Lock, damit sich nicht mehrere Wächter-Zyklen (oder ein
+    Wächter + ein manueller Klick) überlappen. Blockierend – via to_thread rufen.
+    """
+    if not _vpn_restart_lock.acquire(blocking=False):
+        return {"ok": False, "error": "Neustart läuft bereits"}
+    try:
+        _vpn_teardown()
+        return vpn_start()  # setzt bei Erfolg vpn_enabled=1; bei Fehler bleibt 1
+    finally:
+        _vpn_restart_lock.release()
+
+
+async def _vpn_watchdog():
+    """Überwacht den VPN-Tunnel und startet OpenVPN bei Ausfall selbst neu.
+
+    Läuft (wie die EPG/M3U-Wächter) nur in EINEM Event-Loop dank Startup-Guard.
+    Greift nur, wenn ``vpn_enabled == 1``. Nach ``VPN_WATCHDOG_GRACE`` ungesunden
+    Checks am Stück (≈90s Kulanz, damit OpenVPNs eigener ping-restart zuerst eine
+    Chance hat) wird der Tunnel hart neu aufgebaut.
+    """
+    global _vpn_unhealthy_count
+    # Erststart abwarten (Auto-Start + tun0-Aufbau brauchen ein paar Sekunden)
+    await asyncio.sleep(45)
+    while True:
+        try:
+            await asyncio.sleep(VPN_WATCHDOG_INTERVAL)
+            if db.get_setting("vpn_enabled", "0") != "1":
+                _vpn_unhealthy_count = 0
+                continue
+            healthy, proc_alive, tun_ip = await asyncio.to_thread(_vpn_healthy)
+            if healthy:
+                if _vpn_unhealthy_count:
+                    _vpn_log_add(f"✅ VPN-Wächter: Tunnel wieder gesund ({tun_ip})")
+                _vpn_unhealthy_count = 0
+                continue
+            _vpn_unhealthy_count += 1
+            _vpn_log_add(
+                f"⚠️ VPN-Wächter: Tunnel ungesund "
+                f"({_vpn_unhealthy_count}/{VPN_WATCHDOG_GRACE}) – "
+                f"Prozess={'läuft' if proc_alive else 'tot'}, tun0={tun_ip or 'fehlt'}"
+            )
+            if _vpn_unhealthy_count >= VPN_WATCHDOG_GRACE:
+                _vpn_log_add("🔄 VPN-Wächter: starte OpenVPN neu…")
+                logger.warning("VPN watchdog: tunnel down, restarting OpenVPN")
+                diag_log("WARNING", "vpn", "VPN-Wächter: Tunnel unten – Neustart")
+                _vpn_unhealthy_count = 0
+                result = await asyncio.to_thread(_vpn_restart)
+                if result.get("ok"):
+                    _vpn_log_add("🟢 VPN-Wächter: Neustart angestoßen.")
+                else:
+                    _vpn_log_add(f"❌ VPN-Wächter: Neustart fehlgeschlagen: {result.get('error')}")
+                    diag_log("WARNING", "vpn", f"VPN-Wächter Neustart fehlgeschlagen: {result.get('error')}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"VPN watchdog error: {e}")
+            diag_log("WARNING", "vpn", f"VPN-Wächter Fehler: {e}")
 
 
 # Platzhalter, der dem Client statt des echten VPN-Passworts gesendet wird.
