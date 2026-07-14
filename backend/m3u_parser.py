@@ -92,7 +92,15 @@ def build_m3u(channels: List[Dict], proxy_base: str, user_token: str,
             f'{ch["name"]}'
         )
         lines.append(extinf)
-        encoded = urllib.parse.quote(ch["stream_url"], safe="")
-        lines.append(f"{proxy_base}/iptv/{user_token}/stream?url={encoded}")
+        # Prefer the stable, server-independent id: /live/{uid} resolves the CURRENT
+        # upstream URL from the DB at play time, so switching provider servers needs
+        # no playlist reload on the device. Fall back to the legacy ?url= form for
+        # channels without a stored uid (e.g. raw-parsed, no DB row).
+        stable_uid = str(ch.get("stable_uid") or "").strip()
+        if stable_uid:
+            lines.append(f"{proxy_base}/iptv/{user_token}/live/{stable_uid}")
+        else:
+            encoded = urllib.parse.quote(ch["stream_url"], safe="")
+            lines.append(f"{proxy_base}/iptv/{user_token}/stream?url={encoded}")
 
     return "\n".join(lines)

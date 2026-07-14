@@ -635,6 +635,11 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
                      "tvg_logo": c["tvg_logo"], "group_title": c["group"],
                      "tvg_rec": c.get("tvg_rec", "")} for c in channels_raw]
 
+    # ONE source of truth for group order: the "Gruppen-Reihenfolge" drag&drop on the
+    # Gruppen page (provider_group_order). Both the actual channel sort AND the numeric
+    # "01. / 02." prefix are derived from it, so numbering and order can never disagree.
+    _saved_order = db.get_provider_group_order()
+
     # Filter by user's allowed_groups if set
     allowed_groups_raw = user.get("allowed_groups", "") or ""
     if allowed_groups_raw.strip():
@@ -644,10 +649,15 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
         provider_groups = [g for g in group_names if g not in all_user_group_names]
         result_channels = []
 
-        # Position in the sorted list (ORDER BY sort_order, name) gives a stable,
-        # unique 1-based index for the IPTV app prefix — even when sort_order is
-        # 0 for every group (e.g. before the user reorders via drag & drop).
-        _ug_sorted = db.get_user_groups()
+        # Number the custom groups by the SAME unified order used for sorting below,
+        # so the "01./02." prefix always matches the real playlist order. Groups not
+        # present in the saved order fall back to their own sort_order, then name.
+        def _ug_rank(g):
+            n = g["name"]
+            if n in _saved_order:
+                return (0, _saved_order[n], n)
+            return (1, g.get("sort_order", 0), n)
+        _ug_sorted = sorted(db.get_user_groups(), key=_ug_rank)
         group_position = {g["name"]: idx for idx, g in enumerate(_ug_sorted)}
         use_prefix = db.get_setting("group_sort_prefix", "1") == "1"
 
@@ -678,9 +688,8 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
                 seen.add(cid)
                 channels.append(c)
 
-    # Sort channels: use unified saved order (covers both custom and provider groups)
-    _saved_order = db.get_provider_group_order()
-
+    # Sort channels: use the unified saved order defined above (covers both custom
+    # and provider groups) — same source as the numeric prefix.
     def _group_sort_key(ch):
         gt = ch.get("group_title", "")
         # Strip numeric prefix like "01. Kinder" to get base name for lookup
@@ -698,7 +707,11 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
     content = build_m3u(channels, public_url, token, epg_sources)
     db.log_playlist_access(user["id"])
     _log_player_request("playlist:response", request, token, {"channels": len(channels), "public_url": public_url})
-    return HTMLResponse(content=content, media_type="application/x-mpegURL")
+    # Never let the player/app or an intermediate proxy serve a stale playlist —
+    # a manual "refresh" on the device must always pull the current channel list.
+    return HTMLResponse(content=content, media_type="application/x-mpegURL",
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                 "Pragma": "no-cache", "Expires": "0"})
 
 
 @proxy_app.get("/iptv/{token}/epg.xml")
@@ -864,6 +877,31 @@ h1{color:#f85149;font-size:24px;font-weight:700;margin:0 0 12px;letter-spacing:-
 </body>
 </html>"""
     return HTMLResponse(content=error_html, media_type="text/html")
+
+
+@proxy_app.get("/iptv/{token}/live/{uid}")
+async def proxy_live(token: str, uid: str, utc: str = None, lutc: str = None, request: Request = None):
+    """Stable per-channel entry point used by the device playlist.
+
+    Resolves the stable uid to the channel's CURRENT upstream URL from the DB and
+    hands off to /stream. Because the URL is looked up at play time, switching the
+    provider's server (URL changes in the panel) takes effect immediately without
+    the device having to reload its playlist."""
+    _log_player_request("live:request", request, token, {"uid": uid, "utc": utc, "lutc": lutc})
+    user = db.get_user_by_token(token)
+    if not user or not user["active"]:
+        _log_player_request("live:forbidden", request, token, {"reason": "invalid_or_disabled"}, level="WARNING")
+        raise HTTPException(status_code=403, detail="Invalid or disabled token")
+    ch = db.get_channel_by_stable_uid(uid)
+    if not ch or not (ch.get("stream_url") or "").strip():
+        _log_player_request("live:not_found", request, token, {"uid": uid}, level="WARNING")
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    target = f"/iptv/{token}/stream?url={urllib.parse.quote(ch['stream_url'], safe='')}"
+    if utc:
+        target += f"&utc={urllib.parse.quote(str(utc), safe='')}"
+    if lutc:
+        target += f"&lutc={urllib.parse.quote(str(lutc), safe='')}"
+    return RedirectResponse(url=target)
 
 
 @proxy_app.get("/iptv/{token}/stream")

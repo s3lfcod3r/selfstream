@@ -1992,18 +1992,10 @@ async function userGroups(id, name, currentGroups){
     const customHtml = _ugUserGroups.length
       ? '<div style="font-size:10px;color:var(--teal);font-family:var(--mono);padding:6px 0 4px;display:flex;align-items:center;gap:8px;">'
           +'<span>EIGENE GRUPPEN</span>'
-          +'<span style="color:var(--text2);font-family:inherit;text-transform:none;letter-spacing:0;font-weight:normal;">⠿ ziehen zum Sortieren — gilt global</span>'
+          +'<span style="color:var(--text2);font-family:inherit;text-transform:none;letter-spacing:0;font-weight:normal;">Reihenfolge unter „Gruppen → Gruppen-Reihenfolge"</span>'
         +'</div>'
-        + _ugUserGroups.map((g, idx) => `
-          <label id="uglbl-${g.id}"
-                 draggable="true"
-                 ondragstart="ugmDragStart(event,${g.id})"
-                 ondragover="ugmDragOver(event,${g.id})"
-                 ondrop="ugmDrop(event,${g.id})"
-                 ondragend="ugmDragEnd()"
-                 style="display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:12px;cursor:grab;border-bottom:1px solid var(--border);">
-            <span style="color:var(--text2);cursor:grab;font-size:14px;flex-shrink:0;" title="Ziehen zum Sortieren">⠿</span>
-            <span style="font-family:var(--mono);font-size:10px;color:var(--text2);min-width:22px;flex-shrink:0;">${String(idx+1).padStart(2,'0')}.</span>
+        + _ugUserGroups.map((g) => `
+          <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);">
             <input type="checkbox" value="${esc(g.name)}" ${_ugSelected.has(g.name)?'checked':''} style="accent-color:var(--teal);flex-shrink:0;">
             <span style="color:var(--teal);">🏷 ${esc(g.name)}</span>
             <span style="font-family:var(--mono);font-size:9px;color:var(--text2);">${g.channel_count} Kanäle</span>

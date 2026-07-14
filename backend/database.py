@@ -2,6 +2,7 @@ import sqlite3
 import os
 import time
 import re
+import hashlib
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
@@ -103,8 +104,10 @@ class Database:
                     enabled    INTEGER DEFAULT 1,
                     sort_order INTEGER DEFAULT 0,
                     raw_extinf TEXT DEFAULT '',
-                    provider_id INTEGER DEFAULT NULL
+                    provider_id INTEGER DEFAULT NULL,
+                    stable_uid TEXT DEFAULT ''
                 );
+                CREATE INDEX IF NOT EXISTS idx_channels_stable_uid ON channels(stable_uid);
                 CREATE TABLE IF NOT EXISTS segment_events (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts         REAL NOT NULL,
@@ -210,6 +213,31 @@ class Database:
         if url_base:
             keys.append(f"url:{scope}:{url_base}")
         return list(dict.fromkeys(keys))
+
+    def _channel_stable_uid(self, provider_id: Any, tvg_id: Any, name: Any) -> str:
+        """Server-independent, stable channel id used in the device playlist
+        (/iptv/{token}/live/{uid}). Survives provider *server switches* because it
+        is derived from tvg-id (or name) + provider scope — NOT from the stream URL,
+        which changes when you switch server. The URL is resolved from the DB at
+        play time, so switching servers needs no playlist reload on the device.
+        A per-batch disambiguator (-N) is appended in upsert on collisions."""
+        scope = str(provider_id if provider_id is not None else "_global")
+        tvg = self._norm_channel_key_part(tvg_id)
+        name_n = self._norm_channel_key_part(name)
+        basis = f"{scope}|tvg|{tvg}" if tvg else f"{scope}|name|{name_n}"
+        return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
+
+    def get_channel_by_stable_uid(self, uid: str, enabled_only: bool = True) -> Optional[Dict]:
+        """Resolve a stable playlist uid to its CURRENT channel row (fresh URL)."""
+        if not uid:
+            return None
+        with self.conn() as con:
+            q = "SELECT * FROM channels WHERE stable_uid = ?"
+            if enabled_only:
+                q += " AND enabled = 1"
+            q += " LIMIT 1"
+            row = con.execute(q, (uid,)).fetchone()
+            return dict(row) if row else None
 
     def _save_user_group_channel_keys(self, con, group_id: int, channel: Dict[str, Any]):
         for key in self._channel_identity_keys(channel):
@@ -829,6 +857,7 @@ class Database:
             else:
                 con.execute("DELETE FROM channels")
 
+            _uid_seen: Dict[str, int] = {}
             for i, ch in enumerate(channels):
                 orig_group = ch.get("group", "")
                 # Apply group mapping if exists
@@ -842,12 +871,18 @@ class Database:
                 if prev.get("group_title") and prev["group_title"] != orig_group:
                     group = prev["group_title"]
 
+                # Stable, server-independent playlist id (see _channel_stable_uid).
+                _uid_base = self._channel_stable_uid(provider_id, ch.get("tvg_id", ""), ch["name"])
+                _n = _uid_seen.get(_uid_base, 0)
+                _uid_seen[_uid_base] = _n + 1
+                stable_uid = _uid_base if _n == 0 else f"{_uid_base}-{_n}"
+
                 cur = con.execute("""
-                    INSERT INTO channels (name, group_title, tvg_id, tvg_logo, tvg_rec, stream_url, enabled, sort_order, raw_extinf, provider_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO channels (name, group_title, tvg_id, tvg_logo, tvg_rec, stream_url, enabled, sort_order, raw_extinf, provider_id, stable_uid)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (ch["name"], group, ch.get("tvg_id", ""),
                       ch.get("tvg_logo", ""), ch.get("tvg_rec", ""),
-                      url, enabled, sort_order, ch.get("raw_extinf", ""), provider_id))
+                      url, enabled, sort_order, ch.get("raw_extinf", ""), provider_id, stable_uid))
 
                 new_id = cur.lastrowid
                 # Restore user group assignments for this channel
@@ -1144,6 +1179,22 @@ class Database:
                 ch_cols = [r[1] for r in con.execute("PRAGMA table_info(channels)").fetchall()]
                 if "provider_id" not in ch_cols:
                     con.execute("ALTER TABLE channels ADD COLUMN provider_id INTEGER DEFAULT NULL")
+                if "stable_uid" not in ch_cols:
+                    con.execute("ALTER TABLE channels ADD COLUMN stable_uid TEXT DEFAULT ''")
+                con.execute("CREATE INDEX IF NOT EXISTS idx_channels_stable_uid ON channels(stable_uid)")
+                # Backfill stable_uid for existing channels so /live/{uid} works even
+                # before the next provider refresh. Disambiguate duplicates per batch.
+                _uid_rows = con.execute(
+                    "SELECT id, provider_id, tvg_id, name FROM channels WHERE stable_uid IS NULL OR stable_uid = ''"
+                ).fetchall()
+                if _uid_rows:
+                    _uid_seen: Dict[str, int] = {}
+                    for _r in _uid_rows:
+                        _base = self._channel_stable_uid(_r["provider_id"], _r["tvg_id"], _r["name"])
+                        _n = _uid_seen.get(_base, 0)
+                        _uid_seen[_base] = _n + 1
+                        _uid = _base if _n == 0 else f"{_base}-{_n}"
+                        con.execute("UPDATE channels SET stable_uid = ? WHERE id = ?", (_uid, _r["id"]))
                 # providers table
                 con.execute("""
                     CREATE TABLE IF NOT EXISTS m3u_providers (
