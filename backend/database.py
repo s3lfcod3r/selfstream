@@ -107,7 +107,6 @@ class Database:
                     provider_id INTEGER DEFAULT NULL,
                     stable_uid TEXT DEFAULT ''
                 );
-                CREATE INDEX IF NOT EXISTS idx_channels_stable_uid ON channels(stable_uid);
                 CREATE TABLE IF NOT EXISTS segment_events (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts         REAL NOT NULL,
