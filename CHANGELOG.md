@@ -1,5 +1,62 @@
 # Changelog
 
+## v1.2
+
+Stabilitäts-Release rund um Anbieter-Serverwechsel und VPN. Voll abwärtskompatibel —
+keine Konfigurationsänderung nötig, bestehende Tokens/Playlists bleiben gültig.
+Die Datenbank wird beim ersten Start automatisch migriert.
+
+### Funktionen
+- **Anbieter-Serverwechsel ohne Playlist-Neuladen:** Jeder Kanal bekommt eine
+  stabile, serverunabhängige ID; die Geräte-Playlist verweist auf
+  `/iptv/{token}/live/{id}` statt auf die fest eingebackene Anbieter-URL. Die
+  aktuelle Upstream-URL wird erst beim Abspielen aus der Datenbank aufgelöst.
+  Wechselt der Anbieter-Server, genügt ein Klick auf **↻ Aktualisieren** — die
+  Geräte müssen nichts mehr neu laden. Alte Playlists (`?url=`) funktionieren
+  unverändert weiter; Geräte stellen beim nächsten Neuladen einmalig um.
+- **VPN-Ausweichen auf einen anderen Server:** Bringen mehrere Neustarts nichts
+  (typisch, wenn der Gegenserver gar nicht mehr antwortet), wechselt der Wächter
+  automatisch auf eine andere hochgeladene `.ovpn`. Voraussetzung: mindestens
+  zwei Konfigurationen sind hinterlegt.
+- **Gehärtete VPN-Verbindung:** Beim Start werden Stabilitäts-Optionen in eine
+  Arbeitskopie der Konfiguration geschrieben (die Original-Datei bleibt
+  unangetastet): kürzere Wiederholungspausen (`connect-retry 5 30` statt bis zu
+  300 s), schnelleres Umschalten bei mehreren `remote`-Einträgen
+  (`server-poll-timeout 15`), `resolv-retry infinite` sowie `remote-cert-tls
+  server` anstelle des veralteten `ns-cert-type`.
+
+### Fehlerbehebungen
+- **VPN-Wächter erkannte echte Ausfälle nicht:** Die Gesundheitsprüfung war
+  „Prozess lebt **und** tun0 hat eine IP". Beides überlebt einen weichen
+  OpenVPN-Neustart (`SIGUSR1[soft,tls-error]`) — der Prozess beendet sich nicht,
+  und durch `persist-tun` behält die Schnittstelle ihre alte IP. Ein toter Tunnel
+  galt damit als gesund, der Wächter griff nie ein. Der Verbindungszustand wird
+  jetzt aus den Meldungen von OpenVPN selbst abgeleitet
+  (`Initialization Sequence Completed` gegenüber `TLS Error` / `Restart pause`).
+- **Gruppen-Reihenfolge stimmte nicht mit der Nummerierung überein:** Zwei
+  getrennte Sortier-Regler schrieben in unterschiedliche Quellen — die
+  tatsächliche Reihenfolge kam von der Gruppen-Seite, die Nummern „01./02."
+  jedoch aus dem Benutzer-Dialog. Jetzt speist sich beides aus derselben Quelle
+  (Gruppen-Seite → „Gruppen-Reihenfolge"); der widersprüchliche Regler im
+  Benutzer-Dialog wurde entfernt.
+- **Playlist konnte veraltet ausgeliefert werden:** Die Antwort trug keine
+  Cache-Vorgaben, sodass Player oder zwischengeschaltete Proxys eine alte Liste
+  behalten konnten. Sie wird jetzt mit `Cache-Control: no-cache, no-store,
+  must-revalidate` ausgeliefert.
+- **Speedtest maß den Anbieter systematisch zu langsam:** Die Datenmenge aller
+  Segmente wurde durch die Gesamtdauer geteilt — also auch durch Zeit, in der
+  bereits fertige Segmente längst nichts mehr luden; fehlgeschlagene Segmente
+  gingen als 0 Byte ein, während die Uhr weiterlief. Ergebnis war die falsche
+  Meldung „IPTV-Anbieter ist der Flaschenhals". Jetzt misst jedes Segment seine
+  eigene Zeit; ausgewiesen werden der Median je Verbindung (vergleichbar mit dem
+  Internet-Test), zusätzlich Bestwert, Parallel-Summe und die Zahl
+  fehlgeschlagener Segmente.
+- **Datenbank-Migration brach bestehende Installationen:** Der Index auf die neue
+  Kanal-Spalte wurde im Erstellungs-Skript angelegt, wo die Spalte auf einer
+  bestehenden Datenbank noch nicht existierte („no such column"). Dadurch schlug
+  der Anbieter-Abruf mit `table channels has no column named stable_uid` fehl.
+  Der Index wird jetzt erst nach dem Hinzufügen der Spalte erzeugt.
+
 ## v1.1
 
 Sicherheits- und Stabilitäts-Release. Voll abwärtskompatibel — keine

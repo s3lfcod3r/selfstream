@@ -96,6 +96,21 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.2)
+
+Stability release around provider server switches and VPN. Fully backward compatible — no config changes, existing tokens/playlists stay valid. The database migrates automatically on first start.
+
+- **Provider server switches without reloading playlists** – Every channel gets a stable, server-independent id. The device playlist points to `/iptv/{token}/live/{id}` instead of the baked-in provider URL, and the current upstream URL is resolved from the database at play time. When the provider's server changes, a single **↻ Refresh** is enough — devices don't have to reload anything. Legacy `?url=` playlists keep working; devices switch over once, on their next reload.
+- **VPN failover to another server** – If repeated restarts don't help (typical when the remote server stops answering entirely), the watchdog automatically switches to another uploaded `.ovpn`. Requires at least two configurations.
+- **Hardened VPN connection** – Stability options are written into a working copy of the config at start (the original file is left untouched): shorter retry pauses (`connect-retry 5 30` instead of up to 300 s), faster switching across multiple `remote` entries (`server-poll-timeout 15`), `resolv-retry infinite`, and `remote-cert-tls server` replacing the deprecated `ns-cert-type`.
+- **Fixed: VPN watchdog missed real outages** – Health was "process alive **and** tun0 has an IP". Both survive a soft OpenVPN restart (`SIGUSR1[soft,tls-error]`) — the process doesn't exit, and `persist-tun` keeps the old IP — so a dead tunnel looked healthy and the watchdog never stepped in. Link state is now derived from OpenVPN's own messages.
+- **Fixed: group order didn't match the numbering** – Two separate sort controls wrote to different sources. Both now come from one place (Groups page → "Group order"); the conflicting control in the user dialog was removed.
+- **Fixed: playlists could be served stale** – The response now carries `Cache-Control: no-cache, no-store, must-revalidate`.
+- **Fixed: speedtest reported the provider as too slow** – Bytes from all segments were divided by the total wall time, including time when finished segments were no longer loading, which produced a false "provider is the bottleneck" verdict. Each segment is now timed individually (median per connection, plus best value, parallel total and failed count).
+- **Fixed: database migration broke existing installs** – The index on the new channel column was created before the column existed on an existing database, making provider refresh fail with `table channels has no column named stable_uid`.
+
+---
+
 ## What's New (June 2026 – v1.1)
 
 Security & stability release. Fully backward compatible — no config changes, existing tokens/logins stay valid.
@@ -487,6 +502,21 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.2)
+
+Stabilitäts-Release rund um Anbieter-Serverwechsel und VPN. Voll abwärtskompatibel — keine Konfigurationsänderung, bestehende Tokens/Playlists bleiben gültig. Die Datenbank wird beim ersten Start automatisch migriert.
+
+- **Anbieter-Serverwechsel ohne Playlist-Neuladen** – Jeder Kanal bekommt eine stabile, serverunabhängige ID. Die Geräte-Playlist verweist auf `/iptv/{token}/live/{id}` statt auf die fest eingebackene Anbieter-URL; die aktuelle Upstream-URL wird erst beim Abspielen aus der Datenbank aufgelöst. Wechselt der Anbieter-Server, genügt ein Klick auf **↻ Aktualisieren** — die Geräte müssen nichts neu laden. Alte Playlists (`?url=`) funktionieren unverändert weiter; Geräte stellen beim nächsten Neuladen einmalig um.
+- **VPN-Ausweichen auf einen anderen Server** – Bringen mehrere Neustarts nichts (typisch, wenn der Gegenserver gar nicht mehr antwortet), wechselt der Wächter automatisch auf eine andere hochgeladene `.ovpn`. Voraussetzung: mindestens zwei Konfigurationen.
+- **Gehärtete VPN-Verbindung** – Beim Start werden Stabilitäts-Optionen in eine Arbeitskopie der Konfiguration geschrieben (Original bleibt unangetastet): kürzere Wiederholungspausen (`connect-retry 5 30` statt bis zu 300 s), schnelleres Umschalten bei mehreren `remote`-Einträgen (`server-poll-timeout 15`), `resolv-retry infinite` sowie `remote-cert-tls server` statt des veralteten `ns-cert-type`.
+- **Behoben: VPN-Wächter erkannte echte Ausfälle nicht** – Die Prüfung war „Prozess lebt **und** tun0 hat eine IP". Beides überlebt einen weichen OpenVPN-Neustart (`SIGUSR1[soft,tls-error]`) — der Prozess beendet sich nicht, und `persist-tun` behält die alte IP. Ein toter Tunnel galt damit als gesund. Der Zustand wird jetzt aus den Meldungen von OpenVPN selbst abgeleitet.
+- **Behoben: Gruppen-Reihenfolge passte nicht zur Nummerierung** – Zwei getrennte Sortier-Regler schrieben in unterschiedliche Quellen. Beides kommt jetzt aus einer Quelle (Gruppen-Seite → „Gruppen-Reihenfolge"); der widersprüchliche Regler im Benutzer-Dialog wurde entfernt.
+- **Behoben: Playlist konnte veraltet ausgeliefert werden** – Die Antwort trägt jetzt `Cache-Control: no-cache, no-store, must-revalidate`.
+- **Behoben: Speedtest maß den Anbieter zu langsam** – Die Datenmenge aller Segmente wurde durch die Gesamtdauer geteilt, auch durch Zeit, in der fertige Segmente nichts mehr luden → falsche Meldung „Anbieter ist der Flaschenhals". Jetzt misst jedes Segment seine eigene Zeit (Median je Verbindung, zusätzlich Bestwert, Parallel-Summe und Zahl fehlgeschlagener Segmente).
+- **Behoben: Datenbank-Migration brach bestehende Installationen** – Der Index auf die neue Kanal-Spalte wurde angelegt, bevor die Spalte auf einer bestehenden Datenbank existierte → Anbieter-Abruf scheiterte mit `table channels has no column named stable_uid`.
 
 ---
 
