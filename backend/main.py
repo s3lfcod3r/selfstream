@@ -4295,6 +4295,42 @@ VPN_WATCHDOG_GRACE = 3       # so viele Checks am Stück ungesund → Neustart (
 _vpn_unhealthy_count = 0     # aktueller Zähler aufeinanderfolgender Fehl-Checks
 _vpn_restart_lock = threading.Lock()  # verhindert parallele Neustarts
 
+# Nach so vielen erfolglosen Neustarts am Stück wird auf eine ANDERE .ovpn-Datei
+# (anderer Server/Standort) gewechselt. Ein toter Gegenserver lässt sich durch
+# Neustarts nicht beleben – nur durch Ausweichen.
+VPN_ESCALATE_AFTER_RESTARTS = 2
+_vpn_failed_restarts = 0
+
+# ── Verbindungszustand aus dem OpenVPN-Log ──────────────────────────────────
+# WICHTIG (Bugfix): "Prozess lebt + tun0 hat IP" ist KEIN Gesundheitsbeweis.
+# Bei `SIGUSR1[soft,tls-error]` startet OpenVPN nur intern neu – der Prozess
+# bleibt am Leben – und durch `persist-tun` behält tun0 seine alte IP. Der
+# Tunnel ist dann tot, sah für den Wächter aber gesund aus (→ er griff nie ein).
+# Deshalb lesen wir den echten Zustand aus dem, was OpenVPN selbst meldet.
+_vpn_link_connected = False   # True nur nach "Initialization Sequence Completed"
+_vpn_link_last_event = ""     # letzte relevante Log-Zeile (für Anzeige/Diagnose)
+
+# Zeilen, die einen INTAKTEN Tunnel bedeuten
+_VPN_UP_MARKERS = ("Initialization Sequence Completed",)
+# Zeilen, die einen ABGERISSENEN/scheiternden Tunnel bedeuten
+_VPN_DOWN_MARKERS = (
+    "TLS Error", "TLS handshake failed", "TLS key negotiation failed",
+    "SIGUSR1", "Restart pause", "Connection reset", "AUTH_FAILED",
+    "Inactivity timeout", "ping-restart", "process restarting",
+    "Cannot resolve host address", "Network is unreachable",
+)
+
+
+def _vpn_note_link_state(line: str):
+    """Verbindungszustand aus einer OpenVPN-Logzeile ableiten."""
+    global _vpn_link_connected, _vpn_link_last_event
+    if any(m in line for m in _VPN_UP_MARKERS):
+        _vpn_link_connected = True
+        _vpn_link_last_event = line
+    elif any(m in line for m in _VPN_DOWN_MARKERS):
+        _vpn_link_connected = False
+        _vpn_link_last_event = line
+
 
 def _vpn_log_add(line: str):
     _vpn_log.append(line)
@@ -4309,6 +4345,7 @@ def _vpn_reader(proc: subprocess.Popen):
             line = line.strip()
             if line:
                 _vpn_log_add(line)
+                _vpn_note_link_state(line)
                 logger.info(f"[openvpn] {line}")
     except Exception:
         pass
@@ -4344,8 +4381,81 @@ def vpn_get_tun_ip() -> str:
     return ""
 
 
+def _vpn_harden_config(ovpn_content: str) -> tuple[str, int]:
+    """Stabilitäts-Optionen in eine Kopie der .ovpn schreiben.
+
+    Die Original-Datei bleibt unangetastet – gehärtet wird nur die split.ovpn,
+    die tatsächlich gestartet wird. Behebt die Praxis-Probleme aus den Ausfällen:
+
+    * ``connect-retry 5 30`` – OpenVPN wartet sonst nach Fehlversuchen bis zu
+      300 s ("Restart pause, 300 second(s)"). Gedeckelt auf 30 s = nach einer
+      Störung in Sekunden statt Minuten wieder online.
+    * ``server-poll-timeout 15`` – bei MEHREREN remote-Zeilen wird nach 15 s
+      auf den nächsten Server gewechselt, statt ~2 min am toten zu hängen.
+    * ``remote-cert-tls server`` statt des veralteten ``ns-cert-type``.
+    * ``resolv-retry infinite`` – DNS-Aussetzer beenden den Prozess nicht.
+
+    Rückgabe: (gehärteter Inhalt, Anzahl remote-Server).
+    """
+    # Direktiven, die wir selbst setzen, vorher entfernen (sonst Doppelung).
+    drop = ("connect-retry", "server-poll-timeout", "resolv-retry",
+            "ns-cert-type", "remote-cert-tls", "auth-nocache")
+    kept, remote_count = [], 0
+    for raw in ovpn_content.splitlines():
+        head = raw.strip().split()[0].lower() if raw.strip() else ""
+        if head == "remote":
+            remote_count += 1
+        if head in drop:
+            continue
+        kept.append(raw)
+
+    kept += [
+        "",
+        "# --- von SelfStream ergaenzt (Stabilitaet) ---",
+        "auth-nocache",
+        "connect-retry 5 30",
+        "server-poll-timeout 15",
+        "resolv-retry infinite",
+        "remote-cert-tls server",
+    ]
+    return "\n".join(kept) + "\n", remote_count
+
+
+def _vpn_list_ovpn_files() -> list:
+    """Alle hochgeladenen .ovpn-Dateien (sortiert) – Grundlage fürs Ausweichen."""
+    try:
+        return sorted(
+            os.path.join(VPN_OVPN_DIR, f)
+            for f in os.listdir(VPN_OVPN_DIR)
+            if f.endswith(".ovpn") and f != "split.ovpn"
+        )
+    except Exception:
+        return []
+
+
+def _vpn_rotate_ovpn() -> str:
+    """Auf die nächste verfügbare .ovpn umschalten. Gibt den neuen Pfad zurück.
+
+    Ein Server, der gar nicht antwortet, wird durch Neustarts nicht besser –
+    hier hilft nur ein anderer Server. Leerstring, wenn es keine Alternative gibt.
+    """
+    files = _vpn_list_ovpn_files()
+    if len(files) < 2:
+        return ""
+    current = db.get_setting("vpn_ovpn_path", "")
+    try:
+        idx = files.index(current)
+    except ValueError:
+        idx = -1
+    nxt = files[(idx + 1) % len(files)]
+    if nxt == current:
+        return ""
+    db.set_setting("vpn_ovpn_path", nxt)
+    return nxt
+
+
 def vpn_start() -> dict:
-    global _vpn_process, _vpn_log
+    global _vpn_process, _vpn_log, _vpn_link_connected, _vpn_link_last_event
 
     if vpn_is_running():
         return {"ok": False, "error": "VPN läuft bereits"}
@@ -4365,12 +4475,11 @@ def vpn_start() -> dict:
             f.write(f"{vpn_user}\n{vpn_pass}\n")
         os.chmod(VPN_AUTH_FILE, 0o600)
 
-    # Write a modified ovpn with auth-nocache
+    # Write a hardened copy of the ovpn (original file stays untouched).
     split_ovpn_path = "/data/vpn/split.ovpn"
     with open(ovpn_path, "r") as f:
         ovpn_content = f.read()
-    if "auth-nocache" not in ovpn_content:
-        ovpn_content += "\nauth-nocache\n"
+    ovpn_content, remote_count = _vpn_harden_config(ovpn_content)
     with open(split_ovpn_path, "w") as f:
         f.write(ovpn_content)
 
@@ -4382,7 +4491,16 @@ def vpn_start() -> dict:
         cmd += ["--auth-user-pass", VPN_AUTH_FILE]
 
     _vpn_log = []
+    # Zustand zuruecksetzen: bis OpenVPN "Initialization Sequence Completed"
+    # meldet, gilt der Tunnel als NICHT verbunden (sonst wuerde der Waechter
+    # einen alten "verbunden"-Zustand weiterschleppen).
+    _vpn_link_connected = False
+    _vpn_link_last_event = ""
     _vpn_log_add("⏳ OpenVPN wird gestartet (Split-Tunnel via SOCKS5)…")
+    _vpn_log_add(
+        f"ℹ️ Konfig: {os.path.basename(ovpn_path)} · {remote_count} Server hinterlegt"
+        + ("" if remote_count > 1 else " – nur EINER: kein automatisches Ausweichen innerhalb der Datei")
+    )
 
     try:
         _vpn_process = subprocess.Popen(
@@ -4410,7 +4528,11 @@ def _vpn_teardown():
     zwischen dem manuellen Stopp (Flag → 0) und dem Wächter-Neustart (Flag bleibt
     1). Blockierend (subprocess + kurze Sleeps); aus async-Kontext via to_thread.
     """
-    global _vpn_process, _socks_process
+    global _vpn_process, _socks_process, _vpn_link_connected
+
+    # Tunnel gilt ab sofort als getrennt (verhindert "gesund"-Fehlmeldung, bis
+    # ein neuer Start "Initialization Sequence Completed" meldet).
+    _vpn_link_connected = False
 
     # Stop SOCKS proxy
     if _socks_process is not None and _socks_process.poll() is None:
@@ -4462,13 +4584,17 @@ def vpn_stop() -> dict:
 def _vpn_healthy() -> tuple[bool, bool, str]:
     """Gesundheit des Tunnels prüfen. Gibt (gesund, prozess_läuft, tun_ip) zurück.
 
-    ``vpn_is_running()`` allein reicht nicht: ein hängender OpenVPN-Prozess lebt
-    zwar (poll() is None), hat aber kein tun0 → Streams tot. Gesund ist nur, wenn
-    der Prozess läuft UND tun0 eine IP hat. Blockierend (subprocess).
+    Gesund ist NUR: Prozess läuft UND tun0 hat IP UND OpenVPN meldet die
+    Verbindung als aufgebaut (``_vpn_link_connected``).
+
+    Der dritte Punkt ist der entscheidende Bugfix: Prozess und tun0 überleben
+    einen `SIGUSR1[soft,tls-error]`-Neustart (persist-tun behält die IP), obwohl
+    gar nichts mehr durch den Tunnel geht. Ohne diese Prüfung meldete der Wächter
+    "gesund" und griff bei echten Ausfällen nie ein. Blockierend (subprocess).
     """
     proc_alive = _vpn_process is not None and _vpn_process.poll() is None
     tun_ip = vpn_get_tun_ip()
-    return (proc_alive and bool(tun_ip), proc_alive, tun_ip)
+    return (proc_alive and bool(tun_ip) and _vpn_link_connected, proc_alive, tun_ip)
 
 
 def _vpn_restart() -> dict:
@@ -4494,7 +4620,7 @@ async def _vpn_watchdog():
     Checks am Stück (≈90s Kulanz, damit OpenVPNs eigener ping-restart zuerst eine
     Chance hat) wird der Tunnel hart neu aufgebaut.
     """
-    global _vpn_unhealthy_count
+    global _vpn_unhealthy_count, _vpn_failed_restarts
     # Erststart abwarten (Auto-Start + tun0-Aufbau brauchen ein paar Sekunden)
     await asyncio.sleep(45)
     while True:
@@ -4508,6 +4634,7 @@ async def _vpn_watchdog():
                 if _vpn_unhealthy_count:
                     _vpn_log_add(f"✅ VPN-Wächter: Tunnel wieder gesund ({tun_ip})")
                 _vpn_unhealthy_count = 0
+                _vpn_failed_restarts = 0   # Tunnel steht → Eskalation zuruecksetzen
                 continue
             _vpn_unhealthy_count += 1
             _vpn_log_add(
@@ -4516,10 +4643,30 @@ async def _vpn_watchdog():
                 f"Prozess={'läuft' if proc_alive else 'tot'}, tun0={tun_ip or 'fehlt'}"
             )
             if _vpn_unhealthy_count >= VPN_WATCHDOG_GRACE:
+                _vpn_unhealthy_count = 0
+                _vpn_failed_restarts += 1
+
+                # Eskalation: Bringen mehrere Neustarts nichts, antwortet
+                # vermutlich der Gegenserver gar nicht (genau das Muster der
+                # Ausfaelle: TLS key negotiation failed, endlos). Dann hilft nur
+                # ein ANDERER Server – sofern eine zweite .ovpn hochgeladen ist.
+                if _vpn_failed_restarts >= VPN_ESCALATE_AFTER_RESTARTS:
+                    new_path = await asyncio.to_thread(_vpn_rotate_ovpn)
+                    if new_path:
+                        _vpn_failed_restarts = 0
+                        msg = f"🔀 VPN-Wächter: {VPN_ESCALATE_AFTER_RESTARTS} Neustarts erfolglos – wechsle auf {os.path.basename(new_path)}"
+                        _vpn_log_add(msg)
+                        logger.warning(f"VPN watchdog: escalating to {new_path}")
+                        diag_log("WARNING", "vpn", msg)
+                    else:
+                        _vpn_log_add(
+                            "⚠️ VPN-Wächter: Neustarts erfolglos und keine zweite .ovpn vorhanden – "
+                            "bitte eine weitere Server-Konfiguration hochladen (Ausweichen nicht möglich)."
+                        )
+
                 _vpn_log_add("🔄 VPN-Wächter: starte OpenVPN neu…")
                 logger.warning("VPN watchdog: tunnel down, restarting OpenVPN")
                 diag_log("WARNING", "vpn", "VPN-Wächter: Tunnel unten – Neustart")
-                _vpn_unhealthy_count = 0
                 result = await asyncio.to_thread(_vpn_restart)
                 if result.get("ok"):
                     _vpn_log_add("🟢 VPN-Wächter: Neustart angestoßen.")
@@ -4866,38 +5013,57 @@ async def vpn_speedtest(_=Depends(check_admin)):
             continue
 
     if segment_urls:
-        import time
-        # Download all segments in parallel
-        async def fetch_seg(url: str) -> int:
+        # Jedes Segment misst seine EIGENE Zeit.
+        #
+        # Vorher wurden die Bytes ALLER Segmente durch die Gesamtdauer geteilt –
+        # also auch durch die Zeit, in der schon fertige Segmente laengst nichts
+        # mehr luden. Dadurch fiel der IPTV-Wert systematisch zu niedrig aus und
+        # der Test meldete faelschlich "Anbieter ist der Flaschenhals".
+        async def fetch_seg(url: str) -> dict:
             try:
                 downloaded = 0
+                t0 = time.monotonic()
                 async with make_iptv_client(timeout=httpx.Timeout(4, read=10), follow_redirects=True) as client:
                     async with client.stream("GET", url) as resp:
                         if resp.status_code not in (200, 206):
-                            return 0
+                            return {"ok": False}
                         async for chunk in resp.aiter_bytes(chunk_size=65536):
                             downloaded += len(chunk)
-                return downloaded
+                dt = time.monotonic() - t0
+                # Zu kleine/zu kurze Downloads sind reines Verbindungs-Rauschen
+                if dt <= 0 or downloaded < 50_000:
+                    return {"ok": False}
+                return {"ok": True, "bytes": downloaded, "sec": dt,
+                        "mbps": (downloaded * 8) / (dt * 1_000_000)}
             except Exception:
-                return 0
+                return {"ok": False}
 
         start = time.monotonic()
-        results_parallel = await asyncio.gather(*[fetch_seg(u) for u in segment_urls])
-        elapsed = time.monotonic() - start
-        total_bytes = sum(results_parallel)
+        seg_results = await asyncio.gather(*[fetch_seg(u) for u in segment_urls])
+        wall = time.monotonic() - start
 
-        if elapsed > 0 and total_bytes > 10_000:
-            mbps = (total_bytes * 8) / (elapsed * 1_000_000)
+        good = [r for r in seg_results if r.get("ok")]
+        failed = len(seg_results) - len(good)
+
+        if good:
+            rates = sorted(r["mbps"] for r in good)
+            median = rates[len(rates) // 2] if len(rates) % 2 else (rates[len(rates)//2 - 1] + rates[len(rates)//2]) / 2
+            total_bytes = sum(r["bytes"] for r in good)
             iptv_result = {
                 "ok": True,
-                "mbps": round(mbps, 1),
+                # Vergleichbar mit dem Internet-Test (ebenfalls eine Verbindung)
+                "mbps": round(median, 1),
+                "mbps_best": round(rates[-1], 1),
+                "mbps_parallel_total": round((total_bytes * 8) / (wall * 1_000_000), 1) if wall > 0 else 0,
                 "mb": round(total_bytes / 1_000_000, 2),
-                "seconds": round(elapsed, 2),
+                "seconds": round(wall, 2),
                 "server": segment_urls[0].split("/")[2] if segment_urls else "",
-                "parallel": len(segment_urls),
+                "parallel": len(good),
+                "failed": failed,
             }
         else:
-            iptv_result = {"ok": False, "error": "Zu wenig Daten von Segmenten"}
+            iptv_result = {"ok": False,
+                           "error": f"Keine verwertbaren Segmente ({failed} fehlgeschlagen)"}
 
     # ── Bottleneck Analysis ────────────────────────────────────────────────
     bottleneck = None
