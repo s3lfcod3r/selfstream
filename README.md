@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.7)
+
+- **Speedtest now answers "can my setup handle X viewers?"** – The IPTV test now simulates **8 concurrent streams** (instead of 5) — the realistic case of several viewers over the same VPN — and gives a clear traffic-light verdict: "✅ 8 concurrent streams no problem — enough for 8× Full-HD/4K", or a warning if it isn't enough or some test channels are unreachable. The verdict uses the **per-stream throughput under full load** (total ÷ streams), i.e. exactly what each viewer actually gets at peak. The banner is green for "all good", red for a real warning.
+
+---
+
 ## What's New (July 2026 – v1.6)
 
 - **Internet speedtest now parallel + honest** – Public speedtest servers throttle or block VPN IPs, so the internet figure sometimes showed absurdly low numbers (e.g. 3 Mbps) even though the tunnel does 400+ over the same path (the IPTV test proved it). The measurement now runs **in parallel** (multiple connections, aggregated) like the IPTV test to pull the realistic throughput from throttled mirrors; and if it's still implausibly far below the real tunnel throughput, it's flagged as **unreliable** (pointing to the trustworthy IPTV parallel figure) instead of showing a misleading number. A per-server diagnostic is included too.
@@ -528,6 +534,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.7)
+
+- **Speedtest beantwortet „packt mein Setup X Zuschauer?"** – Der IPTV-Test simuliert jetzt **8 gleichzeitige Streams** (statt 5) — den realistischen Fall mehrerer Zuschauer über dasselbe VPN — und gibt eine klare **Ampel**: „✅ 8 gleichzeitige Streams kein Problem – reicht für 8× Full-HD/4K" bzw. eine Warnung, wenn es nicht reicht oder Test-Kanäle nicht erreichbar sind. Bewertet wird nach dem **Durchsatz pro Stream unter Volllast** (Gesamt ÷ Streams). Banner grün bei „alles gut", rot bei echter Warnung.
 
 ---
 

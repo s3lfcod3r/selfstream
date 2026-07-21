@@ -5032,6 +5032,9 @@ _VPN_SPEEDTEST_URLS = [
 ]
 _SPEEDTEST_WARMUP_SEC = 1.2   # Anlaufphase (Slow-Start) verwerfen
 _SPEEDTEST_GOOD_ENOUGH_MBPS = 50   # klar gute Messung → nicht weitere Server testen
+# So viele gleichzeitige Streams simuliert der IPTV-Test (= realistischer Worst
+# Case: bis zu 8 Zuschauer gleichzeitig ueber dasselbe VPN).
+SPEEDTEST_CONCURRENT_STREAMS = 8
 
 
 async def _speedtest_measure_url(url: str, max_bytes: int = 120_000_000,
@@ -5131,12 +5134,13 @@ async def vpn_speedtest(_=Depends(check_admin)):
     # ── Test 2: IPTV Provider Speed (parallel segments) ───────────────────
     iptv_result = {"ok": False, "error": "Kein IPTV-Kanal verfügbar"}
 
-    # Collect up to 5 different channel segment URLs for parallel test
+    # Bis zu SPEEDTEST_CONCURRENT_STREAMS verschiedene Sender-Segmente einsammeln,
+    # um genau so viele gleichzeitige Streams zu simulieren.
     segment_urls = []
     channels = db.get_channels(enabled_only=True)
 
-    for ch in channels[:30]:
-        if len(segment_urls) >= 5:
+    for ch in channels[:SPEEDTEST_CONCURRENT_STREAMS * 6]:
+        if len(segment_urls) >= SPEEDTEST_CONCURRENT_STREAMS:
             break
         url = ch.get("stream_url", "")
         if not url or not url.startswith("http"):
@@ -5206,6 +5210,7 @@ async def vpn_speedtest(_=Depends(check_admin)):
                 "server": segment_urls[0].split("/")[2] if segment_urls else "",
                 "parallel": len(good),
                 "failed": failed,
+                "target": SPEEDTEST_CONCURRENT_STREAMS,   # so viele gleichzeitige Streams wollten wir testen
             }
         else:
             iptv_result = {"ok": False,
@@ -5219,24 +5224,34 @@ async def vpn_speedtest(_=Depends(check_admin)):
     # Deshalb: absolute Bewertung anhand dessen, was Streaming wirklich braucht.
     UHD_MBPS = 25   # grober Bedarf 4K
     FHD_MBPS = 8    # grober Bedarf Full-HD
+    HD_MBPS  = 4    # grober Bedarf 720p
     bottleneck = None
     if iptv_result.get("ok"):
-        iptv_mbps = iptv_result["mbps"]                                   # Median pro Verbindung
-        iptv_cap  = iptv_result.get("mbps_parallel_total") or iptv_mbps   # echte Gesamt-Kapazitaet
-        server = iptv_result.get("server", "")
-        if iptv_mbps < FHD_MBPS:
-            bottleneck = (f"⚠️ IPTV-Anbieter zu langsam ({server}: {iptv_mbps} Mbit/s pro Stream) – "
-                          f"reicht kaum für Full-HD. Ein anderer Server könnte helfen.")
-        elif iptv_mbps < UHD_MBPS:
-            bottleneck = (f"IPTV-Anbieter ok für HD/Full-HD ({server}: {iptv_mbps} Mbit/s pro Stream), "
-                          f"für flüssiges 4K aber knapp.")
+        server   = iptv_result.get("server", "")
+        tested   = iptv_result.get("parallel", 0)               # tatsaechlich gemessene gleichzeitige Streams
+        target   = iptv_result.get("target", tested)
+        failed   = iptv_result.get("failed", 0)
+        agg      = iptv_result.get("mbps_parallel_total") or 0   # Gesamt-Durchsatz bei 'tested' parallel
+        per_load = round(agg / tested, 1) if tested else 0       # was jeder Stream unter Volllast bekommt
+
+        # Klartext-Ampel: reicht es fuer so viele GLEICHZEITIGE Streams?
+        if per_load >= UHD_MBPS:
+            cap = f"✅ {tested} gleichzeitige Streams kein Problem – reicht sogar für {tested}× 4K"
+        elif per_load >= FHD_MBPS:
+            cap = f"✅ {tested} gleichzeitige Streams kein Problem – reicht für {tested}× Full-HD (4K an alle wäre knapp)"
+        elif per_load >= HD_MBPS:
+            cap = f"⚠️ {tested} gleichzeitige Streams nur in HD – für Full-HD an alle {tested} etwas zu wenig"
         else:
-            par4k = max(1, int(iptv_cap / UHD_MBPS))
-            bottleneck = (f"✅ Kein Flaschenhals – Anbieter liefert {iptv_mbps} Mbit/s pro Stream "
-                          f"(≈{par4k} parallele 4K-Streams möglich)."
-                          + (f" VPN-Internet: {internet_result['mbps']} Mbit/s." if internet_result.get("ok") else ""))
+            cap = f"⚠️ Zu langsam für {tested} gleichzeitige Streams (nur {per_load} Mbit/s pro Stream unter Last)"
+
+        parts = [cap, f"Gesamt {agg} Mbit/s bei {tested} parallel (Ø {per_load}/Stream, einzeln bis {iptv_result.get('mbps_best', 0)})"]
+        if failed:
+            parts.append(f"⚠️ {failed} von {failed + tested} Test-Kanälen nicht erreichbar – Anbieter evtl. instabil")
+        if tested < target:
+            parts.append(f"nur {tested} von {target} Sendern testbar")
+        bottleneck = " · ".join(parts)
     elif internet_result.get("ok"):
-        bottleneck = f"VPN-Internet: {internet_result['mbps']} Mbit/s. IPTV-Messung nicht möglich (kein Kanal erreichbar)."
+        bottleneck = f"IPTV-Messung nicht möglich (kein Kanal erreichbar). VPN-Internet: {internet_result['mbps']} Mbit/s."
 
     # Ehrlichkeits-Check: Internet-Messung durchs VPN ist oft unzuverlaessig, weil
     # oeffentliche Speedtest-Server VPN-IPs drosseln/blocken. Liegt der Internet-

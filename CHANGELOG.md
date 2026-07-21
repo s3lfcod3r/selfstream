@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.7
+
+### Verbesserungen
+- **Speedtest beantwortet jetzt „packt mein Setup X Zuschauer?":** Der IPTV-Test
+  simuliert jetzt **8 gleichzeitige Streams** (statt 5) — den realistischen Fall
+  mehrerer Zuschauer über dasselbe VPN — und gibt eine **klare Ampel** aus:
+  „✅ 8 gleichzeitige Streams kein Problem – reicht für 8× Full-HD/4K" bzw. eine
+  Warnung, wenn es dafür nicht reicht oder Test-Kanäle nicht erreichbar sind. Die
+  Bewertung nutzt den **Durchsatz pro Stream unter Volllast** (Gesamt ÷ Streams),
+  also genau das, was jeder Zuschauer bei voller Auslastung tatsächlich bekommt.
+  Das Banner ist grün bei „alles gut" und rot bei einer echten Warnung.
+
 ## v1.6
 
 ### Verbesserungen
