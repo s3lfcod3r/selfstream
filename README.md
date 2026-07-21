@@ -96,6 +96,13 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.3)
+
+- **VPN server comparison** – New "Compare all VPN servers" button in the speedtest. Connects each uploaded `.ovpn` in turn, measures internet speed through it, and shows a ranking with the fastest location. The watchdog is paused during the run and the previously active server is restored afterwards. Note: with a single tunnel, streams are briefly interrupted during the ~2-minute comparison, so it's a deliberate button with a warning, not automatic.
+- **Fixed: misleading speedtest verdict** – The verdict compared the provider against the neutral speedtest server and flagged a "bottleneck" whenever it was slower — even at speeds far above what any stream needs. It now judges the provider in absolute terms against streaming needs (below 8 Mbps too slow, below 25 tight for 4K, otherwise no bottleneck, including an estimated number of parallel 4K streams).
+
+---
+
 ## What's New (July 2026 – v1.2)
 
 Stability release around provider server switches and VPN. Fully backward compatible — no config changes, existing tokens/playlists stay valid. The database migrates automatically on first start.
@@ -502,6 +509,13 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.3)
+
+- **VPN-Server-Vergleich** – Neuer Knopf „Alle VPN-Server vergleichen" im Speedtest. Verbindet jede hochgeladene `.ovpn` nacheinander, misst die Internet-Geschwindigkeit über diesen Server und zeigt eine Rangliste mit dem schnellsten Standort. Der Wächter pausiert währenddessen, der zuvor aktive Server wird danach wiederhergestellt. Hinweis: Da es nur einen Tunnel gibt, sind Streams während des Vergleichs (~2 Min) kurz unterbrochen — daher ein bewusster Knopf mit Warnung, kein Automatismus.
+- **Behoben: irreführende Speedtest-Bewertung** – Das Verdikt verglich den Anbieter stur mit dem neutralen Speedtest-Server und meldete „Flaschenhals", sobald er langsamer war — auch bei Geschwindigkeiten, die für jeden Stream mehr als reichen. Jetzt absolute Bewertung am Streaming-Bedarf (unter 8 Mbit/s zu langsam, unter 25 für 4K knapp, sonst kein Flaschenhals inkl. geschätzter paralleler 4K-Streams).
 
 ---
 

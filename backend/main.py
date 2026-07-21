@@ -4301,6 +4301,11 @@ _vpn_restart_lock = threading.Lock()  # verhindert parallele Neustarts
 VPN_ESCALATE_AFTER_RESTARTS = 2
 _vpn_failed_restarts = 0
 
+# Während ein VPN-Server-Vergleich läuft (jede .ovpn wird nacheinander verbunden
+# und gemessen), MUSS der Wächter pausieren – sonst hält er das absichtliche
+# Trennen für einen Ausfall und funkt mit eigenen Neustarts dazwischen.
+_vpn_sweep_active = False
+
 # ── Verbindungszustand aus dem OpenVPN-Log ──────────────────────────────────
 # WICHTIG (Bugfix): "Prozess lebt + tun0 hat IP" ist KEIN Gesundheitsbeweis.
 # Bei `SIGUSR1[soft,tls-error]` startet OpenVPN nur intern neu – der Prozess
@@ -4597,6 +4602,24 @@ def _vpn_healthy() -> tuple[bool, bool, str]:
     return (proc_alive and bool(tun_ip) and _vpn_link_connected, proc_alive, tun_ip)
 
 
+async def _vpn_wait_up(timeout: float = 25.0) -> bool:
+    """Warten, bis OpenVPN die Verbindung meldet UND tun0 eine IP hat.
+
+    Nutzt das Log-basierte Flag ``_vpn_link_connected`` (Init Sequence Completed)
+    plus tun0-IP als Bestätigung. Gibt True zurück, sobald oben, sonst False nach
+    ``timeout`` Sekunden. Für den VPN-Vergleich (nach jedem Reconnect abwarten).
+    """
+    import time as _t
+    deadline = _t.monotonic() + timeout
+    while _t.monotonic() < deadline:
+        if _vpn_link_connected and vpn_get_tun_ip():
+            # kurze Zusatz-Ruhe, damit der SOCKS5-Proxy (Split-Tunnel) steht
+            await asyncio.sleep(1.5)
+            return True
+        await asyncio.sleep(1.0)
+    return False
+
+
 def _vpn_restart() -> dict:
     """Tunnel abbauen und frisch starten, ohne ``vpn_enabled`` auf 0 zu setzen.
 
@@ -4626,6 +4649,10 @@ async def _vpn_watchdog():
     while True:
         try:
             await asyncio.sleep(VPN_WATCHDOG_INTERVAL)
+            if _vpn_sweep_active:
+                # VPN-Server-Vergleich läuft → nicht eingreifen
+                _vpn_unhealthy_count = 0
+                continue
             if db.get_setting("vpn_enabled", "0") != "1":
                 _vpn_unhealthy_count = 0
                 continue
@@ -4934,53 +4961,64 @@ def clear_diagnostic_logs_api(_=Depends(check_admin)):
     return {"ok": True}
 
 
+# Neutrale Speedtest-Server für die Internet/VPN-Messung (erster erreichbarer gewinnt)
+_VPN_SPEEDTEST_URLS = [
+    "https://speed.cloudflare.com/__down?bytes=10000000",
+    "https://proof.ovh.net/files/10Mb.dat",
+    "https://bouygues.testdebit.info/10M.iso",
+]
+
+
+async def _speedtest_measure_url(url: str, max_bytes: int = 10_000_000, timeout_sec: int = 10) -> dict:
+    """Eine URL herunterladen und die Geschwindigkeit messen (durch das aktive VPN)."""
+    import time
+    try:
+        start = time.monotonic()
+        downloaded = 0
+        async with make_iptv_client(timeout=httpx.Timeout(5, read=timeout_sec), follow_redirects=True) as client:
+            async with client.stream("GET", url) as resp:
+                if resp.status_code not in (200, 206):
+                    return {"ok": False, "error": f"HTTP {resp.status_code}"}
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    downloaded += len(chunk)
+                    if downloaded >= max_bytes or (time.monotonic() - start) > timeout_sec:
+                        break
+        elapsed = time.monotonic() - start
+        if elapsed > 0 and downloaded > 50_000:
+            mbps = (downloaded * 8) / (elapsed * 1_000_000)
+            return {"ok": True, "mbps": round(mbps, 1), "mb": round(downloaded / 1_000_000, 2), "seconds": round(elapsed, 2)}
+        return {"ok": False, "error": "Zu wenig Daten"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def _speedtest_measure_internet() -> dict:
+    """Internet-Geschwindigkeit durch das aktuell verbundene VPN messen."""
+    for url in _VPN_SPEEDTEST_URLS:
+        r = await _speedtest_measure_url(url)
+        if r["ok"]:
+            r["server"] = url.split("/")[2]
+            return r
+    return {"ok": False, "error": "Alle Server nicht erreichbar"}
+
+
+def _speedtest_streams_estimate(mbps: float) -> dict:
+    return {
+        "hd_720p":   int(mbps / 4),
+        "fhd_1080p": int(mbps / 8),
+        "uhd_4k":    int(mbps / 25),
+    }
+
+
 @admin_app.get("/api/vpn/speedtest")
 async def vpn_speedtest(_=Depends(check_admin)):
     """Run dual speedtest: internet speed + IPTV provider speed."""
     import time
-
-    async def measure_url(url: str, max_bytes: int = 10_000_000, timeout_sec: int = 10) -> dict:
-        try:
-            start = time.monotonic()
-            downloaded = 0
-            async with make_iptv_client(
-                timeout=httpx.Timeout(5, read=timeout_sec),
-                follow_redirects=True
-            ) as client:
-                async with client.stream("GET", url) as resp:
-                    if resp.status_code not in (200, 206):
-                        return {"ok": False, "error": f"HTTP {resp.status_code}"}
-                    async for chunk in resp.aiter_bytes(chunk_size=65536):
-                        downloaded += len(chunk)
-                        if downloaded >= max_bytes or (time.monotonic() - start) > timeout_sec:
-                            break
-            elapsed = time.monotonic() - start
-            if elapsed > 0 and downloaded > 50_000:
-                mbps = (downloaded * 8) / (elapsed * 1_000_000)
-                return {"ok": True, "mbps": round(mbps, 1), "mb": round(downloaded/1_000_000, 2), "seconds": round(elapsed, 2)}
-            return {"ok": False, "error": "Zu wenig Daten"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
-    def streams_estimate(mbps: float) -> dict:
-        return {
-            "hd_720p":   int(mbps / 4),
-            "fhd_1080p": int(mbps / 8),
-            "uhd_4k":    int(mbps / 25),
-        }
+    measure_url = _speedtest_measure_url
+    streams_estimate = _speedtest_streams_estimate
 
     # ── Test 1: Internet/VPN Speed ─────────────────────────────────────────
-    internet_result = {"ok": False, "error": "Alle Server nicht erreichbar"}
-    for url in [
-        "https://speed.cloudflare.com/__down?bytes=10000000",
-        "https://proof.ovh.net/files/10Mb.dat",
-        "https://bouygues.testdebit.info/10M.iso",
-    ]:
-        r = await measure_url(url)
-        if r["ok"]:
-            internet_result = r
-            internet_result["server"] = url.split("/")[2]
-            break
+    internet_result = await _speedtest_measure_internet()
 
     # ── Test 2: IPTV Provider Speed (parallel segments) ───────────────────
     iptv_result = {"ok": False, "error": "Kein IPTV-Kanal verfügbar"}
@@ -5098,4 +5136,61 @@ async def vpn_speedtest(_=Depends(check_admin)):
         "internet": {**internet_result, "streams": streams_estimate(internet_result.get("mbps", 0)) if internet_result.get("ok") else {}},
         "iptv":     {**iptv_result,     "streams": streams_estimate(iptv_result.get("mbps", 0))     if iptv_result.get("ok") else {}},
         "bottleneck": bottleneck,
+    }
+
+
+@admin_app.get("/api/vpn/speedtest-all")
+async def vpn_speedtest_all(_=Depends(check_admin)):
+    """Vergleicht ALLE hochgeladenen .ovpn: verbindet jede nacheinander und misst
+    die Internet-Geschwindigkeit durch diesen Server.
+
+    ACHTUNG: Es gibt nur EINEN Tunnel – waehrend des Durchlaufs sind alle Streams
+    kurz unterbrochen. Der Waechter wird pausiert (``_vpn_sweep_active``), und der
+    urspruenglich aktive Server wird am Ende GARANTIERT wiederhergestellt (finally).
+    Ergebnisse landen zusaetzlich im VPN-Log, falls der Browser-Request vorher
+    abbricht.
+    """
+    global _vpn_sweep_active
+    files = _vpn_list_ovpn_files()
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="Mindestens 2 .ovpn-Dateien nötig für einen Vergleich")
+    if _vpn_sweep_active:
+        raise HTTPException(status_code=409, detail="Ein VPN-Vergleich läuft bereits")
+
+    original = db.get_setting("vpn_ovpn_path", "") or files[0]
+    results = []
+    _vpn_sweep_active = True
+    _vpn_log_add(f"🏁 VPN-Vergleich gestartet ({len(files)} Server) – Streams sind kurz unterbrochen.")
+    try:
+        for path in files:
+            name = os.path.basename(path)
+            db.set_setting("vpn_ovpn_path", path)
+            await asyncio.to_thread(_vpn_teardown)
+            start = await asyncio.to_thread(vpn_start)
+            if not start.get("ok"):
+                results.append({"ovpn": name, "ok": False, "error": start.get("error", "Start fehlgeschlagen")})
+                _vpn_log_add(f"   {name}: Start fehlgeschlagen")
+                continue
+            if not await _vpn_wait_up(25):
+                results.append({"ovpn": name, "ok": False, "error": "Tunnel kam nicht hoch (Timeout)"})
+                _vpn_log_add(f"   {name}: Tunnel-Timeout")
+                continue
+            r = await _speedtest_measure_internet()
+            results.append({"ovpn": name, **r})
+            _vpn_log_add(f"   {name}: {r['mbps']} Mbit/s" if r.get("ok") else f"   {name}: {r.get('error')}")
+    finally:
+        # Urspruenglichen Server GARANTIERT wiederherstellen – auch bei Abbruch.
+        db.set_setting("vpn_ovpn_path", original)
+        await asyncio.to_thread(_vpn_teardown)
+        await asyncio.to_thread(vpn_start)
+        await _vpn_wait_up(25)
+        _vpn_sweep_active = False
+        _vpn_log_add(f"✅ VPN-Vergleich fertig – wiederhergestellt: {os.path.basename(original)}")
+
+    ranked = sorted([r for r in results if r.get("ok")], key=lambda x: x.get("mbps", 0), reverse=True)
+    return {
+        "ok": True,
+        "restored": os.path.basename(original),
+        "fastest": ranked[0]["ovpn"] if ranked else None,
+        "results": [{**r, "streams": _speedtest_streams_estimate(r.get("mbps", 0)) if r.get("ok") else {}} for r in results],
     }

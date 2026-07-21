@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.2</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.3</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.2</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.3</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1128,6 +1128,14 @@ tr:hover td{background:rgba(255,255,255,.02);}
               Misst <strong>Internet/VPN-Geschwindigkeit</strong> und <strong>IPTV-Anbieter-Geschwindigkeit</strong> getrennt – zeigt wo der Flaschenhals ist.
             </div>
             <button class="btn primary" id="speedtest-btn" onclick="runSpeedtest()">▶ Speedtest starten</button>
+            <button class="btn" id="speedtest-all-btn" onclick="runSpeedtestAll()" style="margin-left:8px;">🏁 Alle VPN-Server vergleichen</button>
+            <div class="form-hint" style="margin-top:8px;">⚠️ Der Vergleich verbindet jeden VPN-Server nacheinander und misst ihn – dabei sind alle Streams für ~2&nbsp;Min unterbrochen. Danach wird der vorherige Server wiederhergestellt.</div>
+
+            <!-- VPN-Server-Vergleich Ergebnis -->
+            <div id="speedtest-all-result" style="display:none;margin-top:16px;">
+              <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🏁 VPN-SERVER-VERGLEICH</div>
+              <div id="speedtest-all-table"></div>
+            </div>
 
             <div id="speedtest-result" style="display:none;margin-top:20px;">
 
@@ -3985,6 +3993,51 @@ async function runSpeedtest() {
 
   btn.disabled = false;
   btn.textContent = '▶ Speedtest starten';
+}
+
+async function runSpeedtestAll() {
+  if (!confirm('Alle VPN-Server nacheinander messen?\n\n⚠️ Während des Vergleichs (~2 Min) sind ALLE Streams unterbrochen, weil es nur einen Tunnel gibt. Danach wird der vorherige Server automatisch wiederhergestellt.\n\nJetzt starten?')) return;
+  const btn = document.getElementById('speedtest-all-btn');
+  const box = document.getElementById('speedtest-all-result');
+  const tbl = document.getElementById('speedtest-all-table');
+  btn.disabled = true;
+  btn.textContent = '⏳ Vergleiche… (Streams unterbrochen)';
+  box.style.display = 'block';
+  tbl.innerHTML = '<div style="font-family:var(--mono);font-size:12px;color:var(--text2);">⏳ Verbinde jeden Server nacheinander und messe… das dauert 1–2 Minuten.</div>';
+  try {
+    const data = await api('GET', '/api/vpn/speedtest-all');
+    const rows = (data.results || []).slice().sort((a,b)=>(b.mbps||0)-(a.mbps||0));
+    const nice = f => (f||'').replace(/^my_expressvpn_/,'').replace(/_udp\.ovpn$/,'').replace(/\.ovpn$/,'').replace(/_/g,' ');
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html += '<tr style="color:var(--text2);text-align:left;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Server</th><th style="padding:6px 8px;text-align:right;">Mbit/s</th><th style="padding:6px 8px;text-align:right;">4K-Streams</th></tr>';
+    rows.forEach((r, i) => {
+      const isFastest = r.ok && nice(r.ovpn) === nice(data.fastest);
+      const label = nice(r.ovpn);
+      if (r.ok) {
+        html += `<tr style="border-top:1px solid var(--border);${isFastest?'background:rgba(0,229,200,.08);':''}">`
+          + `<td style="padding:6px 8px;">${isFastest?'🏆':(i+1)}</td>`
+          + `<td style="padding:6px 8px;color:${isFastest?'var(--teal)':'inherit'};font-weight:${isFastest?'600':'400'};">${label}</td>`
+          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--teal);">${r.mbps}</td>`
+          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--text2);">${r.streams?.uhd_4k ?? '–'}x</td></tr>`;
+      } else {
+        html += `<tr style="border-top:1px solid var(--border);color:var(--text2);">`
+          + `<td style="padding:6px 8px;">✗</td>`
+          + `<td style="padding:6px 8px;">${label}</td>`
+          + `<td colspan="2" style="padding:6px 8px;text-align:right;font-family:var(--mono);">${r.error||'Fehler'}</td></tr>`;
+      }
+    });
+    html += '</table>';
+    html += `<div style="margin-top:10px;font-size:11px;color:var(--text2);font-family:var(--mono);">`
+      + (data.fastest ? `🏆 Schnellster: <span style="color:var(--teal);">${nice(data.fastest)}</span> · ` : '')
+      + `Wiederhergestellt: ${nice(data.restored)}</div>`;
+    tbl.innerHTML = html;
+    if (typeof showToast === 'function') showToast(data.fastest ? `Schnellster VPN: ${nice(data.fastest)}` : 'Vergleich fertig');
+  } catch(e) {
+    tbl.innerHTML = `<div style="color:#ef4444;font-size:12px;">Fehler: ${e}<br><span style="color:var(--text2);">Prüfe das VPN-Log – die Einzelergebnisse stehen auch dort, und der Server wurde wiederhergestellt.</span></div>`;
+  }
+  btn.disabled = false;
+  btn.textContent = '🏁 Alle VPN-Server vergleichen';
+  if (typeof vpnRefreshStatus === 'function') vpnRefreshStatus();
 }
 
 async function vpnRefreshStatus() {

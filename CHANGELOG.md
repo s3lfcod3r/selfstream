@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.3
+
+### Funktionen
+- **VPN-Server-Vergleich:** Neuer Knopf „Alle VPN-Server vergleichen" im Speedtest.
+  Verbindet jede hochgeladene `.ovpn` nacheinander, misst die Internet-
+  Geschwindigkeit über diesen Server und zeigt eine Rangliste mit dem schnellsten
+  Standort. Der Wächter pausiert während des Laufs, und der zuvor aktive Server
+  wird am Ende garantiert wiederhergestellt. **Hinweis:** Da es nur einen Tunnel
+  gibt, sind Streams während des Vergleichs (~2 Min) kurz unterbrochen — daher ein
+  bewusster Knopf mit Warnung, kein Automatismus.
+
+### Fehlerbehebungen
+- **Speedtest-Bewertung war irreführend:** Das Verdikt verglich den Anbieter stur
+  mit dem neutralen Speedtest-Server und meldete „Flaschenhals", sobald er
+  langsamer war — auch bei Geschwindigkeiten, die für jeden Stream mehr als
+  reichen. Die Bewertung erfolgt jetzt **absolut am Streaming-Bedarf** (unter
+  8 Mbit/s zu langsam, unter 25 für 4K knapp, sonst kein Flaschenhals inklusive
+  geschätzter Zahl paralleler 4K-Streams).
+
 ## v1.2
 
 Stabilitäts-Release rund um Anbieter-Serverwechsel und VPN. Voll abwärtskompatibel —
