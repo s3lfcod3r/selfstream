@@ -5065,18 +5065,32 @@ async def vpn_speedtest(_=Depends(check_admin)):
             iptv_result = {"ok": False,
                            "error": f"Keine verwertbaren Segmente ({failed} fehlgeschlagen)"}
 
-    # ── Bottleneck Analysis ────────────────────────────────────────────────
+    # ── Flaschenhals-Bewertung ─────────────────────────────────────────────
+    # WICHTIG: nicht als Verhaeltnis zu Cloudflare bewerten. Ein reiner Ratio-
+    # Vergleich meldet "Flaschenhals", sobald der Anbieter langsamer als der
+    # Speedtest-Server ist – auch bei z.B. 97 Mbit/s, die fuer jeden Stream
+    # dicke reichen (4K ~25). Das verleitet zu unnoetigem Server-Wechseln.
+    # Deshalb: absolute Bewertung anhand dessen, was Streaming wirklich braucht.
+    UHD_MBPS = 25   # grober Bedarf 4K
+    FHD_MBPS = 8    # grober Bedarf Full-HD
     bottleneck = None
-    if internet_result.get("ok") and iptv_result.get("ok"):
-        inet_mbps = internet_result["mbps"]
-        iptv_mbps = iptv_result["mbps"]
-        ratio = iptv_mbps / inet_mbps if inet_mbps > 0 else 0
-        if ratio < 0.5:
-            bottleneck = f"IPTV-Anbieter ist der Flaschenhals ({iptv_result['server']}) – nur {round(ratio*100)}% der VPN-Geschwindigkeit"
-        elif ratio < 0.8:
-            bottleneck = f"IPTV-Anbieter etwas langsamer ({round(ratio*100)}% der VPN-Geschwindigkeit)"
+    if iptv_result.get("ok"):
+        iptv_mbps = iptv_result["mbps"]                                   # Median pro Verbindung
+        iptv_cap  = iptv_result.get("mbps_parallel_total") or iptv_mbps   # echte Gesamt-Kapazitaet
+        server = iptv_result.get("server", "")
+        if iptv_mbps < FHD_MBPS:
+            bottleneck = (f"⚠️ IPTV-Anbieter zu langsam ({server}: {iptv_mbps} Mbit/s pro Stream) – "
+                          f"reicht kaum für Full-HD. Ein anderer Server könnte helfen.")
+        elif iptv_mbps < UHD_MBPS:
+            bottleneck = (f"IPTV-Anbieter ok für HD/Full-HD ({server}: {iptv_mbps} Mbit/s pro Stream), "
+                          f"für flüssiges 4K aber knapp.")
         else:
-            bottleneck = f"Kein Flaschenhals – IPTV-Anbieter liefert {round(ratio*100)}% der VPN-Geschwindigkeit"
+            par4k = max(1, int(iptv_cap / UHD_MBPS))
+            bottleneck = (f"✅ Kein Flaschenhals – Anbieter liefert {iptv_mbps} Mbit/s pro Stream "
+                          f"(≈{par4k} parallele 4K-Streams möglich)."
+                          + (f" VPN-Internet: {internet_result['mbps']} Mbit/s." if internet_result.get("ok") else ""))
+    elif internet_result.get("ok"):
+        bottleneck = f"VPN-Internet: {internet_result['mbps']} Mbit/s. IPTV-Messung nicht möglich (kein Kanal erreichbar)."
 
     return {
         "ok": True,
