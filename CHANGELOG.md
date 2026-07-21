@@ -1,6 +1,18 @@
 # Changelog
 
-## v1.17
+## v1.18
+
+### Entfernt
+- **Anbieter-Server-Umschaltung wieder entfernt** (Server-Vergleich, „bevorzugter
+  Server erzwingen", automatische Umschaltung, Server-Entdeckung). Diese Funktionen
+  haben bei Anbietern, die den Token an einen festen Server binden, nicht
+  funktioniert: Das Umschreiben auf einen anderen Server löste beim Anbieter eine
+  „SERVER CHANGED"-Sperre aus, und die Latenz-Messungen anderer Server maßen in
+  Wahrheit diese Hinweis-Meldung statt echter Streams. Um Fehldiagnosen und
+  unterbrochene Streams zu vermeiden, sind sie komplett raus. Der Rest bleibt:
+  VPN-Wächter mit Ausfall-Erkennung/Failover, Speedtest inkl. Kapazitätstest
+  (8/1–20 Streams), Latenz/Jitter-Anzeige, VPN-Server-Vergleich und der
+  automatische Verlauf mit Frühwarnung.
 
 ### Funktionen
 - **Automatisch auf den besten Server umschalten:** Neu im „Bevorzugter Server"-

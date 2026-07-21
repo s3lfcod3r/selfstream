@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.18)
+
+- **Removed provider-server switching** (server comparison, "force preferred server", auto-switch, server discovery). These didn't work with providers that bind the token to a fixed server: rewriting to another server triggered a "SERVER CHANGED" block at the provider, and latency measurements of other servers were actually measuring that notice rather than real streams. To avoid misdiagnosis and interrupted streams they were removed entirely. Everything else stays: VPN watchdog with outage detection/failover, speedtest incl. capacity test, latency/jitter display, VPN-server comparison, and the automatic history with early warning.
+
+---
+
 ## What's New (July 2026 – v1.17)
 
 - **Auto-switch to the best server** – New in the "preferred server" box. A **"🎯 Find & switch to the best server now"** button checks all servers immediately and sets the preferred one to the lowest-latency server. Plus an **automatic mode**: enable via checkbox with a **configurable interval** (every X hours, 1–168) — SelfStream then regularly finds the best server and switches on its own. Automatic switching only happens on a **clear** improvement (>30% lower latency) to avoid flip-flopping; the button always switches to the best. Every switch is logged to diagnostics.
@@ -597,6 +603,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.18)
+
+- **Anbieter-Server-Umschaltung wieder entfernt** (Server-Vergleich, „bevorzugter Server", Auto-Wechsel, Server-Entdeckung). Funktionierte nicht bei Anbietern mit server-gebundenem Token: das Umschreiben löste eine „SERVER CHANGED"-Sperre aus, und die Latenz-Messungen anderer Server maßen diese Hinweis-Meldung statt echter Streams. Komplett raus, um Fehldiagnosen und unterbrochene Streams zu vermeiden. Rest bleibt: VPN-Wächter mit Failover, Speedtest inkl. Kapazitätstest, Latenz/Jitter, VPN-Server-Vergleich, automatischer Verlauf.
 
 ---
 
