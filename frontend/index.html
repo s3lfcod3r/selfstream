@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.12</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.13</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.12</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.13</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1138,9 +1138,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
 
             <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-              <div class="form-hint" style="margin-bottom:6px;">Deine Server-Kürzel oder Hostnamen (durch Komma/Leerzeichen getrennt). Kürzel wie <code>de</code>, <code>nl</code>, <code>2</code> werden auf die Domain deines aktuellen Servers gesetzt; ganze Hostnamen (mit Punkt) werden 1:1 genutzt. Der Test setzt sie in eine echte Kanal-URL ein und misst die Latenz durch dein VPN.</div>
+              <div class="form-hint" style="margin-bottom:6px;">Trage die <strong>kompletten Server-Domains</strong> ein – einen pro Zeile oder durch Komma getrennt (z.&nbsp;B. <code>de.example.net</code>, <code>nl.example.net</code>). Ganze URLs gehen auch, es wird nur der Host genommen. Kurze Kürzel (<code>de</code>, <code>2</code>) funktionieren ebenfalls – die werden an die Domain deines aktuellen Servers gehängt. Der Test setzt jede Domain in eine echte Kanal-URL ein und misst die Latenz durch dein VPN.</div>
               <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;">
-                <input type="text" id="srvcmp-input" placeholder="z. B. de, nl, 2, 3   (oder de.example.net)" style="flex:1;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12px;">
+                <textarea id="srvcmp-input" rows="3" placeholder="de.example.net&#10;nl.example.net&#10;1.example.net" style="flex:1;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12px;resize:vertical;"></textarea>
                 <button class="btn" id="srvcmp-save" onclick="saveCompareServers()">💾 Speichern</button>
               </div>
               <button class="btn" id="srvcmp-btn" onclick="runServerCompare()">🌍 Server vergleichen (beste Latenz finden)</button>

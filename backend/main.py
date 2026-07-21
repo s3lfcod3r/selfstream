@@ -5583,11 +5583,23 @@ async def iptv_server_compare(_=Depends(check_admin)):
                 "jitter_ms": lat.get("jitter_ms"), "mbps": mbps,
                 "current": host == cur_host}
 
-    # Kandidaten aus der EIGENEN Eintragsliste bauen (mit Punkt = ganzer Host,
-    # sonst Kuerzel auf die Basis-Domain des aktuellen Kanals).
+    # Kandidaten aus der EIGENEN Eintragsliste bauen. Jeder Eintrag darf sein:
+    #  - eine KOMPLETTE Domain/Host   (z.B. de.example.net)      → 1:1 genutzt
+    #  - eine ganze URL               (https://de.example.net/…) → Host extrahiert
+    #  - ein kurzes Kuerzel ohne Punkt (z.B. de, 2)              → an die Domain
+    #    des aktuellen Kanals gehaengt (<kuerzel>.<basis-domain>)
+    def _entry_to_host(e: str) -> Optional[str]:
+        e = e.strip()
+        if "://" in e:
+            e = urllib.parse.urlsplit(e).netloc or e
+        e = e.split("/")[0].strip().strip(".")
+        if not e:
+            return None
+        return e if "." in e else f"{e}.{base}"
+
     raw = db.get_setting("iptv_compare_servers", "") or ""
-    entries = [e.strip() for e in re.split(r"[\s,;]+", raw) if e.strip()]
-    hosts = [cur_host] + [(e if "." in e else f"{e}.{base}") for e in entries]
+    entries = [h for h in (_entry_to_host(e) for e in re.split(r"[\s,;\n]+", raw) if e.strip()) if h]
+    hosts = [cur_host] + entries
     seen, cand = set(), []
     for h in hosts:
         if h and h not in seen:

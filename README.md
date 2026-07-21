@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.13)
+
+- **Server comparison: enter full domains** – You can now enter the **complete server domains** in the field (one per line or comma-separated, e.g. `de.example.net`) – full URLs are accepted too (only the host is used). Short labels (`de`, `2`) still work and get appended to your current server's domain. The input field is now multi-line.
+
+---
+
 ## What's New (July 2026 – v1.12)
 
 - **Server comparison: enter your own servers** – The servers to compare are now entered in a field (labels like `de`, `nl`, `2`, or full hostnames) — **no provider-specific servers are hardcoded**. Works with any provider/setup, and nothing about a specific provider ends up in the repository.
@@ -567,6 +573,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.13)
+
+- **Server-Vergleich: ganze Domains eintragbar** – Im Feld kannst du jetzt die **kompletten Server-Domains** eintragen (einen pro Zeile oder per Komma, z.B. `de.example.net`) – auch ganze URLs werden akzeptiert (nur der Host zählt). Kurze Kürzel (`de`, `2`) gehen weiter und werden an die Domain deines aktuellen Servers gehängt. Feld jetzt mehrzeilig.
 
 ---
 

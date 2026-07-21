@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.13
+
+### Verbesserungen
+- **Server-Vergleich: ganze Domains eintragbar:** Im Feld kannst du jetzt die
+  **kompletten Server-Domains** eintragen (einen pro Zeile oder per Komma, z.B.
+  `de.example.net`) – auch ganze URLs werden akzeptiert (es wird nur der Host
+  genommen). Kurze Kürzel (`de`, `2`) funktionieren weiterhin und werden an die
+  Domain deines aktuellen Servers gehängt. Das Eingabefeld ist jetzt mehrzeilig.
+
 ## v1.12
 
 ### Verbesserungen
