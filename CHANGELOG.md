@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.8
+
+### Funktionen
+- **Anbieter-Kapazitätstest (1–20 Streams):** Neuer Knopf im Speedtest. Misst den
+  IPTV-Anbieter mit **steigend vielen gleichzeitigen Streams** (1, 2, 4, 8, 12, 16,
+  20) und zeigt in einer Tabelle, wie der Durchsatz pro Stream sich entwickelt und
+  **ab wann es Ausfälle gibt** — das deckt das **Verbindungslimit deines Abos**
+  direkt auf (ab welcher Stufe Streams scheitern) und den Punkt, ab dem die
+  Bandbreite pro Stream unter Full-HD fällt. Grün = flüssig, Gelb = nur HD, Rot =
+  Ausfall. Bewusster Knopf mit Warnung, da er kurz bis zu 20 Anbieter-Verbindungen
+  belegt und laufende Zuschauer stören kann.
+
 ## v1.7
 
 ### Verbesserungen

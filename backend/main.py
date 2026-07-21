@@ -5276,6 +5276,117 @@ async def vpn_speedtest(_=Depends(check_admin)):
     }
 
 
+async def _iptv_fresh_segment(ch_url: str) -> Optional[str]:
+    """Aktuelles erstes Segment (.ts/.aac) eines Kanals holen – frisch, damit keine
+    veralteten/gecachten Segmente die Messung verfaelschen."""
+    try:
+        async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
+            r = await client.get(ch_url)
+            if r.status_code != 200:
+                return None
+            base = "/".join(ch_url.split("/")[:-1])
+            for line in r.text.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and (".ts" in line or ".aac" in line):
+                    return line if line.startswith("http") else f"{base}/{line}"
+    except Exception:
+        return None
+    return None
+
+
+async def _iptv_dl_segment(seg_url: str) -> Optional[dict]:
+    """Ein Segment laden und die Geschwindigkeit dieser einen Verbindung messen."""
+    import time
+    try:
+        downloaded = 0
+        t0 = time.monotonic()
+        async with make_iptv_client(timeout=httpx.Timeout(4, read=10), follow_redirects=True) as client:
+            async with client.stream("GET", seg_url) as resp:
+                if resp.status_code not in (200, 206):
+                    return None
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    downloaded += len(chunk)
+        dt = time.monotonic() - t0
+        if dt <= 0 or downloaded < 30_000:
+            return None
+        return {"bytes": downloaded, "sec": dt, "mbps": (downloaded * 8) / (dt * 1_000_000)}
+    except Exception:
+        return None
+
+
+_iptv_capacity_running = False
+
+
+@admin_app.get("/api/iptv/capacity")
+async def iptv_capacity_sweep(max_streams: int = 20, _=Depends(check_admin)):
+    """Stufen-Test: misst den IPTV-Anbieter bei STEIGENDER Zahl gleichzeitiger
+    Streams (1..max) und zeigt, wie viele parallele Streams er traegt und wo er
+    einbricht bzw. das Verbindungslimit greift (ab dann scheitern Streams).
+
+    ACHTUNG: belegt kurzzeitig bis zu ``max`` Anbieter-Verbindungen – kann laufende
+    Zuschauer stoeren und zaehlt gegen das Verbindungslimit. Am besten laufen
+    lassen, wenn wenige/keine schauen.
+    """
+    import time
+    global _iptv_capacity_running
+    if _iptv_capacity_running:
+        raise HTTPException(status_code=409, detail="Kapazitätstest läuft bereits")
+    max_streams = max(2, min(20, int(max_streams)))
+    levels = [n for n in [1, 2, 3, 4, 6, 8, 10, 12, 15, 20] if n <= max_streams]
+    if max_streams not in levels:
+        levels.append(max_streams)
+        levels.sort()
+
+    channels = db.get_channels(enabled_only=True)
+    pool = [c["stream_url"] for c in channels
+            if (c.get("stream_url") or "").startswith("http")][:max_streams]
+    if len(pool) < 2:
+        raise HTTPException(status_code=400, detail="Zu wenige Kanäle für den Test")
+
+    _iptv_capacity_running = True
+    results = []
+    try:
+        for lvl in levels:
+            chs = pool[:lvl]
+            segs = [s for s in await asyncio.gather(*[_iptv_fresh_segment(c) for c in chs]) if s]
+            if not segs:
+                results.append({"streams": lvl, "ok": 0, "failed": lvl,
+                                "total_mbps": 0, "per_stream_mbps": 0})
+                continue
+            start = time.monotonic()
+            parts = await asyncio.gather(*[_iptv_dl_segment(s) for s in segs])
+            wall = time.monotonic() - start
+            good = [p for p in parts if p]
+            total_bytes = sum(p["bytes"] for p in good)
+            agg = round((total_bytes * 8) / (wall * 1_000_000), 1) if wall > 0 else 0
+            per = round(agg / len(good), 1) if good else 0
+            results.append({"streams": lvl, "ok": len(good), "failed": lvl - len(good),
+                            "total_mbps": agg, "per_stream_mbps": per})
+    finally:
+        _iptv_capacity_running = False
+
+    # Auswertung: hoechste Stufe ohne Ausfaelle + erste Stufe MIT Ausfaellen.
+    clean = [r["streams"] for r in results if r["ok"] == r["streams"] and r["failed"] == 0]
+    first_fail = next((r["streams"] for r in results if r["failed"] > 0), None)
+    max_clean = max(clean) if clean else 0
+    # Bewertung fuer Full-HD (8 Mbit/s pro Stream)
+    fhd_ok = [r["streams"] for r in results if r["ok"] and r["per_stream_mbps"] >= 8]
+    max_fhd = max(fhd_ok) if fhd_ok else 0
+
+    if first_fail:
+        summary = (f"⚠️ Ab {first_fail} gleichzeitigen Streams gibt es Ausfälle – das ist "
+                   f"vermutlich dein Anbieter-Verbindungslimit. Sauber laufen {max_clean} parallel.")
+    elif max_fhd >= max(levels):
+        summary = (f"✅ Trägt mindestens {max(levels)} gleichzeitige Streams in Full-HD – "
+                   f"keine Grenze in Sicht (kein Ausfall bis {max(levels)}).")
+    else:
+        summary = (f"✅ Bis {max_clean} gleichzeitige Streams ohne Ausfall; für Full-HD an alle "
+                   f"reicht es bis {max_fhd} Streams.")
+
+    return {"ok": True, "levels": results, "max_clean": max_clean,
+            "first_fail": first_fail, "max_fhd": max_fhd, "summary": summary}
+
+
 @admin_app.get("/api/vpn/speedtest-all")
 async def vpn_speedtest_all(_=Depends(check_admin)):
     """Vergleicht ALLE hochgeladenen .ovpn: verbindet jede nacheinander und misst

@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.7</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.8</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.7</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.8</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1135,6 +1135,16 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <div id="speedtest-all-result" style="display:none;margin-top:16px;">
               <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🏁 VPN-SERVER-VERGLEICH</div>
               <div id="speedtest-all-table"></div>
+            </div>
+
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+              <button class="btn" id="iptv-cap-btn" onclick="runIptvCapacity()">📊 Anbieter-Kapazität testen (1–20 Streams)</button>
+              <div class="form-hint" style="margin-top:8px;">⚠️ Misst den Anbieter mit steigend vielen gleichzeitigen Streams (1→20) und zeigt, wo er einbricht bzw. das Verbindungslimit greift. Belegt kurz bis zu 20 Anbieter-Verbindungen – am besten laufen lassen, wenn kaum jemand schaut.</div>
+              <div id="iptv-cap-result" style="display:none;margin-top:14px;">
+                <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📊 ANBIETER-KAPAZITÄT</div>
+                <div id="iptv-cap-summary" style="padding:8px 12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:12px;font-size:12px;font-family:var(--mono);"></div>
+                <div id="iptv-cap-table"></div>
+              </div>
             </div>
 
             <div id="speedtest-result" style="display:none;margin-top:20px;">
@@ -4054,6 +4064,52 @@ async function runSpeedtestAll() {
   btn.disabled = false;
   btn.textContent = '🏁 Alle VPN-Server vergleichen';
   if (typeof vpnRefreshStatus === 'function') vpnRefreshStatus();
+}
+
+async function runIptvCapacity() {
+  if (!confirm('Anbieter mit 1 bis 20 gleichzeitigen Streams testen?\n\n⚠️ Der Test belegt kurz bis zu 20 Anbieter-Verbindungen und kann laufende Zuschauer stören. Am besten laufen lassen, wenn kaum jemand schaut.\n\nJetzt starten?')) return;
+  const btn = document.getElementById('iptv-cap-btn');
+  const box = document.getElementById('iptv-cap-result');
+  const sum = document.getElementById('iptv-cap-summary');
+  const tbl = document.getElementById('iptv-cap-table');
+  btn.disabled = true;
+  btn.textContent = '⏳ Teste 1–20 Streams…';
+  box.style.display = 'block';
+  sum.textContent = '⏳ Messe steigende Stufen (1 → 20 gleichzeitige Streams)…';
+  tbl.innerHTML = '';
+  try {
+    const data = await api('GET', '/api/iptv/capacity?max_streams=20');
+    const warn = (data.summary || '').includes('⚠️');
+    sum.style.borderColor = warn ? '#ef4444' : '#00e5c8';
+    sum.style.color = warn ? '#ef4444' : 'var(--teal)';
+    sum.textContent = data.summary || '';
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html += '<tr style="color:var(--text2);text-align:left;">'
+      + '<th style="padding:6px 8px;">Streams</th>'
+      + '<th style="padding:6px 8px;text-align:right;">gesamt Mbit/s</th>'
+      + '<th style="padding:6px 8px;text-align:right;">pro Stream</th>'
+      + '<th style="padding:6px 8px;text-align:right;">Ausfälle</th></tr>';
+    (data.levels || []).forEach(r => {
+      const ok = r.failed === 0;
+      const per = r.per_stream_mbps;
+      // Farbe pro Zeile: rot bei Ausfall, gelb wenn pro Stream < 8 (FHD), sonst grün
+      const col = !ok ? '#ef4444' : (per < 8 ? '#f0b400' : 'var(--teal)');
+      html += `<tr style="border-top:1px solid var(--border);">`
+        + `<td style="padding:6px 8px;font-family:var(--mono);">${r.streams}×</td>`
+        + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:${col};">${r.total_mbps}</td>`
+        + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:${col};">${per}</td>`
+        + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:${r.failed?'#ef4444':'var(--text2)'};">${r.failed || '–'}</td></tr>`;
+    });
+    html += '</table>';
+    html += `<div style="margin-top:8px;font-size:11px;color:var(--text2);">Grün = flüssig (≥8 Mbit/s pro Stream, Full-HD) · Gelb = nur HD · Rot = Ausfall (wahrscheinlich Verbindungslimit)</div>`;
+    tbl.innerHTML = html;
+    if (typeof showToast === 'function') showToast('Kapazitätstest fertig');
+  } catch(e) {
+    sum.style.color = '#ef4444';
+    sum.textContent = 'Fehler: ' + (e.message || e);
+  }
+  btn.disabled = false;
+  btn.textContent = '📊 Anbieter-Kapazität testen (1–20 Streams)';
 }
 
 async function vpnRefreshStatus() {

@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.8)
+
+- **Provider capacity test (1–20 streams)** – New button in the speedtest. Measures the IPTV provider at **increasing concurrency** (1, 2, 4, 8, 12, 16, 20) and shows in a table how per-stream throughput develops and **at what point failures start** — which directly reveals your **subscription's connection limit** (the level where streams begin to fail) and the point where per-stream bandwidth drops below Full-HD. Green = smooth, yellow = HD only, red = failure. A deliberate button with a warning, since it briefly uses up to 20 provider connections and can disturb active viewers.
+
+---
+
 ## What's New (July 2026 – v1.7)
 
 - **Speedtest now answers "can my setup handle X viewers?"** – The IPTV test now simulates **8 concurrent streams** (instead of 5) — the realistic case of several viewers over the same VPN — and gives a clear traffic-light verdict: "✅ 8 concurrent streams no problem — enough for 8× Full-HD/4K", or a warning if it isn't enough or some test channels are unreachable. The verdict uses the **per-stream throughput under full load** (total ÷ streams), i.e. exactly what each viewer actually gets at peak. The banner is green for "all good", red for a real warning.
@@ -534,6 +540,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.8)
+
+- **Anbieter-Kapazitätstest (1–20 Streams)** – Neuer Knopf im Speedtest. Misst den IPTV-Anbieter mit **steigend vielen gleichzeitigen Streams** (1, 2, 4, 8, 12, 16, 20) und zeigt in einer Tabelle, wie sich der Durchsatz pro Stream entwickelt und **ab wann Ausfälle beginnen** — das deckt dein **Abo-Verbindungslimit** direkt auf (ab welcher Stufe Streams scheitern) und den Punkt, ab dem die Bandbreite pro Stream unter Full-HD fällt. Grün = flüssig, Gelb = nur HD, Rot = Ausfall. Bewusster Knopf mit Warnung (belegt kurz bis zu 20 Anbieter-Verbindungen).
 
 ---
 
