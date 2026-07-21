@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.6)
+
+- **Internet speedtest now parallel + honest** – Public speedtest servers throttle or block VPN IPs, so the internet figure sometimes showed absurdly low numbers (e.g. 3 Mbps) even though the tunnel does 400+ over the same path (the IPTV test proved it). The measurement now runs **in parallel** (multiple connections, aggregated) like the IPTV test to pull the realistic throughput from throttled mirrors; and if it's still implausibly far below the real tunnel throughput, it's flagged as **unreliable** (pointing to the trustworthy IPTV parallel figure) instead of showing a misleading number. A per-server diagnostic is included too.
+
+---
+
 ## What's New (July 2026 – v1.5)
 
 - **Fixed: internet speedtest sometimes showed absurdly low numbers** – It used the first server that responded at all; if that was a throttled mirror (e.g. OVH at 2–3 Mbps) that figure was shown, even though the tunnel easily did 300+ Mbps over the same path (the IPTV test confirmed it). It now takes the **fastest** of several servers, puts a reliable one (Hetzner, DE) first, and stops early once a clearly good measurement is in.
@@ -522,6 +528,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.6)
+
+- **Internet-Speedtest jetzt parallel + ehrlich** – Öffentliche Speedtest-Server drosseln/blockieren VPN-IPs, daher zeigte der Internet-Wert teils absurd niedrige Zahlen (z.B. 3 Mbit/s), obwohl der Tunnel über denselben Weg 400+ schafft (der IPTV-Test bewies es). Die Messung läuft jetzt **parallel** (aggregiert) wie der IPTV-Test; und liegt der Wert trotzdem unplausibel weit unter dem echten Tunnel-Durchsatz, wird er als **unzuverlässig gekennzeichnet** (mit Verweis auf den belastbaren IPTV-Parallel-Wert) statt irreführend groß angezeigt. Inkl. Server-Diagnose.
 
 ---
 

@@ -5081,27 +5081,33 @@ async def _speedtest_measure_url(url: str, max_bytes: int = 120_000_000,
         return {"ok": False, "error": str(e)}
 
 
-async def _speedtest_measure_internet(timeout_sec: float = 9.0) -> dict:
+async def _speedtest_measure_internet(timeout_sec: float = 9.0, parallel: int = 4) -> dict:
     """Internet-Geschwindigkeit durch das aktuell verbundene VPN messen.
 
-    Nimmt NICHT den ersten Server, der irgendwas liefert (ein gedrosselter/lahmer
-    Mirror wuerde die Zahl kaputtmachen – z.B. OVH mit 2-3 Mbit/s, obwohl der
-    Tunnel 300+ kann), sondern den SCHNELLSTEN. Bricht frueh ab, sobald eine klar
-    gute Messung vorliegt, damit es nicht unnoetig lange dauert.
+    Misst PARALLEL (mehrere Verbindungen, aggregiert) – genau wie der IPTV-Test.
+    Grund: oeffentliche Speedtest-Mirror drosseln einzelne Verbindungen oft stark
+    (OVH ~3 Mbit/s pro Verbindung), obwohl der Tunnel viel mehr kann. Parallel
+    aggregiert holt den realistischen Durchsatz. Nimmt den ersten ERREICHBAREN
+    Server in Prioritaets-Reihenfolge (Hetzner/Cloudflare scheitern an manchen
+    VPN-IPs ganz) und liefert eine Debug-Liste mit, warum welcher Server ausfiel.
     """
-    results = []
+    debug = []
     for url in _VPN_SPEEDTEST_URLS:
-        r = await _speedtest_measure_url(url, timeout_sec=timeout_sec)
-        if r.get("ok"):
-            r["server"] = url.split("/")[2]
-            if r["mbps"] >= _SPEEDTEST_GOOD_ENOUGH_MBPS:
-                return r                      # klar schnell → reicht
-            results.append(r)
-            if len(results) >= 3:             # genug langsame Kandidaten gesammelt
-                break
-    if results:
-        return max(results, key=lambda x: x["mbps"])   # bester der langsamen
-    return {"ok": False, "error": "Alle Server nicht erreichbar"}
+        host = url.split("/")[2]
+        probe = await _speedtest_measure_url(url, timeout_sec=5.0)   # erreichbar?
+        if not probe.get("ok"):
+            debug.append({"server": host, "ok": False, "error": probe.get("error", "")})
+            continue
+        parts = await asyncio.gather(*[
+            _speedtest_measure_url(url, timeout_sec=timeout_sec) for _ in range(max(1, parallel))
+        ])
+        oks = [p for p in parts if p.get("ok")]
+        agg = round(sum(p["mbps"] for p in oks), 1) if oks else probe["mbps"]
+        debug.append({"server": host, "ok": True, "single": probe["mbps"], "aggregate": agg, "conns": len(oks)})
+        return {"ok": True, "mbps": agg, "single": probe["mbps"], "parallel": len(oks),
+                "server": host, "mb": probe.get("mb", 0), "seconds": probe.get("seconds", 0),
+                "steady": probe.get("steady", False), "debug": debug}
+    return {"ok": False, "error": "Alle Server nicht erreichbar", "debug": debug}
 
 
 def _speedtest_streams_estimate(mbps: float) -> dict:
@@ -5231,6 +5237,20 @@ async def vpn_speedtest(_=Depends(check_admin)):
                           + (f" VPN-Internet: {internet_result['mbps']} Mbit/s." if internet_result.get("ok") else ""))
     elif internet_result.get("ok"):
         bottleneck = f"VPN-Internet: {internet_result['mbps']} Mbit/s. IPTV-Messung nicht möglich (kein Kanal erreichbar)."
+
+    # Ehrlichkeits-Check: Internet-Messung durchs VPN ist oft unzuverlaessig, weil
+    # oeffentliche Speedtest-Server VPN-IPs drosseln/blocken. Liegt der Internet-
+    # Wert unplausibel weit unter dem ECHTEN Tunnel-Durchsatz (IPTV parallel), wird
+    # er als unzuverlaessig markiert – statt eine irrefuehrend niedrige Zahl gross
+    # anzuzeigen. Der IPTV-Parallel-Wert ist dann die belastbare Aussage.
+    if internet_result.get("ok") and iptv_result.get("ok"):
+        iptv_cap = iptv_result.get("mbps_parallel_total") or iptv_result.get("mbps", 0)
+        if iptv_cap and internet_result["mbps"] < iptv_cap / 3 and internet_result["mbps"] < 40:
+            internet_result["unreliable"] = True
+            internet_result["note"] = (
+                "Messung durchs VPN unzuverlässig – öffentliche Speedtest-Server drosseln/"
+                f"blockieren VPN-IPs. Echter Tunnel-Durchsatz ≈ {iptv_cap} Mbit/s (IPTV, parallel)."
+            )
 
     return {
         "ok": True,

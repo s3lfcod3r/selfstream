@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.6
+
+### Verbesserungen
+- **Internet-Speedtest jetzt parallel + ehrlich:** Öffentliche Speedtest-Server
+  drosseln oder blockieren VPN-IP-Adressen — dadurch zeigte der Internet-Wert teils
+  absurd niedrige Zahlen (z.B. 3 Mbit/s), obwohl der Tunnel über denselben Weg 400+
+  schafft (der IPTV-Test bewies das). Zwei Änderungen: die Messung läuft jetzt
+  **parallel** (mehrere Verbindungen, aggregiert) wie der IPTV-Test und holt so den
+  realistischen Durchsatz aus gedrosselten Mirrors; und wenn der Internet-Wert
+  trotzdem unplausibel weit unter dem echten Tunnel-Durchsatz liegt, wird er als
+  **unzuverlässig gekennzeichnet** (mit Hinweis auf den belastbaren IPTV-Parallel-
+  Wert) statt eine irreführende Zahl groß anzuzeigen. Zusätzlich liefert der Test
+  eine Server-Diagnose mit, warum welcher Speedtest-Server ausfiel.
+
 ## v1.5
 
 ### Fehlerbehebungen
