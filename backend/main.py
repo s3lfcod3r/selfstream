@@ -5020,12 +5020,18 @@ def clear_diagnostic_logs_api(_=Depends(check_admin)):
 # <0,3 s durch → dann misst man nur die TCP-Anlaufphase, nicht die echte Bandbreite.
 # Mit Warmup + Dauermessung (siehe _speedtest_measure_url) werden die ersten ~1,2 s
 # (Slow-Start) verworfen und nur der eingeschwungene Durchsatz gezaehlt.
+# Reihenfolge = Priorität. Hetzner (DE) zuerst: zuverlaessig und wird auf VPN-IPs
+# selten gedrosselt. Cloudflare scheitert an manchen VPN-Ausgaengen ganz; OVH ist
+# je nach Ausgang sehr langsam. Deshalb NICHT den ersten Treffer nehmen, sondern
+# den schnellsten (siehe _speedtest_measure_internet).
 _VPN_SPEEDTEST_URLS = [
+    "https://speed.hetzner.de/100MB.bin",
     "https://speed.cloudflare.com/__down?bytes=100000000",
     "https://proof.ovh.net/files/100Mb.dat",
     "https://bouygues.testdebit.info/100M.iso",
 ]
 _SPEEDTEST_WARMUP_SEC = 1.2   # Anlaufphase (Slow-Start) verwerfen
+_SPEEDTEST_GOOD_ENOUGH_MBPS = 50   # klar gute Messung → nicht weitere Server testen
 
 
 async def _speedtest_measure_url(url: str, max_bytes: int = 120_000_000,
@@ -5076,12 +5082,25 @@ async def _speedtest_measure_url(url: str, max_bytes: int = 120_000_000,
 
 
 async def _speedtest_measure_internet(timeout_sec: float = 9.0) -> dict:
-    """Internet-Geschwindigkeit durch das aktuell verbundene VPN messen."""
+    """Internet-Geschwindigkeit durch das aktuell verbundene VPN messen.
+
+    Nimmt NICHT den ersten Server, der irgendwas liefert (ein gedrosselter/lahmer
+    Mirror wuerde die Zahl kaputtmachen – z.B. OVH mit 2-3 Mbit/s, obwohl der
+    Tunnel 300+ kann), sondern den SCHNELLSTEN. Bricht frueh ab, sobald eine klar
+    gute Messung vorliegt, damit es nicht unnoetig lange dauert.
+    """
+    results = []
     for url in _VPN_SPEEDTEST_URLS:
         r = await _speedtest_measure_url(url, timeout_sec=timeout_sec)
-        if r["ok"]:
+        if r.get("ok"):
             r["server"] = url.split("/")[2]
-            return r
+            if r["mbps"] >= _SPEEDTEST_GOOD_ENOUGH_MBPS:
+                return r                      # klar schnell → reicht
+            results.append(r)
+            if len(results) >= 3:             # genug langsame Kandidaten gesammelt
+                break
+    if results:
+        return max(results, key=lambda x: x["mbps"])   # bester der langsamen
     return {"ok": False, "error": "Alle Server nicht erreichbar"}
 
 

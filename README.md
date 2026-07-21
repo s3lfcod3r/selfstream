@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.5)
+
+- **Fixed: internet speedtest sometimes showed absurdly low numbers** – It used the first server that responded at all; if that was a throttled mirror (e.g. OVH at 2–3 Mbps) that figure was shown, even though the tunnel easily did 300+ Mbps over the same path (the IPTV test confirmed it). It now takes the **fastest** of several servers, puts a reliable one (Hetzner, DE) first, and stops early once a clearly good measurement is in.
+
+---
+
 ## What's New (July 2026 – v1.4)
 
 - **More reliable speedtest** – On fast links the 10 MB download finished in under a second, so it mostly measured the TCP ramp-up (slow-start), not the real bandwidth, and results were noisy. It now downloads a larger file, discards the first ~1.2 s and measures only the steady-state throughput — noticeably more stable, realistic numbers.
@@ -516,6 +522,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.5)
+
+- **Behoben: Internet-Speedtest zeigte teils absurd niedrige Werte** – Der Test nahm den ersten Server, der überhaupt antwortete; war das ein gedrosselter Mirror (z.B. OVH mit 2–3 Mbit/s), stand diese Zahl da, obwohl der Tunnel über denselben Weg locker 300+ Mbit/s schaffte (der IPTV-Test zeigte das auch). Jetzt wird der **schnellste** mehrerer Server genommen, ein zuverlässiger (Hetzner, DE) steht vorn, und sobald eine klar gute Messung vorliegt, wird früh abgebrochen.
 
 ---
 

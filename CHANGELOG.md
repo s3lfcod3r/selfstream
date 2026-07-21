@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.5
+
+### Fehlerbehebungen
+- **Internet-Speedtest zeigte teils absurd niedrige Werte:** Der Test nahm den
+  ersten Server, der überhaupt antwortete — war das ein gedrosselter Mirror (z.B.
+  OVH mit 2–3 Mbit/s), stand diese Zahl da, obwohl der Tunnel über denselben Weg
+  problemlos 300+ Mbit/s schaffte (der IPTV-Test zeigte das auch). Jetzt wird der
+  **schnellste** mehrerer Server genommen, ein zuverlässiger Server (Hetzner, DE)
+  steht vorn, und sobald eine klar gute Messung vorliegt, wird früh abgebrochen.
+
 ## v1.4
 
 ### Verbesserungen
