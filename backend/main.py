@@ -4306,6 +4306,39 @@ _vpn_failed_restarts = 0
 # Trennen für einen Ausfall und funkt mit eigenen Neustarts dazwischen.
 _vpn_sweep_active = False
 
+# Proaktiver Lebenszeichen-Check: der Log-basierte Zustand erkennt einen "verbunden,
+# aber es fliesst nichts"-Tunnel evtl. spaet. Zusaetzlich sendet der Waechter ein
+# winziges echtes Paket durch den Tunnel. Bewusst SEHR konservativ, um Fehlalarme
+# (und dadurch unnoetige Neustarts) zu vermeiden: erst nach VPN_PROBE_GRACE Fehlern
+# AM STUECK (~2 min ohne Daten trotz "verbunden") gilt der Tunnel als tot.
+# Ein DNS-freies Ziel (1.1.1.1 per IP) als Anker + ein zweites als Fallback; es
+# genuegt EIN Erfolg. Nur so schlaegt ein blockierter DNS/ein Ziel-Ausfall NICHT
+# faelschlich als VPN-Fehler durch.
+VPN_PROBE_GRACE = 4
+_vpn_probe_fail_count = 0
+_VPN_PROBE_URLS = [
+    "https://1.1.1.1/cdn-cgi/trace",          # per IP → kein DNS noetig
+    "https://www.gstatic.com/generate_204",   # Fallback (204, winzig)
+]
+
+
+async def _vpn_active_probe(timeout_sec: float = 4.0) -> bool:
+    """Winziges echtes Paket durch den aktuellen Tunnel schicken.
+
+    True, sobald EIN Ziel antwortet (Status < 500). False nur, wenn ALLE Ziele
+    scheitern – das ist ein starkes Signal, dass der Tunnel (nicht ein einzelnes
+    Ziel) tot ist. Blockiert nie den Betrieb (kurzer Timeout, Fehler = still).
+    """
+    for url in _VPN_PROBE_URLS:
+        try:
+            async with make_iptv_client(timeout=httpx.Timeout(timeout_sec), follow_redirects=True) as client:
+                r = await client.get(url)
+                if r.status_code < 500:
+                    return True
+        except Exception:
+            continue
+    return False
+
 # ── Verbindungszustand aus dem OpenVPN-Log ──────────────────────────────────
 # WICHTIG (Bugfix): "Prozess lebt + tun0 hat IP" ist KEIN Gesundheitsbeweis.
 # Bei `SIGUSR1[soft,tls-error]` startet OpenVPN nur intern neu – der Prozess
@@ -4643,7 +4676,7 @@ async def _vpn_watchdog():
     Checks am Stück (≈90s Kulanz, damit OpenVPNs eigener ping-restart zuerst eine
     Chance hat) wird der Tunnel hart neu aufgebaut.
     """
-    global _vpn_unhealthy_count, _vpn_failed_restarts
+    global _vpn_unhealthy_count, _vpn_failed_restarts, _vpn_probe_fail_count
     # Erststart abwarten (Auto-Start + tun0-Aufbau brauchen ein paar Sekunden)
     await asyncio.sleep(45)
     while True:
@@ -4657,6 +4690,27 @@ async def _vpn_watchdog():
                 _vpn_unhealthy_count = 0
                 continue
             healthy, proc_alive, tun_ip = await asyncio.to_thread(_vpn_healthy)
+
+            # Proaktiver Datenfluss-Check: nur wenn passiv "gesund". Erkennt einen
+            # "verbunden, aber es fliesst nichts"-Tunnel (halbtot), den die reine
+            # Log-Auswertung evtl. spaet meldet – und zwar BEVOR die Streams stehen.
+            probe_note = ""
+            if healthy:
+                if await _vpn_active_probe():
+                    _vpn_probe_fail_count = 0
+                else:
+                    _vpn_probe_fail_count += 1
+                    probe_note = f" · Datenfluss {_vpn_probe_fail_count}/{VPN_PROBE_GRACE} ✗"
+                    if _vpn_probe_fail_count >= VPN_PROBE_GRACE:
+                        healthy = False
+                        _vpn_probe_fail_count = 0
+                        _vpn_log_add(
+                            f"🚨 VPN-Wächter: Tunnel meldet 'verbunden', aber {VPN_PROBE_GRACE}× kein "
+                            f"Datenfluss → als Ausfall behandeln"
+                        )
+            else:
+                _vpn_probe_fail_count = 0
+
             if healthy:
                 if _vpn_unhealthy_count:
                     _vpn_log_add(f"✅ VPN-Wächter: Tunnel wieder gesund ({tun_ip})")
@@ -4667,7 +4721,7 @@ async def _vpn_watchdog():
             _vpn_log_add(
                 f"⚠️ VPN-Wächter: Tunnel ungesund "
                 f"({_vpn_unhealthy_count}/{VPN_WATCHDOG_GRACE}) – "
-                f"Prozess={'läuft' if proc_alive else 'tot'}, tun0={tun_ip or 'fehlt'}"
+                f"Prozess={'läuft' if proc_alive else 'tot'}, tun0={tun_ip or 'fehlt'}{probe_note}"
             )
             if _vpn_unhealthy_count >= VPN_WATCHDOG_GRACE:
                 _vpn_unhealthy_count = 0
@@ -4961,41 +5015,70 @@ def clear_diagnostic_logs_api(_=Depends(check_admin)):
     return {"ok": True}
 
 
-# Neutrale Speedtest-Server für die Internet/VPN-Messung (erster erreichbarer gewinnt)
+# Neutrale Speedtest-Server für die Internet/VPN-Messung (erster erreichbarer gewinnt).
+# Groesse bewusst hoch (100 MB): auf schnellen Leitungen ist eine 10-MB-Datei in
+# <0,3 s durch → dann misst man nur die TCP-Anlaufphase, nicht die echte Bandbreite.
+# Mit Warmup + Dauermessung (siehe _speedtest_measure_url) werden die ersten ~1,2 s
+# (Slow-Start) verworfen und nur der eingeschwungene Durchsatz gezaehlt.
 _VPN_SPEEDTEST_URLS = [
-    "https://speed.cloudflare.com/__down?bytes=10000000",
-    "https://proof.ovh.net/files/10Mb.dat",
-    "https://bouygues.testdebit.info/10M.iso",
+    "https://speed.cloudflare.com/__down?bytes=100000000",
+    "https://proof.ovh.net/files/100Mb.dat",
+    "https://bouygues.testdebit.info/100M.iso",
 ]
+_SPEEDTEST_WARMUP_SEC = 1.2   # Anlaufphase (Slow-Start) verwerfen
 
 
-async def _speedtest_measure_url(url: str, max_bytes: int = 10_000_000, timeout_sec: int = 10) -> dict:
-    """Eine URL herunterladen und die Geschwindigkeit messen (durch das aktive VPN)."""
+async def _speedtest_measure_url(url: str, max_bytes: int = 120_000_000,
+                                 timeout_sec: float = 9.0,
+                                 warmup_sec: float = _SPEEDTEST_WARMUP_SEC) -> dict:
+    """Eine URL herunterladen und die EINGESCHWUNGENE Geschwindigkeit messen.
+
+    Verwirft die ersten ``warmup_sec`` (TCP-Slow-Start) und misst die Bandbreite
+    nur im stabilen Fenster danach. Faellt auf die Gesamtmessung zurueck, falls das
+    stabile Fenster zu kurz ausfaellt (z.B. sehr langsame Leitung). Laeuft durch das
+    aktuell verbundene VPN.
+    """
     import time
     try:
-        start = time.monotonic()
+        t0 = time.monotonic()
         downloaded = 0
+        steady_start = None
+        steady_bytes = 0
         async with make_iptv_client(timeout=httpx.Timeout(5, read=timeout_sec), follow_redirects=True) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code not in (200, 206):
                     return {"ok": False, "error": f"HTTP {resp.status_code}"}
                 async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    now = time.monotonic()
                     downloaded += len(chunk)
-                    if downloaded >= max_bytes or (time.monotonic() - start) > timeout_sec:
+                    if steady_start is None:
+                        if now - t0 >= warmup_sec:
+                            steady_start = now      # ab hier zaehlt die echte Messung
+                    else:
+                        steady_bytes += len(chunk)
+                    if downloaded >= max_bytes or (now - t0) > timeout_sec:
                         break
-        elapsed = time.monotonic() - start
+        end = time.monotonic()
+        # Bevorzugt das eingeschwungene Fenster; sonst Gesamtmessung als Fallback.
+        if steady_start is not None and (end - steady_start) > 0.5 and steady_bytes > 300_000:
+            window = end - steady_start
+            mbps = (steady_bytes * 8) / (window * 1_000_000)
+            return {"ok": True, "mbps": round(mbps, 1), "mb": round(downloaded / 1_000_000, 2),
+                    "seconds": round(window, 2), "steady": True}
+        elapsed = end - t0
         if elapsed > 0 and downloaded > 50_000:
             mbps = (downloaded * 8) / (elapsed * 1_000_000)
-            return {"ok": True, "mbps": round(mbps, 1), "mb": round(downloaded / 1_000_000, 2), "seconds": round(elapsed, 2)}
+            return {"ok": True, "mbps": round(mbps, 1), "mb": round(downloaded / 1_000_000, 2),
+                    "seconds": round(elapsed, 2), "steady": False}
         return {"ok": False, "error": "Zu wenig Daten"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-async def _speedtest_measure_internet() -> dict:
+async def _speedtest_measure_internet(timeout_sec: float = 9.0) -> dict:
     """Internet-Geschwindigkeit durch das aktuell verbundene VPN messen."""
     for url in _VPN_SPEEDTEST_URLS:
-        r = await _speedtest_measure_url(url)
+        r = await _speedtest_measure_url(url, timeout_sec=timeout_sec)
         if r["ok"]:
             r["server"] = url.split("/")[2]
             return r

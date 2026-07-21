@@ -96,6 +96,13 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.4)
+
+- **More reliable speedtest** – On fast links the 10 MB download finished in under a second, so it mostly measured the TCP ramp-up (slow-start), not the real bandwidth, and results were noisy. It now downloads a larger file, discards the first ~1.2 s and measures only the steady-state throughput — noticeably more stable, realistic numbers.
+- **Proactive VPN data-flow check** – In addition to the log-based state, the watchdog now actively verifies that data really flows through the tunnel (a tiny request to a DNS-free target). This catches a "connected but nothing gets through" tunnel *before* streams stall, not after. Deliberately conservative: it takes several consecutive failures (~2 min without data) before acting, so a single hiccup won't cause a false alarm.
+
+---
+
 ## What's New (July 2026 – v1.3)
 
 - **VPN server comparison** – New "Compare all VPN servers" button in the speedtest. Connects each uploaded `.ovpn` in turn, measures internet speed through it, and shows a ranking with the fastest location. The watchdog is paused during the run and the previously active server is restored afterwards. Note: with a single tunnel, streams are briefly interrupted during the ~2-minute comparison, so it's a deliberate button with a warning, not automatic.
@@ -509,6 +516,13 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.4)
+
+- **Belastbarer Speedtest** – Auf schnellen Leitungen war die 10-MB-Messung in unter einer Sekunde durch und maß vor allem die TCP-Anlaufphase, nicht die echte Bandbreite. Jetzt größere Datei, die ersten ~1,2 s werden verworfen, nur der eingeschwungene Durchsatz zählt — deutlich stabilere, realistischere Werte.
+- **Proaktiver VPN-Datenfluss-Check** – Der Wächter prüft zusätzlich zum Log-Zustand aktiv, ob wirklich Daten durch den Tunnel fließen (winzige Anfrage an ein DNS-freies Ziel). Erkennt einen „verbunden, aber nichts kommt durch"-Tunnel, *bevor* die Streams stehen. Bewusst konservativ: erst nach mehreren Fehlern am Stück (~2 Min) wird eingegriffen, damit ein einzelner Aussetzer keinen Fehlalarm auslöst.
 
 ---
 

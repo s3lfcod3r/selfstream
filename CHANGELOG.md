@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4
+
+### Verbesserungen
+- **Speedtest misst jetzt belastbar:** Auf schnellen Leitungen war die 10-MB-
+  Messung in unter einer Sekunde durch — gemessen wurde damit vor allem die
+  TCP-Anlaufphase (Slow-Start), nicht die echte Bandbreite, und die Werte
+  schwankten stark. Jetzt wird eine größere Datei geladen, die ersten ~1,2 s
+  verworfen und nur der **eingeschwungene Durchsatz** gezählt. Die angezeigten
+  Zahlen sind dadurch deutlich stabiler und realistischer.
+- **Proaktiver VPN-Datenfluss-Check:** Der Wächter prüft zusätzlich zum Log-
+  Zustand aktiv, ob wirklich Daten durch den Tunnel fließen (winzige Anfrage an
+  ein DNS-freies Ziel). Damit wird ein „verbunden, aber es kommt nichts durch"-
+  Tunnel erkannt, **bevor** die Streams stehen — nicht erst danach. Bewusst sehr
+  konservativ: Es muss mehrfach hintereinander (~2 Min) kein Datenfluss vorliegen,
+  bevor eingegriffen wird, damit ein einzelner Aussetzer keinen Fehlalarm auslöst.
+
 ## v1.3
 
 ### Funktionen
