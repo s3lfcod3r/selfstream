@@ -390,6 +390,7 @@ async def startup():
     _track_background_task(asyncio.create_task(_m3u_watchdog()))
     _track_background_task(asyncio.create_task(_catchup_epg_watchdog()))
     _track_background_task(asyncio.create_task(_live_epg_watchdog()))
+    _track_background_task(asyncio.create_task(_health_sampler()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -5131,90 +5132,14 @@ async def vpn_speedtest(_=Depends(check_admin)):
     # ── Test 1: Internet/VPN Speed ─────────────────────────────────────────
     internet_result = await _speedtest_measure_internet()
 
-    # ── Test 2: IPTV Provider Speed (parallel segments) ───────────────────
-    iptv_result = {"ok": False, "error": "Kein IPTV-Kanal verfügbar"}
-
-    # Bis zu SPEEDTEST_CONCURRENT_STREAMS verschiedene Sender-Segmente einsammeln,
-    # um genau so viele gleichzeitige Streams zu simulieren.
-    segment_urls = []
-    channels = db.get_channels(enabled_only=True)
-
-    for ch in channels[:SPEEDTEST_CONCURRENT_STREAMS * 6]:
-        if len(segment_urls) >= SPEEDTEST_CONCURRENT_STREAMS:
-            break
-        url = ch.get("stream_url", "")
-        if not url or not url.startswith("http"):
-            continue
-        try:
-            async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
-                resp = await client.get(url)
-                if resp.status_code != 200:
-                    continue
-                seg_url = None
-                base = "/".join(url.split("/")[:-1])
-                for line in resp.text.splitlines():
-                    line = line.strip()
-                    if line and not line.startswith("#") and (".ts" in line or ".aac" in line):
-                        seg_url = line if line.startswith("http") else f"{base}/{line}"
-                        break
-                if seg_url:
-                    segment_urls.append(seg_url)
-        except Exception:
-            continue
-
-    if segment_urls:
-        # Jedes Segment misst seine EIGENE Zeit.
-        #
-        # Vorher wurden die Bytes ALLER Segmente durch die Gesamtdauer geteilt –
-        # also auch durch die Zeit, in der schon fertige Segmente laengst nichts
-        # mehr luden. Dadurch fiel der IPTV-Wert systematisch zu niedrig aus und
-        # der Test meldete faelschlich "Anbieter ist der Flaschenhals".
-        async def fetch_seg(url: str) -> dict:
-            try:
-                downloaded = 0
-                t0 = time.monotonic()
-                async with make_iptv_client(timeout=httpx.Timeout(4, read=10), follow_redirects=True) as client:
-                    async with client.stream("GET", url) as resp:
-                        if resp.status_code not in (200, 206):
-                            return {"ok": False}
-                        async for chunk in resp.aiter_bytes(chunk_size=65536):
-                            downloaded += len(chunk)
-                dt = time.monotonic() - t0
-                # Zu kleine/zu kurze Downloads sind reines Verbindungs-Rauschen
-                if dt <= 0 or downloaded < 50_000:
-                    return {"ok": False}
-                return {"ok": True, "bytes": downloaded, "sec": dt,
-                        "mbps": (downloaded * 8) / (dt * 1_000_000)}
-            except Exception:
-                return {"ok": False}
-
-        start = time.monotonic()
-        seg_results = await asyncio.gather(*[fetch_seg(u) for u in segment_urls])
-        wall = time.monotonic() - start
-
-        good = [r for r in seg_results if r.get("ok")]
-        failed = len(seg_results) - len(good)
-
-        if good:
-            rates = sorted(r["mbps"] for r in good)
-            median = rates[len(rates) // 2] if len(rates) % 2 else (rates[len(rates)//2 - 1] + rates[len(rates)//2]) / 2
-            total_bytes = sum(r["bytes"] for r in good)
-            iptv_result = {
-                "ok": True,
-                # Vergleichbar mit dem Internet-Test (ebenfalls eine Verbindung)
-                "mbps": round(median, 1),
-                "mbps_best": round(rates[-1], 1),
-                "mbps_parallel_total": round((total_bytes * 8) / (wall * 1_000_000), 1) if wall > 0 else 0,
-                "mb": round(total_bytes / 1_000_000, 2),
-                "seconds": round(wall, 2),
-                "server": segment_urls[0].split("/")[2] if segment_urls else "",
-                "parallel": len(good),
-                "failed": failed,
-                "target": SPEEDTEST_CONCURRENT_STREAMS,   # so viele gleichzeitige Streams wollten wir testen
-            }
-        else:
-            iptv_result = {"ok": False,
-                           "error": f"Keine verwertbaren Segmente ({failed} fehlgeschlagen)"}
+    # ── Test 2: IPTV-Anbieter (nachhaltig, parallel, + Latenz/Jitter) ─────
+    # Simuliert SPEEDTEST_CONCURRENT_STREAMS gleichzeitige Streams, misst pro Stream
+    # ueber mehrere Segmente (stabiler Wert) und zusaetzlich Latenz + Jitter.
+    iptv_result = await _iptv_measure_provider(streams=SPEEDTEST_CONCURRENT_STREAMS, per_stream_segments=3)
+    if iptv_result.get("ok"):
+        iptv_result["target"] = SPEEDTEST_CONCURRENT_STREAMS
+    else:
+        iptv_result.setdefault("error", "Kein IPTV-Kanal verfügbar")
 
     # ── Flaschenhals-Bewertung ─────────────────────────────────────────────
     # WICHTIG: nicht als Verhaeltnis zu Cloudflare bewerten. Ein reiner Ratio-
@@ -5245,6 +5170,16 @@ async def vpn_speedtest(_=Depends(check_admin)):
             cap = f"⚠️ Zu langsam für {tested} gleichzeitige Streams (nur {per_load} Mbit/s pro Stream unter Last)"
 
         parts = [cap, f"Gesamt {agg} Mbit/s bei {tested} parallel (Ø {per_load}/Stream, einzeln bis {iptv_result.get('mbps_best', 0)})"]
+        # Latenz/Jitter: erklaert Ruckeln, das NICHT von Bandbreite kommt.
+        lat_ms = iptv_result.get("latency_ms")
+        jit_ms = iptv_result.get("jitter_ms")
+        if lat_ms is not None:
+            if jit_ms is not None and jit_ms > 150:
+                parts.append(f"⚠️ unruhige Verbindung (Latenz {lat_ms} ms, Schwankung {jit_ms} ms) – kann trotz genug Speed ruckeln")
+            elif lat_ms > 250:
+                parts.append(f"⚠️ hohe Latenz zum Anbieter ({lat_ms} ms) – längere Umschaltzeiten")
+            else:
+                parts.append(f"Latenz {lat_ms} ms, stabil (Jitter {jit_ms} ms)")
         if failed:
             parts.append(f"⚠️ {failed} von {failed + tested} Test-Kanälen nicht erreichbar – Anbieter evtl. instabil")
         if tested < target:
@@ -5312,6 +5247,200 @@ async def _iptv_dl_segment(seg_url: str) -> Optional[dict]:
         return {"bytes": downloaded, "sec": dt, "mbps": (downloaded * 8) / (dt * 1_000_000)}
     except Exception:
         return None
+
+
+def _iptv_channel_pool(limit: int = 40) -> list:
+    channels = db.get_channels(enabled_only=True)
+    return [c["stream_url"] for c in channels
+            if (c.get("stream_url") or "").startswith("http")][:limit]
+
+
+async def _iptv_segment_list(ch_url: str, n: int = 3) -> list:
+    """Erste n Segment-URLs eines Kanals holen – fuer eine NACHHALTIGE Messung ueber
+    mehrere Segmente statt eines einzigen winzigen Haeppchens (<1s = verrauscht)."""
+    try:
+        async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
+            r = await client.get(ch_url)
+            if r.status_code != 200:
+                return []
+            base = "/".join(ch_url.split("/")[:-1])
+            segs = []
+            for line in r.text.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and (".ts" in line or ".aac" in line):
+                    segs.append(line if line.startswith("http") else f"{base}/{line}")
+                    if len(segs) >= n:
+                        break
+            return segs
+    except Exception:
+        return []
+
+
+async def _iptv_dl_bytes(seg_url: str) -> int:
+    """Ein Segment laden, gelieferte Bytes zurueckgeben (0 bei Fehler)."""
+    try:
+        downloaded = 0
+        async with make_iptv_client(timeout=httpx.Timeout(4, read=10), follow_redirects=True) as client:
+            async with client.stream("GET", seg_url) as resp:
+                if resp.status_code not in (200, 206):
+                    return 0
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    downloaded += len(chunk)
+        return downloaded
+    except Exception:
+        return 0
+
+
+async def _iptv_latency_jitter(url: str, samples: int = 6) -> dict:
+    """Latenz (Zeit bis erstes Byte) + Jitter (Schwankung) zum Anbieter messen.
+    Wichtig fuer Ruckeln, das NICHT von Bandbreite kommt: hohe Latenz/Jitter =
+    Stottern trotz genug Speed."""
+    import time
+    lat = []
+    for _ in range(samples):
+        try:
+            t0 = time.monotonic()
+            async with make_iptv_client(timeout=httpx.Timeout(4, read=4), follow_redirects=True) as client:
+                async with client.stream("GET", url, headers={"Range": "bytes=0-1"}) as resp:
+                    await resp.aread()
+                    if resp.status_code >= 500:
+                        continue
+            lat.append((time.monotonic() - t0) * 1000)
+        except Exception:
+            continue
+    if not lat:
+        return {"latency_ms": None, "jitter_ms": None}
+    avg = sum(lat) / len(lat)
+    jitter = (max(lat) - min(lat)) if len(lat) > 1 else 0.0
+    return {"latency_ms": round(avg, 1), "jitter_ms": round(jitter, 1)}
+
+
+async def _iptv_measure_provider(streams: int = 5, per_stream_segments: int = 3) -> dict:
+    """Zentrale IPTV-Anbieter-Messung durch das aktuelle VPN.
+
+    Nachhaltiger Parallel-Durchsatz (mehrere Segmente je Stream) + Latenz/Jitter.
+    Wird von Speedtest, VPN-Server-Vergleich und dem Hintergrund-Sampler genutzt.
+    """
+    import time
+    pool = _iptv_channel_pool(max(streams * 4, 20))
+    if not pool:
+        return {"ok": False, "error": "Kein Kanal verfügbar"}
+    chs = pool[:streams]
+    seglists = [s for s in await asyncio.gather(*[_iptv_segment_list(c, per_stream_segments) for c in chs]) if s]
+    if not seglists:
+        return {"ok": False, "error": "Keine Segmente erreichbar"}
+    lat = await _iptv_latency_jitter(seglists[0][0])
+
+    async def one_stream(seg_urls):
+        t0 = time.monotonic()
+        total = 0
+        for su in seg_urls:
+            total += await _iptv_dl_bytes(su)
+        dt = time.monotonic() - t0
+        return {"bytes": total, "mbps": (total * 8) / (dt * 1_000_000)} if dt > 0 and total > 30_000 else None
+
+    start = time.monotonic()
+    parts = await asyncio.gather(*[one_stream(sl) for sl in seglists])
+    wall = time.monotonic() - start
+    good = [p for p in parts if p]
+    if not good:
+        return {"ok": False, "error": "Keine Daten vom Anbieter", **lat}
+    rates = sorted(p["mbps"] for p in good)
+    median = rates[len(rates) // 2] if len(rates) % 2 else (rates[len(rates) // 2 - 1] + rates[len(rates) // 2]) / 2
+    total_bytes = sum(p["bytes"] for p in good)
+    return {"ok": True, "mbps": round(median, 1), "mbps_best": round(rates[-1], 1),
+            "mbps_parallel_total": round((total_bytes * 8) / (wall * 1_000_000), 1) if wall > 0 else 0,
+            "parallel": len(good), "failed": len(seglists) - len(good),
+            "server": chs[0].split("/")[2], **lat}
+
+
+# ── Hintergrund-Verlauf (Gesundheits-Stichproben) ───────────────────────────
+# Intermittierende Probleme (Anbieter zickt abends, Tunnel schwaechelt) sieht ein
+# einzelner Handtest nie. Deshalb nimmt SelfStream alle paar Minuten eine LEICHTE
+# Stichprobe (Latenz + kleiner Durchsatz + VPN-Zustand) und fuehrt einen Verlauf.
+HEALTH_SAMPLE_INTERVAL = 300     # Sekunden zwischen Stichproben (5 min)
+HEALTH_HISTORY_MAX = 288         # ~24 h Verlauf bei 5-min-Takt
+_health_history: list = []
+_health_problem_streak = 0
+
+
+async def _health_sampler():
+    """Periodische, schonende Gesundheits-Stichprobe fuer den Verlauf + Fruehwarnung.
+    Laeuft (wie die anderen Waechter) nur in EINEM Event-Loop dank Startup-Guard."""
+    global _health_problem_streak
+    import time as _t
+    await asyncio.sleep(90)   # Startup abwarten
+    while True:
+        try:
+            await asyncio.sleep(HEALTH_SAMPLE_INTERVAL)
+            vpn_on = db.get_setting("vpn_enabled", "0") == "1"
+            vpn_up = (bool(_vpn_link_connected) and bool(vpn_get_tun_ip())) if vpn_on else None
+            # Bei fast vollem Verbindungslimit NICHT zusaetzlich belasten → Sample auslassen.
+            try:
+                _cleanup_sessions()
+                active = len(_sessions)
+            except Exception:
+                active = 0
+            cap = 0
+            try:
+                provs = db.get_m3u_providers()
+                cap = max([int(p.get("line_capacity") or 0) for p in provs], default=0)
+            except Exception:
+                cap = 0
+            if cap and active >= cap - 1:
+                continue   # zu viele Zuschauer → diese Stichprobe ueberspringen
+
+            prov = await _iptv_measure_provider(streams=2, per_stream_segments=1)
+            sample = {
+                "ts": int(_t.time()),
+                "vpn_up": vpn_up,
+                "ok": bool(prov.get("ok")),
+                "mbps_total": prov.get("mbps_parallel_total"),
+                "latency_ms": prov.get("latency_ms"),
+                "jitter_ms": prov.get("jitter_ms"),
+                "failed": prov.get("failed"),
+            }
+            _health_history.append(sample)
+            if len(_health_history) > HEALTH_HISTORY_MAX:
+                _health_history.pop(0)
+
+            # Fruehwarnung: bei anhaltendem Problem in die Diagnose-Logs (Panel).
+            bad = (vpn_up is False) or (not prov.get("ok")) \
+                or (prov.get("latency_ms") is not None and prov["latency_ms"] > 400)
+            if bad:
+                _health_problem_streak += 1
+                if _health_problem_streak == 2:   # ~10 min anhaltend → melden
+                    diag_log("WARNING", "health",
+                             f"Anhaltend schwache Anbieter/VPN-Stichprobe: vpn_up={vpn_up}, "
+                             f"ok={prov.get('ok')}, latenz={prov.get('latency_ms')}ms, "
+                             f"durchsatz={prov.get('mbps_parallel_total')}Mbit/s")
+            else:
+                if _health_problem_streak >= 2:
+                    diag_log("INFO", "health", "Anbieter/VPN-Stichprobe wieder normal")
+                _health_problem_streak = 0
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"health sampler error: {e}")
+
+
+@admin_app.get("/api/health/history")
+def health_history(_=Depends(check_admin)):
+    """Verlauf der Gesundheits-Stichproben (Latenz/Durchsatz/VPN) + kurze Auswertung."""
+    hist = list(_health_history)
+    oks = [s for s in hist if s.get("ok")]
+    lats = [s["latency_ms"] for s in oks if s.get("latency_ms") is not None]
+    downs = sum(1 for s in hist if s.get("vpn_up") is False)
+    fails = sum(1 for s in hist if not s.get("ok"))
+    stats = {
+        "samples": len(hist),
+        "interval_s": HEALTH_SAMPLE_INTERVAL,
+        "avg_latency_ms": round(sum(lats) / len(lats), 1) if lats else None,
+        "max_latency_ms": max(lats) if lats else None,
+        "vpn_down_samples": downs,
+        "provider_fail_samples": fails,
+    }
+    return {"ok": True, "history": hist, "stats": stats}
 
 
 _iptv_capacity_running = False
@@ -5390,7 +5519,9 @@ async def iptv_capacity_sweep(max_streams: int = 20, _=Depends(check_admin)):
 @admin_app.get("/api/vpn/speedtest-all")
 async def vpn_speedtest_all(_=Depends(check_admin)):
     """Vergleicht ALLE hochgeladenen .ovpn: verbindet jede nacheinander und misst
-    die Internet-Geschwindigkeit durch diesen Server.
+    pro Server den **IPTV-Anbieter-Durchsatz + Latenz** (nicht den Internet-Speedtest,
+    der durchs VPN unzuverlaessig ist). Rankt nach dem, was wirklich zaehlt: wie gut
+    die Streams ueber den jeweiligen VPN-Server laufen.
 
     ACHTUNG: Es gibt nur EINEN Tunnel – waehrend des Durchlaufs sind alle Streams
     kurz unterbrochen. Der Waechter wird pausiert (``_vpn_sweep_active``), und der
@@ -5423,9 +5554,12 @@ async def vpn_speedtest_all(_=Depends(check_admin)):
                 results.append({"ovpn": name, "ok": False, "error": "Tunnel kam nicht hoch (Timeout)"})
                 _vpn_log_add(f"   {name}: Tunnel-Timeout")
                 continue
-            r = await _speedtest_measure_internet()
+            r = await _iptv_measure_provider(streams=5, per_stream_segments=2)
             results.append({"ovpn": name, **r})
-            _vpn_log_add(f"   {name}: {r['mbps']} Mbit/s" if r.get("ok") else f"   {name}: {r.get('error')}")
+            if r.get("ok"):
+                _vpn_log_add(f"   {name}: {r.get('mbps_parallel_total')} Mbit/s gesamt · Latenz {r.get('latency_ms')} ms")
+            else:
+                _vpn_log_add(f"   {name}: {r.get('error')}")
     finally:
         # Urspruenglichen Server GARANTIERT wiederherstellen – auch bei Abbruch.
         db.set_setting("vpn_ovpn_path", original)
@@ -5435,10 +5569,11 @@ async def vpn_speedtest_all(_=Depends(check_admin)):
         _vpn_sweep_active = False
         _vpn_log_add(f"✅ VPN-Vergleich fertig – wiederhergestellt: {os.path.basename(original)}")
 
-    ranked = sorted([r for r in results if r.get("ok")], key=lambda x: x.get("mbps", 0), reverse=True)
+    # Ranking nach ANBIETER-Gesamtdurchsatz (verlaesslich), nicht nach Internet-Speedtest.
+    ranked = sorted([r for r in results if r.get("ok")], key=lambda x: x.get("mbps_parallel_total", 0), reverse=True)
     return {
         "ok": True,
         "restored": os.path.basename(original),
         "fastest": ranked[0]["ovpn"] if ranked else None,
-        "results": [{**r, "streams": _speedtest_streams_estimate(r.get("mbps", 0)) if r.get("ok") else {}} for r in results],
+        "results": results,
     }

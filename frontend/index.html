@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.8</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.9</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.8</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.9</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1144,6 +1144,16 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📊 ANBIETER-KAPAZITÄT</div>
                 <div id="iptv-cap-summary" style="padding:8px 12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:12px;font-size:12px;font-family:var(--mono);"></div>
                 <div id="iptv-cap-table"></div>
+              </div>
+            </div>
+
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+              <button class="btn" id="health-btn" onclick="loadHealthHistory()">📈 Verlauf anzeigen (automatische Stichproben)</button>
+              <div class="form-hint" style="margin-top:8px;">SelfStream misst im Hintergrund alle 5&nbsp;Min automatisch Latenz + Durchsatz zum Anbieter – so siehst du intermittierende Probleme (z.B. „abends langsam"), die ein einzelner Test verpasst. Anhaltende Probleme landen zusätzlich in der Diagnose.</div>
+              <div id="health-result" style="display:none;margin-top:14px;">
+                <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📈 VERLAUF (letzte 24&nbsp;h)</div>
+                <div id="health-summary" style="padding:8px 12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:12px;font-size:12px;font-family:var(--mono);"></div>
+                <div id="health-spark"></div>
               </div>
             </div>
 
@@ -3992,8 +4002,9 @@ async function runSpeedtest() {
       document.getElementById('st-iptv-mbps').textContent = iptv.mbps;
       const tgt = iptv.target || iptv.parallel;
       const fail = iptv.failed ? ` • ${iptv.failed} ✗` : '';
+      const lat = iptv.latency_ms != null ? ` • Latenz ${iptv.latency_ms} ms (Jitter ${iptv.jitter_ms ?? '?'})` : '';
       document.getElementById('st-iptv-detail').textContent =
-        `${iptv.parallel}/${tgt} Streams gleichzeitig • gesamt ${iptv.mbps_parallel_total || '?'} Mbit/s${fail} • ${iptv.server || ''}`;
+        `${iptv.parallel}/${tgt} Streams gleichzeitig • gesamt ${iptv.mbps_parallel_total || '?'} Mbit/s${fail}${lat}`;
       document.getElementById('st-iptv-hd').textContent  = (iptv.streams?.hd_720p  || 0) + 'x';
       document.getElementById('st-iptv-fhd').textContent = (iptv.streams?.fhd_1080p|| 0) + 'x';
       document.getElementById('st-iptv-4k').textContent  = (iptv.streams?.uhd_4k   || 0) + 'x';
@@ -4032,19 +4043,20 @@ async function runSpeedtestAll() {
   tbl.innerHTML = '<div style="font-family:var(--mono);font-size:12px;color:var(--text2);">⏳ Verbinde jeden Server nacheinander und messe… das dauert 1–2 Minuten.</div>';
   try {
     const data = await api('GET', '/api/vpn/speedtest-all');
-    const rows = (data.results || []).slice().sort((a,b)=>(b.mbps||0)-(a.mbps||0));
+    const rows = (data.results || []).slice().sort((a,b)=>(b.mbps_parallel_total||0)-(a.mbps_parallel_total||0));
     const nice = f => (f||'').replace(/^my_expressvpn_/,'').replace(/_udp\.ovpn$/,'').replace(/\.ovpn$/,'').replace(/_/g,' ');
     let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-    html += '<tr style="color:var(--text2);text-align:left;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Server</th><th style="padding:6px 8px;text-align:right;">Mbit/s</th><th style="padding:6px 8px;text-align:right;">4K-Streams</th></tr>';
+    html += '<tr style="color:var(--text2);text-align:left;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Server</th><th style="padding:6px 8px;text-align:right;">Anbieter Mbit/s</th><th style="padding:6px 8px;text-align:right;">Latenz</th></tr>';
     rows.forEach((r, i) => {
       const isFastest = r.ok && nice(r.ovpn) === nice(data.fastest);
       const label = nice(r.ovpn);
       if (r.ok) {
+        const lat = r.latency_ms != null ? `${r.latency_ms} ms` : '–';
         html += `<tr style="border-top:1px solid var(--border);${isFastest?'background:rgba(0,229,200,.08);':''}">`
           + `<td style="padding:6px 8px;">${isFastest?'🏆':(i+1)}</td>`
           + `<td style="padding:6px 8px;color:${isFastest?'var(--teal)':'inherit'};font-weight:${isFastest?'600':'400'};">${label}</td>`
-          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--teal);">${r.mbps}</td>`
-          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--text2);">${r.streams?.uhd_4k ?? '–'}x</td></tr>`;
+          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--teal);">${r.mbps_parallel_total ?? '?'}</td>`
+          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--text2);">${lat}</td></tr>`;
       } else {
         html += `<tr style="border-top:1px solid var(--border);color:var(--text2);">`
           + `<td style="padding:6px 8px;">✗</td>`
@@ -4110,6 +4122,48 @@ async function runIptvCapacity() {
   }
   btn.disabled = false;
   btn.textContent = '📊 Anbieter-Kapazität testen (1–20 Streams)';
+}
+
+async function loadHealthHistory() {
+  const btn = document.getElementById('health-btn');
+  const box = document.getElementById('health-result');
+  const sum = document.getElementById('health-summary');
+  const spark = document.getElementById('health-spark');
+  btn.disabled = true;
+  box.style.display = 'block';
+  sum.textContent = '⏳ Lade Verlauf…';
+  spark.innerHTML = '';
+  try {
+    const data = await api('GET', '/api/health/history');
+    const st = data.stats || {};
+    const hist = data.history || [];
+    if (!hist.length) {
+      sum.style.color = 'var(--text2)';
+      sum.textContent = 'Noch keine Stichproben gesammelt – die erste kommt ein paar Minuten nach dem Start. Schau in ~5–10 Min wieder rein.';
+    } else {
+      const problems = (st.vpn_down_samples || 0) + (st.provider_fail_samples || 0);
+      sum.style.color = problems ? '#f0b400' : 'var(--teal)';
+      sum.textContent = `${st.samples} Stichproben · Ø Latenz ${st.avg_latency_ms ?? '?'} ms (max ${st.max_latency_ms ?? '?'}) · `
+        + (problems ? `⚠️ ${st.vpn_down_samples} × VPN weg, ${st.provider_fail_samples} × Anbieter-Ausfall` : '✅ keine Ausfälle im Zeitraum');
+      // Sparkline: ein Balken je Stichprobe, Farbe nach Zustand, Hoehe nach Latenz
+      const maxLat = Math.max(60, ...hist.map(s => s.latency_ms || 0));
+      const bars = hist.slice(-96).map(s => {
+        let col = 'var(--teal)';
+        if (s.vpn_up === false || !s.ok) col = '#ef4444';
+        else if (s.latency_ms != null && s.latency_ms > 250) col = '#f0b400';
+        const h = s.latency_ms != null ? Math.max(3, Math.round((s.latency_ms / maxLat) * 40)) : 3;
+        const t = new Date(s.ts * 1000).toLocaleTimeString('de-DE', {hour:'2-digit',minute:'2-digit'});
+        const tip = `${t} · ${s.ok ? (s.mbps_total ?? '?') + ' Mbit/s, ' + (s.latency_ms ?? '?') + ' ms' : 'Ausfall'}${s.vpn_up===false?' · VPN weg':''}`;
+        return `<div title="${tip}" style="width:5px;height:${h}px;background:${col};border-radius:1px;"></div>`;
+      }).join('');
+      spark.innerHTML = `<div style="display:flex;align-items:flex-end;gap:2px;height:44px;overflow-x:auto;padding:4px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">${bars}</div>`
+        + `<div style="margin-top:6px;font-size:11px;color:var(--text2);">Balkenhöhe = Latenz · Grün = ok · Gelb = hohe Latenz · Rot = VPN weg / Anbieter-Ausfall (fahr mit der Maus über einen Balken)</div>`;
+    }
+  } catch(e) {
+    sum.style.color = '#ef4444';
+    sum.textContent = 'Fehler: ' + (e.message || e);
+  }
+  btn.disabled = false;
 }
 
 async function vpnRefreshStatus() {

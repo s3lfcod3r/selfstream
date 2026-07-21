@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.9
+
+### Verbesserungen
+- **VPN-Server-Vergleich rankt jetzt sinnvoll:** Vorher verglich er die Server über
+  den Internet-Speedtest – der ist durchs VPN aber unzuverlässig (gedrosselte/
+  blockierte VPN-IPs), die Rangliste war also kaum aussagekräftig. Jetzt misst er
+  pro Server den **IPTV-Anbieter-Durchsatz + Latenz** und rankt danach – also genau
+  danach, wie gut deine Streams über den jeweiligen Server laufen.
+- **Latenz & Jitter werden gemessen:** Ruckeln kommt oft nicht von zu wenig
+  Bandbreite, sondern von hoher Latenz oder Schwankung. Der IPTV-Test zeigt jetzt
+  **Latenz + Jitter** zum Anbieter und warnt bei unruhiger Verbindung („kann trotz
+  genug Speed ruckeln").
+- **Stabilere Messung:** Der IPTV-Test misst pro Stream über **mehrere Segmente**
+  statt eines einzigen winzigen Häppchens (das in <1 s durch war) – die Werte
+  schwanken dadurch deutlich weniger.
+- **Automatischer Verlauf + Frühwarnung:** SelfStream nimmt im Hintergrund alle
+  5 Minuten eine **leichte Stichprobe** (Latenz, Durchsatz, VPN-Zustand) und führt
+  einen **Verlauf über 24 h** – so werden **intermittierende** Probleme sichtbar
+  (z.B. „abends langsam"), die ein einzelner Handtest verpasst. Neuer Knopf
+  „Verlauf anzeigen" mit einer Balken-Grafik; anhaltende Probleme landen zusätzlich
+  in der Diagnose. Die Stichprobe wird bei fast vollem Verbindungslimit ausgelassen,
+  um Zuschauer nicht zu stören.
+
 ## v1.8
 
 ### Funktionen

@@ -96,6 +96,15 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.9)
+
+- **VPN server comparison now ranks meaningfully** – It used to compare servers via the internet speedtest, which is unreliable through a VPN (throttled/blocked VPN IPs). It now measures **IPTV provider throughput + latency** per server and ranks by that — i.e. by how well your streams actually run over each server.
+- **Latency & jitter** – Stutter often comes from latency/jitter, not bandwidth. The IPTV test now reports **latency + jitter** to the provider and warns on an unstable connection.
+- **Steadier measurement** – The IPTV test now measures each stream over **several segments** instead of one tiny chunk that finished in under a second, so results are far less noisy.
+- **Automatic history + early warning** – SelfStream takes a light background sample (latency, throughput, VPN state) every 5 minutes and keeps a **24 h history**, so **intermittent** problems become visible (e.g. "slow in the evenings") that a one-off test misses. New "Show history" button with a bar chart; sustained problems are also logged to diagnostics. Samples are skipped when the connection limit is nearly full, to avoid disturbing viewers.
+
+---
+
 ## What's New (July 2026 – v1.8)
 
 - **Provider capacity test (1–20 streams)** – New button in the speedtest. Measures the IPTV provider at **increasing concurrency** (1, 2, 4, 8, 12, 16, 20) and shows in a table how per-stream throughput develops and **at what point failures start** — which directly reveals your **subscription's connection limit** (the level where streams begin to fail) and the point where per-stream bandwidth drops below Full-HD. Green = smooth, yellow = HD only, red = failure. A deliberate button with a warning, since it briefly uses up to 20 provider connections and can disturb active viewers.
@@ -540,6 +549,15 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.9)
+
+- **VPN-Server-Vergleich rankt jetzt sinnvoll** – Vorher über den Internet-Speedtest (durchs VPN unzuverlässig). Jetzt misst er pro Server **IPTV-Anbieter-Durchsatz + Latenz** und rankt danach, wie gut deine Streams über den Server laufen.
+- **Latenz & Jitter** – Ruckeln kommt oft von Latenz/Jitter, nicht von Bandbreite. Der IPTV-Test zeigt jetzt Latenz + Jitter und warnt bei unruhiger Verbindung.
+- **Stabilere Messung** – Der IPTV-Test misst pro Stream über mehrere Segmente statt eines winzigen Häppchens – weniger Rauschen.
+- **Automatischer Verlauf + Frühwarnung** – Hintergrund-Stichprobe alle 5 Min (Latenz, Durchsatz, VPN-Zustand), 24-h-Verlauf → intermittierende Probleme werden sichtbar. Knopf „Verlauf anzeigen" mit Balkengrafik; anhaltende Probleme zusätzlich in der Diagnose. Stichprobe wird bei fast vollem Verbindungslimit ausgelassen.
 
 ---
 
