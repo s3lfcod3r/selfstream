@@ -391,6 +391,7 @@ async def startup():
     _track_background_task(asyncio.create_task(_catchup_epg_watchdog()))
     _track_background_task(asyncio.create_task(_live_epg_watchdog()))
     _track_background_task(asyncio.create_task(_health_sampler()))
+    _track_background_task(asyncio.create_task(_server_watch()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -5543,6 +5544,129 @@ async def iptv_capacity_sweep(max_streams: int = 20, _=Depends(check_admin)):
             "first_fail": first_fail, "max_fhd": max_fhd, "summary": summary}
 
 
+async def _iptv_probe_server(sample_url: str, host: str, cur_host: str = "") -> dict:
+    """Einen Anbieter-Server pruefen: Host in eine echte Kanal-URL einsetzen,
+    Erreichbarkeit + Latenz + kurzen Durchsatz messen. Modul-Ebene, damit sowohl
+    der Server-Vergleich als auch der Hintergrund-Waechter ihn nutzen koennen."""
+    u = urllib.parse.urlsplit(sample_url)
+    test_url = urllib.parse.urlunsplit((u.scheme, host, u.path, u.query, u.fragment))
+    try:
+        async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
+            r = await client.get(test_url)
+        if r.status_code != 200 or "#EXT" not in r.text:
+            return {"host": host, "ok": False, "error": f"HTTP {r.status_code}"}
+    except Exception as e:
+        return {"host": host, "ok": False, "error": str(e)[:40]}
+    seg = await _iptv_segment_list(test_url, 1)
+    lat = await _iptv_latency_jitter(seg[0] if seg else test_url, samples=6)
+    mbps = None
+    if seg:
+        import time as _t
+        t0 = _t.monotonic()
+        b = await _iptv_dl_bytes(seg[0])
+        dt = _t.monotonic() - t0
+        if b > 30_000 and dt > 0:
+            mbps = round((b * 8) / (dt * 1_000_000), 1)
+    return {"host": host, "ok": True, "latency_ms": lat.get("latency_ms"),
+            "jitter_ms": lat.get("jitter_ms"), "mbps": mbps, "current": host == cur_host}
+
+
+def _iptv_discovery_hosts(base: str, known_hosts: list, extra: int = 5) -> list:
+    """Nummerierte Kandidaten ueber die hoechste bekannte Nummer hinaus – um NEUE
+    Server automatisch zu entdecken (generisch: ``<n>.<base>``). Leer, wenn es keine
+    nummerierten Server gibt (dann kein sinnvolles Raten moeglich)."""
+    max_num = 0
+    for h in known_hosts:
+        lbl = h.split(".")[0]
+        if lbl.isdigit():
+            max_num = max(max_num, int(lbl))
+    if max_num == 0:
+        return []
+    return [f"{n}.{base}" for n in range(1, max_num + extra + 1)]
+
+
+def _iptv_registry_update(results: list) -> list:
+    """Server-Register pflegen (Setting ``iptv_server_registry``, JSON): je Host
+    first_seen/last_seen/latency. Gibt die ERSTMALS gesehenen Hosts zurueck (= neu
+    entdeckte Server). Beim allerersten Lauf (leeres Register) wird NICHTS als neu
+    gemeldet – nur befuellt."""
+    import time as _t
+    now = int(_t.time())
+    try:
+        reg = json.loads(db.get_setting("iptv_server_registry", "") or "{}")
+    except Exception:
+        reg = {}
+    was_empty = not reg
+    new_hosts = []
+    for r in results:
+        if not r.get("ok"):
+            continue
+        h = r["host"]
+        if h not in reg:
+            reg[h] = {"first_seen": now, "last_seen": now, "latency_ms": r.get("latency_ms")}
+            new_hosts.append(h)
+        else:
+            reg[h]["last_seen"] = now
+            if r.get("latency_ms") is not None:
+                reg[h]["latency_ms"] = r.get("latency_ms")
+    db.set_setting("iptv_server_registry", json.dumps(reg))
+    return [] if was_empty else new_hosts
+
+
+SERVER_WATCH_INTERVAL = 24 * 3600   # taeglich nach neuen Anbieter-Servern schauen
+
+
+async def _server_watch():
+    """Prueft periodisch die bekannten + ein paar nummerierte NEUE Server und meldet
+    neu entdeckte in die Diagnose-Logs (Hinweis fuer den Nutzer). Laeuft nur in EINEM
+    Event-Loop (Startup-Guard), schonend, laesst bei fast vollem Verbindungslimit aus."""
+    await asyncio.sleep(600)   # 10 min nach Start
+    while True:
+        try:
+            await asyncio.sleep(SERVER_WATCH_INTERVAL)
+            pool = _iptv_channel_pool(3)
+            if not pool:
+                continue
+            sample = pool[0]
+            u = urllib.parse.urlsplit(sample)
+            cur_host = u.netloc
+            base = ".".join(cur_host.split(".")[1:]) if "." in cur_host else cur_host
+            raw = db.get_setting("iptv_compare_servers", "") or ""
+            conf = []
+            for e in re.split(r"[\s,;\n]+", raw):
+                e = e.strip()
+                if not e or "://" in e:
+                    continue
+                conf.append(e if "." in e else f"{e}.{base}")
+            cand = list(dict.fromkeys([cur_host] + conf + _iptv_discovery_hosts(base, [cur_host] + conf)))
+            if len(cand) < 2:
+                continue
+            # Verbindungslimit-Guard
+            try:
+                _cleanup_sessions()
+                active = len(_sessions)
+            except Exception:
+                active = 0
+            cap = 0
+            try:
+                cap = max([int(p.get("line_capacity") or 0) for p in db.get_m3u_providers()], default=0)
+            except Exception:
+                cap = 0
+            if cap and active >= cap - 1:
+                continue
+            results = []
+            for i in range(0, len(cand), 3):
+                results.extend(await asyncio.gather(*[_iptv_probe_server(sample, h, cur_host) for h in cand[i:i + 3]]))
+            new_hosts = _iptv_registry_update(results)
+            if new_hosts:
+                names = ", ".join(h.split(".")[0] for h in new_hosts)
+                diag_log("INFO", "iptv", f"🆕 Neue(r) Anbieter-Server entdeckt: {names} — im Server-Vergleich testen.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"server watch error: {e}")
+
+
 _iptv_srvcmp_running = False
 
 
@@ -5596,30 +5720,6 @@ async def iptv_server_compare(_=Depends(check_admin)):
     cur_host = u.netloc
     base = ".".join(cur_host.split(".")[1:]) if "." in cur_host else cur_host
 
-    async def probe_host(host: str) -> dict:
-        test_url = urllib.parse.urlunsplit((u.scheme, host, u.path, u.query, u.fragment))
-        # Erreichbar + gueltige Playlist?
-        try:
-            async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
-                r = await client.get(test_url)
-            if r.status_code != 200 or "#EXT" not in r.text:
-                return {"host": host, "ok": False, "error": f"HTTP {r.status_code}"}
-        except Exception as e:
-            return {"host": host, "ok": False, "error": str(e)[:40]}
-        seg = await _iptv_segment_list(test_url, 1)
-        lat = await _iptv_latency_jitter(seg[0] if seg else test_url, samples=6)
-        mbps = None
-        if seg:
-            import time as _t
-            t0 = _t.monotonic()
-            b = await _iptv_dl_bytes(seg[0])
-            dt = _t.monotonic() - t0
-            if b > 30_000 and dt > 0:
-                mbps = round((b * 8) / (dt * 1_000_000), 1)
-        return {"host": host, "ok": True, "latency_ms": lat.get("latency_ms"),
-                "jitter_ms": lat.get("jitter_ms"), "mbps": mbps,
-                "current": host == cur_host}
-
     # Kandidaten aus der EIGENEN Eintragsliste bauen. Jeder Eintrag darf sein:
     #  - eine KOMPLETTE Domain/Host   (z.B. de.example.net)      → 1:1 genutzt
     #  - eine ganze URL               (https://de.example.net/…) → Host extrahiert
@@ -5637,6 +5737,9 @@ async def iptv_server_compare(_=Depends(check_admin)):
     raw = db.get_setting("iptv_compare_servers", "") or ""
     entries = [h for h in (_entry_to_host(e) for e in re.split(r"[\s,;\n]+", raw) if e.strip()) if h]
     hosts = [cur_host] + entries
+    # Auto-Discovery: nummerierte Server ueber die hoechste bekannte Nummer hinaus
+    # mit aufnehmen, um NEUE Server automatisch zu finden.
+    hosts += _iptv_discovery_hosts(base, hosts)
     seen, cand = set(), []
     for h in hosts:
         if h and h not in seen:
@@ -5652,9 +5755,12 @@ async def iptv_server_compare(_=Depends(check_admin)):
         # In kleinen Gruppen, um nicht viele Verbindungen gleichzeitig zu oeffnen.
         for i in range(0, len(cand), 4):
             batch = cand[i:i + 4]
-            results.extend(await asyncio.gather(*[probe_host(h) for h in batch]))
+            results.extend(await asyncio.gather(*[_iptv_probe_server(sample, h, cur_host) for h in batch]))
     finally:
         _iptv_srvcmp_running = False
+
+    # Server-Register pflegen + neu entdeckte Server ermitteln.
+    new_hosts = _iptv_registry_update(results)
 
     usable = [r for r in results if r.get("ok") and r.get("latency_ms") is not None]
     usable.sort(key=lambda x: x["latency_ms"])
@@ -5674,7 +5780,8 @@ async def iptv_server_compare(_=Depends(check_admin)):
         summary = "Keine verwertbaren Server gefunden."
 
     return {"ok": True, "current_host": cur_host, "best": best["host"] if best else None,
-            "summary": summary, "results": results}
+            "summary": summary, "results": results,
+            "new_servers": [h.split(".")[0] for h in new_hosts]}
 
 
 @admin_app.get("/api/vpn/speedtest-all")

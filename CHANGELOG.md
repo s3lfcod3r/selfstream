@@ -1,6 +1,16 @@
 # Changelog
 
-## v1.15
+## v1.16
+
+### Funktionen
+- **Neue Anbieter-Server automatisch entdecken:** SelfStream führt jetzt ein
+  **Server-Register** (welche Server schon gesehen wurden) und sucht **automatisch
+  nach neuen**: Beim Server-Vergleich und einmal täglich im Hintergrund werden auch
+  nummerierte Server **über die höchste bekannte Nummer hinaus** geprobt. Taucht ein
+  neuer Server auf, gibt es einen Hinweis – im Server-Vergleich als **„🆕 Neu
+  entdeckt: …"**-Banner und zusätzlich in der Diagnose (Frühwarnung). So verpasst du
+  keinen neuen, evtl. schnelleren Server. Generisch (keine anbieterspezifischen
+  Server im Code); der Hintergrund-Check lässt bei fast vollem Verbindungslimit aus.
 
 ### Funktionen
 - **Bevorzugter Server erzwingen:** Neues Feld im Server-Vergleich. Trägst du dort

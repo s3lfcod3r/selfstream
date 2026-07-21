@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.16)
+
+- **Auto-discover new provider servers** – SelfStream now keeps a **server registry** (which servers it has seen) and **looks for new ones automatically**: the server comparison and a daily background check also probe numbered servers **beyond the highest known number**. When a new server appears you get a hint — a **"🆕 newly discovered: …"** banner in the comparison and an entry in diagnostics. So you won't miss a new, possibly faster server. Generic (no provider-specific servers in code); the background check skips when the connection limit is nearly full.
+
+---
+
 ## What's New (July 2026 – v1.15)
 
 - **Force a preferred server** – New field in the server comparison. Enter a server (e.g. `6` or `6.example.net`) and SelfStream rewrites **all channels to that server** at play time — regardless of which server the provider playlist hands out. This lets you move to a lower-latency server even if your provider panel doesn't allow it (the token is preserved). Takes effect **immediately** and, thanks to the stable channel ids (`/live`), **without reloading devices**. Empty = off. Live only; catchup is untouched.
@@ -585,6 +591,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.16)
+
+- **Neue Anbieter-Server automatisch entdecken** – SelfStream führt ein **Server-Register** und sucht **automatisch nach neuen**: Server-Vergleich + täglicher Hintergrund-Check proben auch nummerierte Server **über die höchste bekannte Nummer hinaus**. Neuer Server → Hinweis („🆕 Neu entdeckt: …"-Banner + Diagnose). Generisch, keine Anbieter-Namen im Code; Hintergrund-Check lässt bei vollem Verbindungslimit aus.
 
 ---
 
