@@ -1,6 +1,16 @@
 # Changelog
 
-## v1.16
+## v1.17
+
+### Funktionen
+- **Automatisch auf den besten Server umschalten:** Neu im „Bevorzugter Server"-
+  Kasten. **Knopf „🎯 Jetzt besten Server suchen & wechseln"** prüft sofort alle
+  Server und setzt den bevorzugten auf den latenzärmsten. Dazu eine **Automatik**:
+  aktivierbar per Häkchen, mit **einstellbarem Intervall** (alle X Stunden, 1–168) –
+  SelfStream sucht dann selbstständig regelmäßig den besten Server und schaltet um.
+  Automatisch wird nur bei **deutlicher** Verbesserung gewechselt (>30 % weniger
+  Latenz), damit kein ständiges Hin-und-Her entsteht; per Knopf immer auf den
+  Besten. Jede Umschaltung steht in der Diagnose.
 
 ### Funktionen
 - **Neue Anbieter-Server automatisch entdecken:** SelfStream führt jetzt ein

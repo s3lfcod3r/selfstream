@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.17)
+
+- **Auto-switch to the best server** – New in the "preferred server" box. A **"🎯 Find & switch to the best server now"** button checks all servers immediately and sets the preferred one to the lowest-latency server. Plus an **automatic mode**: enable via checkbox with a **configurable interval** (every X hours, 1–168) — SelfStream then regularly finds the best server and switches on its own. Automatic switching only happens on a **clear** improvement (>30% lower latency) to avoid flip-flopping; the button always switches to the best. Every switch is logged to diagnostics.
+
+---
+
 ## What's New (July 2026 – v1.16)
 
 - **Auto-discover new provider servers** – SelfStream now keeps a **server registry** (which servers it has seen) and **looks for new ones automatically**: the server comparison and a daily background check also probe numbered servers **beyond the highest known number**. When a new server appears you get a hint — a **"🆕 newly discovered: …"** banner in the comparison and an entry in diagnostics. So you won't miss a new, possibly faster server. Generic (no provider-specific servers in code); the background check skips when the connection limit is nearly full.
@@ -591,6 +597,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.17)
+
+- **Automatisch auf den besten Server umschalten** – Neu im „Bevorzugter Server"-Kasten. Knopf **„🎯 Jetzt besten Server suchen & wechseln"** prüft sofort alle Server und setzt den bevorzugten auf den latenzärmsten. Dazu eine **Automatik** (Häkchen) mit **einstellbarem Intervall** (alle X Stunden, 1–168): SelfStream sucht regelmäßig selbst den besten Server und schaltet um. Automatisch nur bei **deutlicher** Verbesserung (>30 % weniger Latenz), kein Hin-und-Her; per Knopf immer auf den Besten. Umschaltungen stehen in der Diagnose.
 
 ---
 

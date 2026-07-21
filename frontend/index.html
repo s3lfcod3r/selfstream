@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.16</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.17</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.16</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.17</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1159,6 +1159,22 @@ tr:hover td{background:rgba(255,255,255,.02);}
                   <button class="btn" id="pref-off" onclick="clearPreferredServer()">Aus</button>
                 </div>
                 <div id="pref-status" style="margin-top:6px;font-size:11px;color:var(--text2);"></div>
+
+                <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--border);">
+                  <button class="btn primary" id="autoswitch-now" onclick="autoSwitchNow()">🎯 Jetzt besten Server suchen &amp; wechseln</button>
+                  <div id="autoswitch-now-status" style="margin-top:6px;font-size:11px;color:var(--text2);"></div>
+                  <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;cursor:pointer;">
+                    <input type="checkbox" id="autoswitch-enabled" style="accent-color:var(--teal);">
+                    <span>Automatisch regelmäßig auf den besten Server umschalten</span>
+                  </label>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                    <span style="font-size:12px;color:var(--text2);">alle</span>
+                    <input type="number" id="autoswitch-hours" min="1" max="168" value="24" style="width:70px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+                    <span style="font-size:12px;color:var(--text2);">Stunden prüfen</span>
+                    <button class="btn" id="autoswitch-save" onclick="saveAutoSwitch()">💾 Speichern</button>
+                  </div>
+                  <div class="form-hint" style="margin-top:6px;">Automatisch wird nur gewechselt, wenn ein Server <strong>deutlich</strong> schneller ist (kein ständiges Hin-und-Her). Umschaltungen stehen in der Diagnose.</div>
+                </div>
               </div>
             </div>
 
@@ -4261,6 +4277,56 @@ async function clearPreferredServer() {
   await savePreferredServer();
 }
 
+let _autoSwLoaded = false;
+async function loadAutoSwitch() {
+  const chk = document.getElementById('autoswitch-enabled');
+  if (!chk || _autoSwLoaded) return;
+  _autoSwLoaded = true;
+  try {
+    const d = await api('GET', '/api/iptv/auto-switch');
+    chk.checked = !!d.enabled;
+    const h = document.getElementById('autoswitch-hours');
+    if (h && d.hours) h.value = d.hours;
+  } catch(e) {}
+}
+async function saveAutoSwitch() {
+  const enabled = document.getElementById('autoswitch-enabled').checked;
+  const hours = parseInt(document.getElementById('autoswitch-hours').value) || 24;
+  const btn = document.getElementById('autoswitch-save');
+  btn.disabled = true;
+  try {
+    const d = await api('POST', '/api/iptv/auto-switch', {enabled, hours});
+    if (typeof showToast === 'function') showToast(d.enabled ? `Auto-Umschaltung an (alle ${d.hours} h)` : 'Auto-Umschaltung aus');
+  } catch(e) { if (typeof showToast === 'function') showToast('Fehlgeschlagen: '+(e.message||e), true); }
+  btn.disabled = false;
+}
+async function autoSwitchNow() {
+  const btn = document.getElementById('autoswitch-now');
+  const st = document.getElementById('autoswitch-now-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ Suche besten Server…';
+  st.style.color = 'var(--text2)';
+  st.textContent = 'Teste alle Server durch dein VPN…';
+  try {
+    const d = await api('POST', '/api/iptv/auto-switch-now');
+    if (d.switched) {
+      st.style.color = 'var(--teal)';
+      st.innerHTML = `✅ Gewechselt auf <strong>${d.to}</strong> (${d.latency_ms} ms) – vorher ${d.from}${d.from_latency_ms!=null?` (${d.from_latency_ms} ms)`:''}.`;
+      const pi = document.getElementById('pref-input'); if (pi) pi.value = d.to;
+      if (typeof renderPrefStatus === 'function') renderPrefStatus(d.to);
+    } else {
+      st.style.color = 'var(--text2)';
+      st.textContent = `Kein Wechsel: ${d.reason}${d.current?` (aktuell ${d.current}${d.latency_ms!=null?`, ${d.latency_ms} ms`:''})`:''}.`;
+    }
+    if (typeof showToast === 'function') showToast(d.switched ? `Gewechselt auf Server ${d.to}` : 'Kein Wechsel nötig');
+  } catch(e) {
+    st.style.color = '#ef4444';
+    st.textContent = 'Fehler: ' + (e.message||e);
+  }
+  btn.disabled = false;
+  btn.textContent = '🎯 Jetzt besten Server suchen & wechseln';
+}
+
 async function loadHealthHistory() {
   const btn = document.getElementById('health-btn');
   const box = document.getElementById('health-result');
@@ -4306,6 +4372,7 @@ async function loadHealthHistory() {
 async function vpnRefreshStatus() {
   loadCompareServers();
   loadPreferredServer();
+  loadAutoSwitch();
   const s = await api('GET', '/api/vpn/status');
   if (!s) return;
   const dot  = document.getElementById('vpn-status-dot');

@@ -5613,54 +5613,105 @@ def _iptv_registry_update(results: list) -> list:
     return [] if was_empty else new_hosts
 
 
-SERVER_WATCH_INTERVAL = 24 * 3600   # taeglich nach neuen Anbieter-Servern schauen
+def _iptv_near_limit() -> bool:
+    """True, wenn das Verbindungslimit fast voll ist (dann keine Probe-Last erzeugen)."""
+    try:
+        _cleanup_sessions()
+        active = len(_sessions)
+    except Exception:
+        active = 0
+    try:
+        cap = max([int(p.get("line_capacity") or 0) for p in db.get_m3u_providers()], default=0)
+    except Exception:
+        cap = 0
+    return bool(cap and active >= cap - 1)
+
+
+async def _iptv_run_server_probe(batch: int = 4):
+    """Konfigurierte + auto-entdeckte Server proben. Gibt (results, cur_host, base)
+    zurueck. Genutzt vom Hintergrund-Waechter und der Auto-Umschaltung."""
+    pool = _iptv_channel_pool(5)
+    if not pool:
+        return [], "", ""
+    sample = pool[0]
+    u = urllib.parse.urlsplit(sample)
+    cur_host = u.netloc
+    base = ".".join(cur_host.split(".")[1:]) if "." in cur_host else cur_host
+    raw = db.get_setting("iptv_compare_servers", "") or ""
+    conf = []
+    for e in re.split(r"[\s,;\n]+", raw):
+        e = e.strip()
+        if not e:
+            continue
+        if "://" in e:
+            e = urllib.parse.urlsplit(e).netloc or e
+        e = e.split("/")[0].strip().strip(".")
+        if e:
+            conf.append(e if "." in e else f"{e}.{base}")
+    cand = list(dict.fromkeys([cur_host] + conf + _iptv_discovery_hosts(base, [cur_host] + conf)))
+    results = []
+    for i in range(0, len(cand), batch):
+        results.extend(await asyncio.gather(*[_iptv_probe_server(sample, h, cur_host) for h in cand[i:i + batch]]))
+    return results, cur_host, base
+
+
+def _iptv_do_auto_switch(results: list, cur_host: str, base: str, force: bool = False) -> dict:
+    """Besten (latenzaermsten) Server aus den Ergebnissen waehlen und den bevorzugten
+    Server darauf setzen. ``force`` (Knopf) = immer auf den Besten. Sonst (automatisch)
+    nur bei klarer Verbesserung (>30% weniger Latenz) oder wenn der aktuelle Server
+    unbrauchbar ist – verhindert staendiges Hin-und-Her."""
+    usable = sorted([r for r in results if r.get("ok") and r.get("latency_ms") is not None],
+                    key=lambda x: x["latency_ms"])
+    if not usable:
+        return {"switched": False, "reason": "kein nutzbarer Server"}
+    best = usable[0]
+    pref = (db.get_setting("iptv_preferred_server", "") or "").strip()
+    eff_host = (pref if "." in pref else f"{pref}.{base}") if pref else cur_host
+    eff = next((r for r in results if r["host"] == eff_host), None)
+    eff_lat = eff["latency_ms"] if eff and eff.get("ok") and eff.get("latency_ms") is not None else None
+    best_label = best["host"].split(".")[0]
+    already = (best["host"] == eff_host)
+    clearly_better = (eff_lat is None) or (best["latency_ms"] < eff_lat * 0.7)
+    if already and not force:
+        return {"switched": False, "reason": "bester Server ist schon aktiv",
+                "current": best_label, "latency_ms": best["latency_ms"]}
+    if not force and not clearly_better:
+        return {"switched": False, "reason": "aktueller Server ist schon nah dran",
+                "current": eff_host.split(".")[0], "best": best_label,
+                "best_latency_ms": best["latency_ms"], "current_latency_ms": eff_lat}
+    db.set_setting("iptv_preferred_server", best_label)
+    prev = eff_host.split(".")[0]
+    diag_log("INFO", "iptv",
+             f"⚡ Auto-Umschaltung auf Server {best_label} ({best['latency_ms']} ms) "
+             f"– vorher {prev}" + (f" ({eff_lat} ms)" if eff_lat is not None else " (unbrauchbar)"))
+    return {"switched": True, "to": best_label, "latency_ms": best["latency_ms"],
+            "from": prev, "from_latency_ms": eff_lat}
 
 
 async def _server_watch():
-    """Prueft periodisch die bekannten + ein paar nummerierte NEUE Server und meldet
-    neu entdeckte in die Diagnose-Logs (Hinweis fuer den Nutzer). Laeuft nur in EINEM
+    """Prueft periodisch die bekannten + nummerierte NEUE Server: meldet neu entdeckte
+    (Diagnose) und schaltet – wenn aktiviert – automatisch auf den besten Server um.
+    Intervall einstellbar (Setting ``iptv_autocheck_hours``). Laeuft nur in EINEM
     Event-Loop (Startup-Guard), schonend, laesst bei fast vollem Verbindungslimit aus."""
     await asyncio.sleep(600)   # 10 min nach Start
     while True:
         try:
-            await asyncio.sleep(SERVER_WATCH_INTERVAL)
-            pool = _iptv_channel_pool(3)
-            if not pool:
-                continue
-            sample = pool[0]
-            u = urllib.parse.urlsplit(sample)
-            cur_host = u.netloc
-            base = ".".join(cur_host.split(".")[1:]) if "." in cur_host else cur_host
-            raw = db.get_setting("iptv_compare_servers", "") or ""
-            conf = []
-            for e in re.split(r"[\s,;\n]+", raw):
-                e = e.strip()
-                if not e or "://" in e:
-                    continue
-                conf.append(e if "." in e else f"{e}.{base}")
-            cand = list(dict.fromkeys([cur_host] + conf + _iptv_discovery_hosts(base, [cur_host] + conf)))
-            if len(cand) < 2:
-                continue
-            # Verbindungslimit-Guard
             try:
-                _cleanup_sessions()
-                active = len(_sessions)
+                hrs = max(1, int(db.get_setting("iptv_autocheck_hours", "24") or 24))
             except Exception:
-                active = 0
-            cap = 0
-            try:
-                cap = max([int(p.get("line_capacity") or 0) for p in db.get_m3u_providers()], default=0)
-            except Exception:
-                cap = 0
-            if cap and active >= cap - 1:
+                hrs = 24
+            await asyncio.sleep(hrs * 3600)
+            if _iptv_near_limit():
                 continue
-            results = []
-            for i in range(0, len(cand), 3):
-                results.extend(await asyncio.gather(*[_iptv_probe_server(sample, h, cur_host) for h in cand[i:i + 3]]))
+            results, cur_host, base = await _iptv_run_server_probe(batch=3)
+            if len(results) < 2:
+                continue
             new_hosts = _iptv_registry_update(results)
             if new_hosts:
                 names = ", ".join(h.split(".")[0] for h in new_hosts)
                 diag_log("INFO", "iptv", f"🆕 Neue(r) Anbieter-Server entdeckt: {names} — im Server-Vergleich testen.")
+            if db.get_setting("iptv_auto_switch", "0") == "1":
+                _iptv_do_auto_switch(results, cur_host, base, force=False)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -5693,6 +5744,45 @@ def set_preferred_server(body: dict, _=Depends(check_admin)):
     db.set_setting("iptv_preferred_server", val)
     logger.info(f"Preferred IPTV server set to: {val or '(aus)'}")
     return {"ok": True, "server": val}
+
+
+@admin_app.get("/api/iptv/auto-switch")
+def get_auto_switch(_=Depends(check_admin)):
+    """Konfiguration der automatischen Server-Umschaltung."""
+    try:
+        hrs = int(db.get_setting("iptv_autocheck_hours", "24") or 24)
+    except Exception:
+        hrs = 24
+    return {"enabled": db.get_setting("iptv_auto_switch", "0") == "1", "hours": hrs}
+
+
+@admin_app.post("/api/iptv/auto-switch")
+def set_auto_switch(body: dict, _=Depends(check_admin)):
+    db.set_setting("iptv_auto_switch", "1" if body.get("enabled") else "0")
+    try:
+        hrs = max(1, min(168, int(body.get("hours") or 24)))
+    except Exception:
+        hrs = 24
+    db.set_setting("iptv_autocheck_hours", str(hrs))
+    return {"ok": True, "enabled": db.get_setting("iptv_auto_switch", "0") == "1", "hours": hrs}
+
+
+@admin_app.post("/api/iptv/auto-switch-now")
+async def auto_switch_now(_=Depends(check_admin)):
+    """Sofort den besten Server suchen und den bevorzugten Server darauf setzen (Knopf)."""
+    global _iptv_srvcmp_running
+    if _iptv_srvcmp_running:
+        raise HTTPException(status_code=409, detail="Ein Server-Test läuft bereits")
+    _iptv_srvcmp_running = True
+    try:
+        results, cur_host, base = await _iptv_run_server_probe()
+        if len(results) < 2:
+            raise HTTPException(status_code=400, detail="Zu wenige Server zum Vergleichen (Liste eintragen).")
+        _iptv_registry_update(results)
+        res = _iptv_do_auto_switch(results, cur_host, base, force=True)
+    finally:
+        _iptv_srvcmp_running = False
+    return {"ok": True, **res}
 
 
 @admin_app.get("/api/iptv/server-compare")
