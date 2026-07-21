@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.10
+
+### Verbesserungen
+- **Hintergrund-Stichprobe stört Zuschauer garantiert nicht:** Die automatische
+  Verlaufs-Messung nutzt jetzt nur noch **eine** Anbieter-Verbindung (statt zwei)
+  und setzt weiterhin komplett aus, wenn das Verbindungslimit fast voll ist. Damit
+  kann sie das Limit nie füllen und keinen laufenden Stream verdrängen. (Die
+  **manuellen** Tests – Speedtest, VPN-Vergleich, Kapazitätstest – können Zuschauer
+  weiterhin kurz stören; dafür gibt es die Warnhinweise, sie am besten bei wenig
+  Betrieb zu starten.)
+
 ## v1.9
 
 ### Verbesserungen

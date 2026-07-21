@@ -5390,7 +5390,10 @@ async def _health_sampler():
             if cap and active >= cap - 1:
                 continue   # zu viele Zuschauer → diese Stichprobe ueberspringen
 
-            prov = await _iptv_measure_provider(streams=2, per_stream_segments=1)
+            # Bewusst NUR 1 Verbindung (statt 2): plus der Skip-Guard oben kann die
+            # Hintergrund-Stichprobe damit NIE das Verbindungslimit fuellen und
+            # keinen Zuschauer stoeren.
+            prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
             sample = {
                 "ts": int(_t.time()),
                 "vpn_up": vpn_up,
