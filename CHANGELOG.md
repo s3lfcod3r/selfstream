@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.12
+
+### Verbesserungen
+- **Server-Vergleich: Server selbst eintragen:** Die zu vergleichenden Server
+  trägst du jetzt selbst in ein Feld ein (Kürzel wie `de`, `nl`, `2` oder ganze
+  Hostnamen) – es sind **keine anbieterspezifischen Server im Code hinterlegt**.
+  Damit funktioniert der Vergleich mit jedem Anbieter/Setup, und im Repository
+  landen keine Angaben zu einem bestimmten Anbieter.
+
+## v1.11
+
+### Funktionen
+- **Server-Vergleich (beste Latenz finden):** Neuer Knopf im Speedtest. Probiert die
+  von dir eingetragenen Server durch dein VPN, indem er sie in eine echte Kanal-URL
+  einsetzt, und misst pro Server **Latenz + kurzen Durchsatz**. So findest du den
+  Server mit der **niedrigsten Latenz von deinem VPN-Ausgang aus** – der direkte
+  Hebel gegen träges Zappen (hohe Latenz kommt oft vom weit entfernten Server, nicht
+  vom VPN). Server, deren Token an einen festen Server gebunden ist, werden als
+  „nicht nutzbar" ausgewiesen; dann ist die Umstellung nur im Anbieter-Panel möglich.
+
 ## v1.10
 
 ### Verbesserungen

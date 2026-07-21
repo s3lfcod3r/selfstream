@@ -5519,6 +5519,115 @@ async def iptv_capacity_sweep(max_streams: int = 20, _=Depends(check_admin)):
             "first_fail": first_fail, "max_fhd": max_fhd, "summary": summary}
 
 
+_iptv_srvcmp_running = False
+
+
+@admin_app.get("/api/iptv/compare-servers")
+def get_compare_servers(_=Depends(check_admin)):
+    """Vom Nutzer eingetragene Server-Liste fuer den Server-Vergleich."""
+    return {"servers": db.get_setting("iptv_compare_servers", "") or ""}
+
+
+@admin_app.post("/api/iptv/compare-servers")
+def set_compare_servers(body: dict, _=Depends(check_admin)):
+    db.set_setting("iptv_compare_servers", (body.get("servers") or "").strip())
+    return {"ok": True}
+
+
+@admin_app.get("/api/iptv/server-compare")
+async def iptv_server_compare(_=Depends(check_admin)):
+    """Vergleicht die vom NUTZER eingetragenen Server durch das aktuelle VPN: setzt
+    jeden Eintrag als Host in eine echte Kanal-URL ein und misst Latenz + kurzen
+    Durchsatz. So findest du den Server mit der niedrigsten Latenz von deinem
+    VPN-Ausgang aus. Die Server traegt jeder selbst ein (Feld im Panel) – es sind
+    KEINE anbieterspezifischen Server im Code hinterlegt.
+
+    Eintrag mit Punkt = ganzer Hostname (z.B. ``de.example.net``); ohne Punkt =
+    Kuerzel, das als Subdomain auf die Basis-Domain des aktuellen Kanals gesetzt wird.
+    Server, deren Token an einen festen Server gebunden ist, erscheinen als 'nicht
+    nutzbar' (Wechsel dann nur ueber das Anbieter-Panel).
+    """
+    global _iptv_srvcmp_running
+    if _iptv_srvcmp_running:
+        raise HTTPException(status_code=409, detail="Server-Vergleich läuft bereits")
+
+    pool = _iptv_channel_pool(5)
+    if not pool:
+        raise HTTPException(status_code=400, detail="Kein Kanal für den Test verfügbar")
+    sample = pool[0]
+    u = urllib.parse.urlsplit(sample)
+    cur_host = u.netloc
+    base = ".".join(cur_host.split(".")[1:]) if "." in cur_host else cur_host
+
+    async def probe_host(host: str) -> dict:
+        test_url = urllib.parse.urlunsplit((u.scheme, host, u.path, u.query, u.fragment))
+        # Erreichbar + gueltige Playlist?
+        try:
+            async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
+                r = await client.get(test_url)
+            if r.status_code != 200 or "#EXT" not in r.text:
+                return {"host": host, "ok": False, "error": f"HTTP {r.status_code}"}
+        except Exception as e:
+            return {"host": host, "ok": False, "error": str(e)[:40]}
+        seg = await _iptv_segment_list(test_url, 1)
+        lat = await _iptv_latency_jitter(seg[0] if seg else test_url, samples=6)
+        mbps = None
+        if seg:
+            import time as _t
+            t0 = _t.monotonic()
+            b = await _iptv_dl_bytes(seg[0])
+            dt = _t.monotonic() - t0
+            if b > 30_000 and dt > 0:
+                mbps = round((b * 8) / (dt * 1_000_000), 1)
+        return {"host": host, "ok": True, "latency_ms": lat.get("latency_ms"),
+                "jitter_ms": lat.get("jitter_ms"), "mbps": mbps,
+                "current": host == cur_host}
+
+    # Kandidaten aus der EIGENEN Eintragsliste bauen (mit Punkt = ganzer Host,
+    # sonst Kuerzel auf die Basis-Domain des aktuellen Kanals).
+    raw = db.get_setting("iptv_compare_servers", "") or ""
+    entries = [e.strip() for e in re.split(r"[\s,;]+", raw) if e.strip()]
+    hosts = [cur_host] + [(e if "." in e else f"{e}.{base}") for e in entries]
+    seen, cand = set(), []
+    for h in hosts:
+        if h and h not in seen:
+            seen.add(h)
+            cand.append(h)
+    if len(cand) < 2:
+        raise HTTPException(status_code=400,
+                            detail="Bitte zuerst Server eintragen (Feld über dem Knopf), z.B. „de, nl, 2, 3“.")
+
+    _iptv_srvcmp_running = True
+    results = []
+    try:
+        # In kleinen Gruppen, um nicht viele Verbindungen gleichzeitig zu oeffnen.
+        for i in range(0, len(cand), 4):
+            batch = cand[i:i + 4]
+            results.extend(await asyncio.gather(*[probe_host(h) for h in batch]))
+    finally:
+        _iptv_srvcmp_running = False
+
+    usable = [r for r in results if r.get("ok") and r.get("latency_ms") is not None]
+    usable.sort(key=lambda x: x["latency_ms"])
+    best = usable[0] if usable else None
+    cur = next((r for r in results if r.get("current")), None)
+
+    if not usable:
+        summary = ("Kein Server-Wechsel per URL möglich – der Anbieter bindet das Token an den "
+                   "Server (alle Alternativen lieferten Fehler). Server dann nur über das Anbieter-Panel umstellen.")
+    elif best and cur and cur.get("latency_ms") and best["latency_ms"] < cur["latency_ms"] * 0.7:
+        summary = (f"✅ Bester Server: {best['host'].split('.')[0]} mit {best['latency_ms']} ms – deutlich schneller "
+                   f"als dein aktueller ({cur['host'].split('.')[0]}: {cur.get('latency_ms')} ms). Umstellen lohnt sich!")
+    elif best:
+        summary = (f"Bester Server: {best['host'].split('.')[0]} mit {best['latency_ms']} ms. "
+                   f"Dein aktueller Server ist schon nah dran – großer Gewinn eher unwahrscheinlich.")
+    else:
+        summary = "Keine verwertbaren Server gefunden."
+
+    return {"ok": True, "current_host": cur_host, "best": best["host"] if best else None,
+            "summary": summary, "results": results}
+
+
 @admin_app.get("/api/vpn/speedtest-all")
 async def vpn_speedtest_all(_=Depends(check_admin)):
     """Vergleicht ALLE hochgeladenen .ovpn: verbindet jede nacheinander und misst

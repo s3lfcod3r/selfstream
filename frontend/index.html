@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.10</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.12</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.10</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.12</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1135,6 +1135,20 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <div id="speedtest-all-result" style="display:none;margin-top:16px;">
               <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🏁 VPN-SERVER-VERGLEICH</div>
               <div id="speedtest-all-table"></div>
+            </div>
+
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+              <div class="form-hint" style="margin-bottom:6px;">Deine Server-Kürzel oder Hostnamen (durch Komma/Leerzeichen getrennt). Kürzel wie <code>de</code>, <code>nl</code>, <code>2</code> werden auf die Domain deines aktuellen Servers gesetzt; ganze Hostnamen (mit Punkt) werden 1:1 genutzt. Der Test setzt sie in eine echte Kanal-URL ein und misst die Latenz durch dein VPN.</div>
+              <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;">
+                <input type="text" id="srvcmp-input" placeholder="z. B. de, nl, 2, 3   (oder de.example.net)" style="flex:1;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12px;">
+                <button class="btn" id="srvcmp-save" onclick="saveCompareServers()">💾 Speichern</button>
+              </div>
+              <button class="btn" id="srvcmp-btn" onclick="runServerCompare()">🌍 Server vergleichen (beste Latenz finden)</button>
+              <div id="srvcmp-result" style="display:none;margin-top:14px;">
+                <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🌍 ANBIETER-SERVER</div>
+                <div id="srvcmp-summary" style="padding:8px 12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:12px;font-size:12px;font-family:var(--mono);"></div>
+                <div id="srvcmp-table"></div>
+              </div>
             </div>
 
             <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
@@ -4124,6 +4138,76 @@ async function runIptvCapacity() {
   btn.textContent = '📊 Anbieter-Kapazität testen (1–20 Streams)';
 }
 
+async function runServerCompare() {
+  const btn = document.getElementById('srvcmp-btn');
+  const box = document.getElementById('srvcmp-result');
+  const sum = document.getElementById('srvcmp-summary');
+  const tbl = document.getElementById('srvcmp-table');
+  btn.disabled = true;
+  btn.textContent = '⏳ Vergleiche Anbieter-Server…';
+  box.style.display = 'block';
+  sum.textContent = '⏳ Teste die Server deines Anbieters durch dein VPN (Latenz + Speed)…';
+  tbl.innerHTML = '';
+  try {
+    const data = await api('GET', '/api/iptv/server-compare');
+    const warn = !(data.summary || '').startsWith('✅');
+    sum.style.borderColor = warn ? '#f0b400' : '#00e5c8';
+    sum.style.color = warn ? '#f0b400' : 'var(--teal)';
+    sum.textContent = data.summary || '';
+    const label = h => (h || '').split('.')[0];
+    const usable = (data.results || []).filter(r => r.ok && r.latency_ms != null).sort((a,b)=>a.latency_ms-b.latency_ms);
+    const failed = (data.results || []).filter(r => !(r.ok && r.latency_ms != null));
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html += '<tr style="color:var(--text2);text-align:left;">'
+      + '<th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Server</th>'
+      + '<th style="padding:6px 8px;text-align:right;">Latenz</th>'
+      + '<th style="padding:6px 8px;text-align:right;">Mbit/s</th></tr>';
+    usable.forEach((r,i) => {
+      const isBest = r.host === data.best;
+      const isCur = r.current;
+      const col = isBest ? 'var(--teal)' : (r.latency_ms > 250 ? '#f0b400' : 'inherit');
+      html += `<tr style="border-top:1px solid var(--border);${isBest?'background:rgba(0,229,200,.08);':''}">`
+        + `<td style="padding:6px 8px;">${isBest?'🏆':(i+1)}</td>`
+        + `<td style="padding:6px 8px;color:${col};">${label(r.host)}${isCur?' <span style="color:var(--text2);font-size:10px;">(aktuell)</span>':''}</td>`
+        + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:${col};">${r.latency_ms} ms</td>`
+        + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--text2);">${r.mbps ?? '–'}</td></tr>`;
+    });
+    html += '</table>';
+    if (failed.length) html += `<div style="margin-top:8px;font-size:11px;color:var(--text2);">${failed.length} Server nicht nutzbar (Token an Server gebunden oder nicht erreichbar): ${failed.map(r=>label(r.host)).join(', ')}</div>`;
+    tbl.innerHTML = html;
+    if (typeof showToast === 'function' && data.best) showToast('Bester Anbieter-Server: ' + label(data.best));
+  } catch(e) {
+    sum.style.color = '#ef4444';
+    sum.textContent = 'Fehler: ' + (e.message || e);
+  }
+  btn.disabled = false;
+  btn.textContent = '🌍 Server vergleichen (beste Latenz finden)';
+}
+
+let _srvcmpLoaded = false;
+async function loadCompareServers() {
+  const el = document.getElementById('srvcmp-input');
+  if (!el || _srvcmpLoaded) return;
+  _srvcmpLoaded = true;
+  try {
+    const d = await api('GET', '/api/iptv/compare-servers');
+    if (d && typeof d.servers === 'string' && !el.value) el.value = d.servers;
+  } catch(e) {}
+}
+
+async function saveCompareServers() {
+  const el = document.getElementById('srvcmp-input');
+  const btn = document.getElementById('srvcmp-save');
+  btn.disabled = true;
+  try {
+    await api('POST', '/api/iptv/compare-servers', {servers: el.value});
+    if (typeof showToast === 'function') showToast('Server-Liste gespeichert');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Speichern fehlgeschlagen: ' + (e.message||e), true);
+  }
+  btn.disabled = false;
+}
+
 async function loadHealthHistory() {
   const btn = document.getElementById('health-btn');
   const box = document.getElementById('health-result');
@@ -4167,6 +4251,7 @@ async function loadHealthHistory() {
 }
 
 async function vpnRefreshStatus() {
+  loadCompareServers();
   const s = await api('GET', '/api/vpn/status');
   if (!s) return;
   const dot  = document.getElementById('vpn-status-dot');

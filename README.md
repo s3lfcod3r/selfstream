@@ -96,6 +96,24 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.12)
+
+- **Server comparison: enter your own servers** – The servers to compare are now entered in a field (labels like `de`, `nl`, `2`, or full hostnames) — **no provider-specific servers are hardcoded**. Works with any provider/setup, and nothing about a specific provider ends up in the repository.
+
+---
+
+## What's New (July 2026 – v1.11)
+
+- **Server comparison (find the lowest latency)** – New button in the speedtest. It tries the servers you entered through your VPN by inserting them into a real channel URL, and measures **latency + a quick throughput** per server. This finds the server with the **lowest latency from your VPN exit** — the direct lever against sluggish channel switching. Servers whose token is bound to a fixed server show as "unusable"; switching then only works via the provider panel.
+
+---
+
+## What's New (July 2026 – v1.10)
+
+- **Background sample can't disturb viewers** – The automatic history sample now uses only one provider connection and skips entirely when the connection limit is nearly full.
+
+---
+
 ## What's New (July 2026 – v1.9)
 
 - **VPN server comparison now ranks meaningfully** – It used to compare servers via the internet speedtest, which is unreliable through a VPN (throttled/blocked VPN IPs). It now measures **IPTV provider throughput + latency** per server and ranks by that — i.e. by how well your streams actually run over each server.
@@ -549,6 +567,24 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.12)
+
+- **Server-Vergleich: Server selbst eintragen** – Die zu vergleichenden Server trägst du jetzt selbst ein (Kürzel wie `de`, `nl`, `2` oder ganze Hostnamen) – **keine anbieterspezifischen Server im Code**. Funktioniert mit jedem Anbieter/Setup, und im Repo landet nichts zu einem bestimmten Anbieter.
+
+---
+
+## Neu seit Juli 2026 (v1.11)
+
+- **Server-Vergleich (beste Latenz finden)** – Neuer Knopf im Speedtest. Probiert die von dir eingetragenen Server durch dein VPN, indem er sie in eine echte Kanal-URL einsetzt, und misst pro Server **Latenz + kurzen Durchsatz**. Findet den Server mit der **niedrigsten Latenz von deinem VPN-Ausgang aus** – der direkte Hebel gegen träges Zappen. Server mit server-gebundenem Token erscheinen als „nicht nutzbar"; dann geht Umstellen nur im Anbieter-Panel.
+
+---
+
+## Neu seit Juli 2026 (v1.10)
+
+- **Hintergrund-Stichprobe stört Zuschauer garantiert nicht** – Nutzt nur noch eine Anbieter-Verbindung und setzt bei fast vollem Verbindungslimit komplett aus.
 
 ---
 
