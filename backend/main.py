@@ -900,19 +900,6 @@ def _apply_preferred_host(url: str) -> str:
         return url
 
 
-@admin_app.get("/api/iptv/preferred-server")
-def get_preferred_server(_=Depends(check_admin)):
-    return {"server": db.get_setting("iptv_preferred_server", "") or ""}
-
-
-@admin_app.post("/api/iptv/preferred-server")
-def set_preferred_server(body: dict, _=Depends(check_admin)):
-    val = (body.get("server") or "").strip()
-    db.set_setting("iptv_preferred_server", val)
-    logger.info(f"Preferred IPTV server set to: {val or '(aus)'}")
-    return {"ok": True, "server": val}
-
-
 @proxy_app.get("/iptv/{token}/live/{uid}")
 async def proxy_live(token: str, uid: str, utc: str = None, lutc: str = None, request: Request = None):
     """Stable per-channel entry point used by the device playlist.
@@ -5569,6 +5556,19 @@ def get_compare_servers(_=Depends(check_admin)):
 def set_compare_servers(body: dict, _=Depends(check_admin)):
     db.set_setting("iptv_compare_servers", (body.get("servers") or "").strip())
     return {"ok": True}
+
+
+@admin_app.get("/api/iptv/preferred-server")
+def get_preferred_server(_=Depends(check_admin)):
+    return {"server": db.get_setting("iptv_preferred_server", "") or ""}
+
+
+@admin_app.post("/api/iptv/preferred-server")
+def set_preferred_server(body: dict, _=Depends(check_admin)):
+    val = (body.get("server") or "").strip()
+    db.set_setting("iptv_preferred_server", val)
+    logger.info(f"Preferred IPTV server set to: {val or '(aus)'}")
+    return {"ok": True, "server": val}
 
 
 @admin_app.get("/api/iptv/server-compare")
