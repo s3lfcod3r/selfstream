@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.14
+
+### Verbesserungen
+- **Server-Vergleich: Mbit/s-Spalte klarer:** Die Mbit/s im Server-Vergleich sind
+  nur eine **grobe Einzelverbindungs-Stichprobe** und sinken schon physikalisch mit
+  steigender Latenz – sie sagen nichts über die echte Kapazität. Das ist jetzt
+  deutlich gekennzeichnet („Mbit/s (grob)") plus Hinweis, dass die **Latenz**
+  entscheidet und die echte Kapazität im Haupt-Speedtest (8 Streams parallel) steht.
+
 ## v1.13
 
 ### Verbesserungen

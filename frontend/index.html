@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.13</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.14</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.13</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.14</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -4160,8 +4160,8 @@ async function runServerCompare() {
     let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
     html += '<tr style="color:var(--text2);text-align:left;">'
       + '<th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Server</th>'
-      + '<th style="padding:6px 8px;text-align:right;">Latenz</th>'
-      + '<th style="padding:6px 8px;text-align:right;">Mbit/s</th></tr>';
+      + '<th style="padding:6px 8px;text-align:right;">Latenz ⭐</th>'
+      + '<th style="padding:6px 8px;text-align:right;">Mbit/s (grob)</th></tr>';
     usable.forEach((r,i) => {
       const isBest = r.host === data.best;
       const isCur = r.current;
@@ -4173,7 +4173,8 @@ async function runServerCompare() {
         + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--text2);">${r.mbps ?? '–'}</td></tr>`;
     });
     html += '</table>';
-    if (failed.length) html += `<div style="margin-top:8px;font-size:11px;color:var(--text2);">${failed.length} Server nicht nutzbar (Token an Server gebunden oder nicht erreichbar): ${failed.map(r=>label(r.host)).join(', ')}</div>`;
+    html += `<div style="margin-top:8px;font-size:11px;color:var(--text2);">⭐ <strong>Die Latenz entscheidet</strong> (fixt träges Zappen). Die Mbit/s hier sind nur eine grobe <strong>Einzelverbindungs-Stichprobe</strong> und sinken schon wegen der Physik mit steigender Latenz – nicht mit „Server schwach" verwechseln. Deine echte Kapazität siehst du oben im Speedtest (8 Streams parallel).</div>`;
+    if (failed.length) html += `<div style="margin-top:6px;font-size:11px;color:var(--text2);">${failed.length} Server nicht nutzbar (Token an Server gebunden oder nicht erreichbar): ${failed.map(r=>label(r.host)).join(', ')}</div>`;
     tbl.innerHTML = html;
     if (typeof showToast === 'function' && data.best) showToast('Bester Anbieter-Server: ' + label(data.best));
   } catch(e) {
