@@ -96,6 +96,18 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (July 2026 – v1.15)
+
+- **Force a preferred server** – New field in the server comparison. Enter a server (e.g. `6` or `6.example.net`) and SelfStream rewrites **all channels to that server** at play time — regardless of which server the provider playlist hands out. This lets you move to a lower-latency server even if your provider panel doesn't allow it (the token is preserved). Takes effect **immediately** and, thanks to the stable channel ids (`/live`), **without reloading devices**. Empty = off. Live only; catchup is untouched.
+
+---
+
+## What's New (July 2026 – v1.14)
+
+- **Server comparison: clearer Mbit/s column** – The Mbit/s in the server comparison is only a rough single-connection probe (it falls with latency for physical reasons) and is now labelled accordingly; latency is what decides, and real capacity is shown in the main speedtest.
+
+---
+
 ## What's New (July 2026 – v1.13)
 
 - **Server comparison: enter full domains** – You can now enter the **complete server domains** in the field (one per line or comma-separated, e.g. `de.example.net`) – full URLs are accepted too (only the host is used). Short labels (`de`, `2`) still work and get appended to your current server's domain. The input field is now multi-line.
@@ -573,6 +585,18 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit Juli 2026 (v1.15)
+
+- **Bevorzugten Server erzwingen** – Neues Feld im Server-Vergleich. Trägst du einen Server ein (z.B. `6` oder `6.example.net`), schreibt SelfStream beim Abspielen **alle Kanäle auf diesen Server um** – egal welchen Server die Anbieter-Playlist ausgibt. So kommst du auf einen latenzärmeren Server, auch wenn das Anbieter-Panel es nicht zulässt (Token bleibt erhalten). Gilt **sofort** und dank stabiler Kanal-IDs (`/live`) **ohne Geräte-Neuladen**. Leer = aus. Nur Live, Catchup unberührt.
+
+---
+
+## Neu seit Juli 2026 (v1.14)
+
+- **Server-Vergleich: Mbit/s-Spalte klarer** – Die Mbit/s dort sind nur eine grobe Einzelverbindungs-Stichprobe (sinkt physikalisch mit der Latenz) und jetzt so gekennzeichnet; die Latenz entscheidet, die echte Kapazität steht im Haupt-Speedtest.
 
 ---
 

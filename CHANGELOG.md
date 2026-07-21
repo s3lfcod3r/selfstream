@@ -1,6 +1,16 @@
 # Changelog
 
-## v1.14
+## v1.15
+
+### Funktionen
+- **Bevorzugter Server erzwingen:** Neues Feld im Server-Vergleich. Trägst du dort
+  einen Server ein (z.B. `6` oder `6.example.net`), schreibt SelfStream beim
+  Abspielen **alle Kanäle auf diesen Server um** – unabhängig davon, welchen Server
+  die Anbieter-Playlist ausgibt. Damit kannst du auf einen latenzärmeren Server
+  wechseln, auch wenn dein Anbieter-Panel das nicht zulässt (der Token bleibt
+  erhalten). Gilt **sofort** und dank der stabilen Kanal-IDs (`/live`) **ohne
+  Geräte-Neuladen**. Leeres Feld = aus (Anbieter-Standard). Wirkt nur für Live,
+  Catchup bleibt unberührt.
 
 ### Verbesserungen
 - **Server-Vergleich: Mbit/s-Spalte klarer:** Die Mbit/s im Server-Vergleich sind

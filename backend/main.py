@@ -880,6 +880,39 @@ h1{color:#f85149;font-size:24px;font-weight:700;margin:0 0 12px;letter-spacing:-
     return HTMLResponse(content=error_html, media_type="text/html")
 
 
+def _apply_preferred_host(url: str) -> str:
+    """Host einer Stream-URL auf den vom Nutzer gewaehlten 'bevorzugten Server'
+    umschreiben (Setting ``iptv_preferred_server``). Leer = aus (URL unveraendert).
+    Eintrag mit Punkt = ganzer Host; sonst Kuerzel auf die Basis-Domain der URL.
+    Token/Pfad bleiben erhalten."""
+    pref = (db.get_setting("iptv_preferred_server", "") or "").strip()
+    if not pref:
+        return url
+    try:
+        u = urllib.parse.urlsplit(url)
+        cur = u.netloc
+        base = ".".join(cur.split(".")[1:]) if "." in cur else cur
+        new_host = pref if "." in pref else f"{pref}.{base}"
+        if not new_host or new_host == cur:
+            return url
+        return urllib.parse.urlunsplit((u.scheme, new_host, u.path, u.query, u.fragment))
+    except Exception:
+        return url
+
+
+@admin_app.get("/api/iptv/preferred-server")
+def get_preferred_server(_=Depends(check_admin)):
+    return {"server": db.get_setting("iptv_preferred_server", "") or ""}
+
+
+@admin_app.post("/api/iptv/preferred-server")
+def set_preferred_server(body: dict, _=Depends(check_admin)):
+    val = (body.get("server") or "").strip()
+    db.set_setting("iptv_preferred_server", val)
+    logger.info(f"Preferred IPTV server set to: {val or '(aus)'}")
+    return {"ok": True, "server": val}
+
+
 @proxy_app.get("/iptv/{token}/live/{uid}")
 async def proxy_live(token: str, uid: str, utc: str = None, lutc: str = None, request: Request = None):
     """Stable per-channel entry point used by the device playlist.
@@ -897,7 +930,11 @@ async def proxy_live(token: str, uid: str, utc: str = None, lutc: str = None, re
     if not ch or not (ch.get("stream_url") or "").strip():
         _log_player_request("live:not_found", request, token, {"uid": uid}, level="WARNING")
         raise HTTPException(status_code=404, detail="Unknown channel")
-    target = f"/iptv/{token}/stream?url={urllib.parse.quote(ch['stream_url'], safe='')}"
+    # Bevorzugter Server: Host zur Laufzeit auf den vom Nutzer gewaehlten Server
+    # umschreiben (z.B. weil er latenzaermer ist), unabhaengig davon, welchen Server
+    # die Anbieter-Playlist ausgibt. Greift nur fuer Live (kein Catchup/utc).
+    stream_url = ch["stream_url"] if utc else _apply_preferred_host(ch["stream_url"])
+    target = f"/iptv/{token}/stream?url={urllib.parse.quote(stream_url, safe='')}"
     if utc:
         target += f"&utc={urllib.parse.quote(str(utc), safe='')}"
     if lutc:

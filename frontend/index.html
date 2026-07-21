@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.14</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.15</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.14</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.15</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1148,6 +1148,17 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🌍 ANBIETER-SERVER</div>
                 <div id="srvcmp-summary" style="padding:8px 12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:12px;font-size:12px;font-family:var(--mono);"></div>
                 <div id="srvcmp-table"></div>
+              </div>
+
+              <div style="margin-top:14px;padding:12px;background:var(--bg2);border:1px solid var(--teal);border-radius:8px;">
+                <div style="font-size:12px;color:var(--teal);font-weight:600;margin-bottom:4px;">⚡ Bevorzugter Server erzwingen</div>
+                <div class="form-hint" style="margin-bottom:8px;">SelfStream schreibt beim Abspielen ALLE Kanäle auf diesen Server um – egal welchen Server dein Anbieter in der Playlist ausgibt. Trag hier den schnellsten aus dem Vergleich ein (z.&nbsp;B. <code>6</code> oder <code>6.example.net</code>). Leer = aus (Anbieter-Standard). Gilt sofort, Geräte müssen nichts neu laden.</div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <input type="text" id="pref-input" placeholder="z. B. 6   (leer = aus)" style="flex:1;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:13px;">
+                  <button class="btn primary" id="pref-save" onclick="savePreferredServer()">⚡ Aktivieren</button>
+                  <button class="btn" id="pref-off" onclick="clearPreferredServer()">Aus</button>
+                </div>
+                <div id="pref-status" style="margin-top:6px;font-size:11px;color:var(--text2);"></div>
               </div>
             </div>
 
@@ -4209,6 +4220,42 @@ async function saveCompareServers() {
   btn.disabled = false;
 }
 
+let _prefLoaded = false;
+async function loadPreferredServer() {
+  const el = document.getElementById('pref-input');
+  if (!el || _prefLoaded) return;
+  _prefLoaded = true;
+  try {
+    const d = await api('GET', '/api/iptv/preferred-server');
+    if (d && typeof d.server === 'string') { el.value = d.server; renderPrefStatus(d.server); }
+  } catch(e) {}
+}
+function renderPrefStatus(server) {
+  const st = document.getElementById('pref-status');
+  if (!st) return;
+  st.innerHTML = server
+    ? `<span style="color:var(--teal);">⚡ Aktiv: alle Kanäle laufen über <strong>${server}</strong></span>`
+    : 'Aus – es gilt der Server aus der Anbieter-Playlist.';
+}
+async function savePreferredServer() {
+  const el = document.getElementById('pref-input');
+  const btn = document.getElementById('pref-save');
+  btn.disabled = true;
+  try {
+    const d = await api('POST', '/api/iptv/preferred-server', {server: el.value.trim()});
+    renderPrefStatus(d.server);
+    if (typeof showToast === 'function') showToast(d.server ? `Bevorzugter Server: ${d.server}` : 'Bevorzugter Server aus');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Fehlgeschlagen: ' + (e.message||e), true);
+  }
+  btn.disabled = false;
+}
+async function clearPreferredServer() {
+  const el = document.getElementById('pref-input');
+  if (el) el.value = '';
+  await savePreferredServer();
+}
+
 async function loadHealthHistory() {
   const btn = document.getElementById('health-btn');
   const box = document.getElementById('health-result');
@@ -4253,6 +4300,7 @@ async function loadHealthHistory() {
 
 async function vpnRefreshStatus() {
   loadCompareServers();
+  loadPreferredServer();
   const s = await api('GET', '/api/vpn/status');
   if (!s) return;
   const dot  = document.getElementById('vpn-status-dot');
