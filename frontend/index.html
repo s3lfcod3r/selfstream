@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.18</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.19</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.18</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.19</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1120,6 +1120,37 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <code style="color:var(--teal);">--device=/dev/net/tun</code><br>
               In Unraid: Container bearbeiten → Privilegierte Rechte = AN
             </div>
+          </div>
+
+          <div class="scard" style="grid-column:1/-1">
+            <div class="scard-title">🎯 Auto-Wechsel bei schlechter Leistung</div>
+            <div class="form-hint" style="margin-bottom:14px;">
+              SelfStream misst den aktuell verbundenen Server laufend (Durchsatz + Antwortzeit/Ping zum Anbieter) und vergleicht ihn mit seiner <strong>eigenen üblichen Leistung</strong>. Fällt er anhaltend zu weit ab, wird automatisch auf einen anderen hochgeladenen Server gewechselt (kurzer ~5&nbsp;s Aussetzer). Braucht mind. <strong>2 hochgeladene .ovpn-Dateien</strong>.
+            </div>
+            <label style="display:flex;align-items:center;gap:10px;margin-bottom:16px;cursor:pointer;">
+              <input type="checkbox" id="vpn-perf-auto" onchange="vpnPerfSave()">
+              <span style="font-size:13px;">Automatischen Server-Wechsel aktivieren</span>
+            </label>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+              <div style="flex:1;min-width:200px;">
+                <label class="form-label">Durchsatz-Schwelle</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="vpn-perf-min" min="10" max="95" step="5" style="width:90px;">
+                  <span style="font-size:11px;color:var(--text2);">% der Bestleistung – <strong>darunter</strong> = zu langsam</span>
+                </div>
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <label class="form-label">Latenz-Schwelle (Ping)</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="vpn-perf-lat" min="110" max="1000" step="10" style="width:90px;">
+                  <span style="font-size:11px;color:var(--text2);">% der besten Antwortzeit – <strong>darüber</strong> = zu träge</span>
+                </div>
+              </div>
+            </div>
+            <button class="btn primary" onclick="vpnPerfSave(true)">💾 Speichern</button>
+            <button class="btn" onclick="vpnPerfTest()" id="vpn-perf-test-btn" style="margin-left:8px;">🧪 Jetzt testen (ohne Wechsel)</button>
+            <div id="vpn-perf-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
+            <div class="form-hint" style="margin-top:10px;">Wechsel erst nach 3 schwachen Messungen in Folge (~6&nbsp;Min) + 30-Min-Sperre danach (kein Hin-und-Her). Jede Entscheidung steht im Live-Log oben. Hinweis: ist der Anbieter selbst langsam, hilft ein Server-Wechsel nicht – dann bleibt es beim Wechseln, aber ehrlich im Log.</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -3867,6 +3898,7 @@ async function loadVpnSettings() {
   document.getElementById('vpn-password').value = s.vpn_password || '';
   renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
   vpnRefreshStatus();
+  vpnPerfLoad();
   // Auto-poll log every 3s when on VPN page
   if (_vpnStatusInterval) clearInterval(_vpnStatusInterval);
   _vpnStatusInterval = setInterval(vpnRefreshStatus, 3000);
@@ -4187,6 +4219,68 @@ async function vpnRefreshStatus() {
     logEl.textContent = s.log.join('\n');
     logEl.scrollTop   = logEl.scrollHeight;
   }
+}
+
+// ── VPN Auto-Wechsel bei schlechter Leistung ──────────────────────────────────
+
+async function vpnPerfLoad() {
+  const p = await api('GET', '/api/vpn/perf');
+  if (!p) return;
+  const auto = document.getElementById('vpn-perf-auto');
+  const min  = document.getElementById('vpn-perf-min');
+  const lat  = document.getElementById('vpn-perf-lat');
+  if (auto) auto.checked = !!p.auto;
+  if (min && document.activeElement !== min) min.value = p.min_pct;
+  if (lat && document.activeElement !== lat) lat.value = p.max_latency_pct;
+  window._vpnPerfCfg = p;
+  vpnPerfRender(p.status);
+}
+
+async function vpnPerfSave(toast) {
+  const body = {
+    auto: document.getElementById('vpn-perf-auto').checked,
+    min_pct: document.getElementById('vpn-perf-min').value,
+    max_latency_pct: document.getElementById('vpn-perf-lat').value,
+  };
+  const r = await api('POST', '/api/vpn/perf', body);
+  if (r && r.ok && toast) showToast('🎯 Auto-Wechsel-Einstellungen gespeichert');
+  vpnPerfLoad();
+}
+
+async function vpnPerfTest() {
+  const btn = document.getElementById('vpn-perf-test-btn');
+  const box = document.getElementById('vpn-perf-status');
+  if (btn) { btn.disabled = true; btn.textContent = '🧪 Messe…'; }
+  const e = await api('POST', '/api/vpn/perf/test');
+  if (btn) { btn.disabled = false; btn.textContent = '🧪 Jetzt testen (ohne Wechsel)'; }
+  if (!e || e.ok === false) { if (box) box.textContent = '❌ ' + ((e && e.error) || 'Test fehlgeschlagen'); return; }
+  vpnPerfRender(e);
+}
+
+function vpnPerfRender(s) {
+  const box = document.getElementById('vpn-perf-status');
+  if (!box) return;
+  if (!s) { box.textContent = '– noch keine Messung (läuft alle 2 Min, sobald aktiv) –'; return; }
+  const warmup = (window._vpnPerfCfg && window._vpnPerfCfg.warmup) || 5;
+  const mb  = s.mbps != null ? Number(s.mbps).toFixed(1) : '?';
+  const bmb = s.base_mbps != null ? Number(s.base_mbps).toFixed(1) : '?';
+  const la  = s.latency_ms != null ? Math.round(s.latency_ms) : '?';
+  const bla = s.base_latency_ms != null ? Math.round(s.base_latency_ms) : '?';
+  const lines = [];
+  lines.push(`Server: ${s.server || '?'}`);
+  lines.push(`Durchsatz: ${mb} Mbit/s  (üblich ${bmb})${s.throughput_pct != null ? '  = ' + s.throughput_pct + '%' : ''}`);
+  lines.push(`Antwortzeit: ${la} ms  (üblich ${bla})${s.latency_pct != null ? '  = ' + s.latency_pct + '%' : ''}`);
+  if (!s.have_baseline) {
+    lines.push(`⏳ Lernt noch (${s.samples || 0}/${warmup} Messungen) – noch kein Urteil.`);
+  } else if (s.bad) {
+    const why = [];
+    if (s.throughput_bad) why.push('Durchsatz zu niedrig');
+    if (s.latency_bad) why.push('Antwortzeit zu hoch');
+    lines.push(`🔴 WÜRDE WECHSELN: ${why.join(' & ')}  (Schwellen ${s.min_pct}% / ${s.max_latency_pct}%)`);
+  } else {
+    lines.push(`🟢 OK – kein Wechsel nötig  (Schwellen ${s.min_pct}% / ${s.max_latency_pct}%)`);
+  }
+  box.textContent = lines.join('\n');
 }
 
 // ── Traffic Monitor ───────────────────────────────────────────────────────────

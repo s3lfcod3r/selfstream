@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.19)
+
+- **Automatic VPN-server switch on poor performance** (opt-in). A new performance watchdog continuously measures the currently connected VPN server (throughput + response time/ping to the provider, gently via a single connection) and compares it against its *own* usual performance ("self-baseline", percentile over a rolling window). If throughput drops **below a configurable percentage** of its best, OR latency rises **above a configurable percentage**, SelfStream switches to the next uploaded `.ovpn` after 3 weak measurements in a row — with a 30-minute cooldown against flip-flopping. Both thresholds are set in the panel; a **"Test now"** button shows current vs. baseline and whether it would switch, without switching. Complements the existing emergency failover (which only reacts to a dead tunnel). New endpoints: `GET/POST /api/vpn/perf`, `POST /api/vpn/perf/test`.
+
+---
+
 ## What's New (July 2026 – v1.18)
 
 - **Removed provider-server switching** (server comparison, "force preferred server", auto-switch, server discovery). These didn't work with providers that bind the token to a fixed server: rewriting to another server triggered a "SERVER CHANGED" block at the provider, and latency measurements of other servers were actually measuring that notice rather than real streams. To avoid misdiagnosis and interrupted streams they were removed entirely. Everything else stays: VPN watchdog with outage detection/failover, speedtest incl. capacity test, latency/jitter display, VPN-server comparison, and the automatic history with early warning.
@@ -603,6 +609,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.19)
+
+- **Automatischer VPN-Server-Wechsel bei schlechter Leistung** (opt-in). Ein neuer Leistungs-Wächter misst den aktuell verbundenen VPN-Server laufend (Durchsatz + Antwortzeit/Ping zum Anbieter, schonend über 1 Verbindung) und vergleicht ihn mit seiner *eigenen* üblichen Leistung („self-baseline", Perzentil aus einem rollierenden Fenster). Fällt der Durchsatz **unter eine einstellbare Prozent-Schwelle** der Bestleistung ODER steigt die Latenz **über eine einstellbare Prozent-Schwelle**, wird nach 3 schwachen Messungen in Folge auf die nächste hochgeladene `.ovpn` gewechselt – mit 30-Min-Sperre gegen Hin-und-Her. Beide Schwellen sind im Panel setzbar; ein Knopf **„Jetzt testen"** zeigt aktuell vs. Baseline + ob gewechselt würde, ohne zu wechseln. Ergänzt den bestehenden Not-Failover (der nur bei totem Tunnel greift). Neue Endpunkte: `GET/POST /api/vpn/perf`, `POST /api/vpn/perf/test`.
 
 ---
 

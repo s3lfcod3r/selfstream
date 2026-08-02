@@ -391,6 +391,7 @@ async def startup():
     _track_background_task(asyncio.create_task(_catchup_epg_watchdog()))
     _track_background_task(asyncio.create_task(_live_epg_watchdog()))
     _track_background_task(asyncio.create_task(_health_sampler()))
+    _track_background_task(asyncio.create_task(_vpn_perf_watch()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -4302,6 +4303,32 @@ _vpn_restart_lock = threading.Lock()  # verhindert parallele Neustarts
 VPN_ESCALATE_AFTER_RESTARTS = 2
 _vpn_failed_restarts = 0
 
+# ── VPN-Leistungs-Wächter (Auto-Wechsel bei schwacher Leistung) ─────────────
+# Der Wächter oben greift nur bei einem TOTEN Tunnel. Dieser hier misst die
+# tatsächliche LEISTUNG des aktuell verbundenen Servers (Durchsatz + Latenz zum
+# Anbieter, schonend über 1 Verbindung) und wechselt eigenständig auf einen
+# anderen Server, wenn der aktuelle spürbar unter seine EIGENE übliche Leistung
+# fällt ("self-baseline") – opt-in, mit einstellbaren Prozent-Schwellen. Beide
+# Schwellen (Durchsatz-Minimum in % / Latenz-Maximum in %) sind im Panel setzbar.
+VPN_PERF_INTERVAL = 120          # Sekunden zwischen zwei Leistungs-Checks
+VPN_PERF_WARMUP = 5              # so viele Messungen, bevor eine Baseline zählt
+VPN_PERF_GRACE = 3               # so viele schlechte Checks am Stück → Wechsel
+VPN_PERF_COOLDOWN = 1800         # Mindestabstand zwischen zwei Auto-Wechseln (30 min)
+VPN_PERF_WINDOW = 30             # rollierendes Messfenster je Server (Baseline-Basis)
+_vpn_perf_stats: dict = {}       # {ovpn_name: {"mbps":[...], "lat":[...]}}
+_vpn_perf_bad_streak = 0
+_vpn_perf_last_switch = 0.0      # time.monotonic() des letzten Auto-Wechsels
+_vpn_perf_status: dict = {}      # letzte Auswertung (für /api/vpn/perf)
+
+
+def _int_setting(key: str, default: int, lo: int, hi: int) -> int:
+    """Ganzzahliges Setting robust lesen und in [lo, hi] begrenzen."""
+    try:
+        v = int(float(db.get_setting(key, str(default))))
+    except (TypeError, ValueError):
+        v = default
+    return max(lo, min(hi, v))
+
 # Während ein VPN-Server-Vergleich läuft (jede .ovpn wird nacheinander verbunden
 # und gemessen), MUSS der Wächter pausieren – sonst hält er das absichtliche
 # Trennen für einen Ausfall und funkt mit eigenen Neustarts dazwischen.
@@ -4762,6 +4789,171 @@ async def _vpn_watchdog():
             diag_log("WARNING", "vpn", f"VPN-Wächter Fehler: {e}")
 
 
+# ── Leistungs-Wächter: Messen, Bewerten, Wechseln ───────────────────────────
+def _near_capacity() -> bool:
+    """True, wenn fast alle Anbieter-Verbindungen belegt sind → dann NICHT messen
+    (keine Stichprobe soll je einen Zuschauer verdrängen)."""
+    try:
+        _cleanup_sessions()
+        active = len(_sessions)
+    except Exception:
+        active = 0
+    try:
+        provs = db.get_m3u_providers()
+        cap = max([int(p.get("line_capacity") or 0) for p in provs], default=0)
+    except Exception:
+        cap = 0
+    return bool(cap and active >= cap - 1)
+
+
+def _vpn_perf_pct(values: list, pct: float) -> float:
+    """Einfaches lineares Perzentil (0..100) einer Werteliste."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    if len(s) == 1:
+        return float(s[0])
+    k = (len(s) - 1) * (pct / 100.0)
+    lo = int(k)
+    hi = min(lo + 1, len(s) - 1)
+    frac = k - lo
+    return float(s[lo] * (1 - frac) + s[hi] * frac)
+
+
+def _vpn_perf_baseline(name: str) -> dict:
+    """Übliche Leistung eines Servers aus dem rollierenden Fenster:
+    Durchsatz = 75. Perzentil (typisch guter Wert), Latenz = 25. Perzentil (typisch niedrig)."""
+    st = _vpn_perf_stats.get(name) or {}
+    mbps = [v for v in st.get("mbps", []) if v is not None]
+    lat = [v for v in st.get("lat", []) if v is not None]
+    return {
+        "mbps": round(_vpn_perf_pct(mbps, 75), 1) if mbps else None,
+        "latency_ms": round(_vpn_perf_pct(lat, 25), 1) if lat else None,
+        "samples": max(len(mbps), len(lat)),
+    }
+
+
+def _vpn_perf_record(name: str, mbps, lat):
+    """Eine Messung ins rollierende Fenster des Servers aufnehmen."""
+    st = _vpn_perf_stats.setdefault(name, {"mbps": [], "lat": []})
+    if mbps is not None:
+        st["mbps"] = (st["mbps"] + [mbps])[-VPN_PERF_WINDOW:]
+    if lat is not None:
+        st["lat"] = (st["lat"] + [lat])[-VPN_PERF_WINDOW:]
+
+
+def _vpn_perf_evaluate(name: str, mbps, lat) -> dict:
+    """Aktuelle Messung gegen die Baseline des Servers bewerten (verändert NICHTS)."""
+    min_pct = _int_setting("vpn_perf_min_pct", 60, 10, 95)
+    max_lat_pct = _int_setting("vpn_perf_max_latency_pct", 200, 110, 1000)
+    base = _vpn_perf_baseline(name)
+    res = {
+        "server": name, "mbps": mbps, "latency_ms": lat,
+        "base_mbps": base["mbps"], "base_latency_ms": base["latency_ms"],
+        "samples": base["samples"], "min_pct": min_pct, "max_latency_pct": max_lat_pct,
+        "throughput_pct": None, "latency_pct": None,
+        "throughput_bad": False, "latency_bad": False,
+        "have_baseline": base["samples"] >= VPN_PERF_WARMUP, "bad": False,
+    }
+    if not res["have_baseline"]:
+        return res
+    if base["mbps"] and mbps is not None and base["mbps"] > 0:
+        tp = 100.0 * mbps / base["mbps"]
+        res["throughput_pct"] = round(tp)
+        res["throughput_bad"] = tp < min_pct
+    if base["latency_ms"] and lat is not None and base["latency_ms"] > 0:
+        lp = 100.0 * lat / base["latency_ms"]
+        res["latency_pct"] = round(lp)
+        res["latency_bad"] = lp > max_lat_pct
+    res["bad"] = bool(res["throughput_bad"] or res["latency_bad"])
+    return res
+
+
+def _vpn_perf_switch(reason: str) -> str:
+    """Auf den nächsten Server wechseln (blind, self-baseline). Gibt neuen Namen
+    zurück oder "" wenn keine Alternative da ist. Blockierend – via to_thread rufen."""
+    new_path = _vpn_rotate_ovpn()
+    if not new_path:
+        _vpn_log_add("⚠️ Leistungs-Wächter: kein zweiter Server hochgeladen – kann nicht ausweichen.")
+        return ""
+    name = os.path.basename(new_path)
+    _vpn_log_add(f"🎯 Leistungs-Wächter: {reason} → wechsle auf {name}")
+    diag_log("WARNING", "vpn", f"Leistungs-Wächter: {reason} → {name}")
+    res = _vpn_restart()
+    if res.get("ok"):
+        _vpn_log_add(f"🟢 Leistungs-Wächter: neuer Server {name} gestartet.")
+    else:
+        _vpn_log_add(f"❌ Leistungs-Wächter: Start {name} fehlgeschlagen: {res.get('error')}")
+    return name
+
+
+async def _vpn_perf_watch():
+    """Misst die Leistung des aktuellen VPN-Servers und wechselt bei anhaltend
+    schwacher Leistung eigenständig auf einen anderen Server (opt-in).
+
+    Vergleich ist "self-baseline": jeder Server wird an seiner EIGENEN üblichen
+    Leistung gemessen (Durchsatz-/Latenz-Perzentil aus dem rollierenden Fenster).
+    Läuft – wie die anderen Wächter – nur in EINEM Event-Loop (Startup-Guard)."""
+    global _vpn_perf_bad_streak, _vpn_perf_last_switch, _vpn_perf_status
+    await asyncio.sleep(120)   # Startup + erste Baseline abwarten
+    while True:
+        try:
+            await asyncio.sleep(VPN_PERF_INTERVAL)
+            if db.get_setting("vpn_perf_auto", "0") != "1":
+                _vpn_perf_bad_streak = 0
+                continue
+            if _vpn_sweep_active:
+                continue   # Server-Vergleich läuft → nicht dazwischenfunken
+            if db.get_setting("vpn_enabled", "0") != "1" or not vpn_is_running():
+                continue
+            if not _vpn_link_connected or not vpn_get_tun_ip():
+                continue   # toter Tunnel → macht der andere Wächter
+            if _near_capacity():
+                continue   # zu viele Zuschauer → nicht zusätzlich belasten
+            name = os.path.basename(db.get_setting("vpn_ovpn_path", "")) or "?"
+            prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
+            if not prov.get("ok"):
+                continue   # Anbieter-/Messfehler – nicht dem VPN-Server anlasten
+            mbps = prov.get("mbps_parallel_total")
+            lat = prov.get("latency_ms")
+            _vpn_perf_record(name, mbps, lat)
+            ev = _vpn_perf_evaluate(name, mbps, lat)
+            ev["ts"] = int(time.time())
+            _vpn_perf_status = ev
+            if not ev["have_baseline"]:
+                continue   # noch am Lernen
+            if ev["bad"]:
+                _vpn_perf_bad_streak += 1
+                why = []
+                if ev["throughput_bad"]:
+                    why.append(f"Durchsatz {ev['throughput_pct']:.0f}% (<{ev['min_pct']}%)")
+                if ev["latency_bad"]:
+                    why.append(f"Latenz {ev['latency_pct']:.0f}% (>{ev['max_latency_pct']}%)")
+                reason = " & ".join(why)
+                _vpn_log_add(
+                    f"⚠️ Leistungs-Wächter: {name} schwach "
+                    f"({_vpn_perf_bad_streak}/{VPN_PERF_GRACE}) – {reason}"
+                )
+                if _vpn_perf_bad_streak >= VPN_PERF_GRACE:
+                    now = time.monotonic()
+                    if now - _vpn_perf_last_switch < VPN_PERF_COOLDOWN:
+                        rem = int((VPN_PERF_COOLDOWN - (now - _vpn_perf_last_switch)) / 60)
+                        _vpn_log_add(f"⏳ Leistungs-Wächter: Wechsel-Sperre aktiv (~{rem} min) – warte.")
+                    else:
+                        new_name = await asyncio.to_thread(_vpn_perf_switch, reason)
+                        _vpn_perf_bad_streak = 0
+                        if new_name:
+                            _vpn_perf_last_switch = time.monotonic()
+            else:
+                if _vpn_perf_bad_streak:
+                    _vpn_log_add(f"✅ Leistungs-Wächter: {name} wieder ok.")
+                _vpn_perf_bad_streak = 0
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"VPN perf watch error: {e}")
+
+
 # Platzhalter, der dem Client statt des echten VPN-Passworts gesendet wird.
 # Kommt er beim Speichern unverändert zurück, bleibt das bestehende Passwort erhalten.
 _VPN_PASSWORD_PLACEHOLDER = "••••••••"
@@ -4843,6 +5035,60 @@ async def get_vpn_status(_=Depends(check_admin)):
         "public_ip": public_ip,
         "log": _vpn_log[-50:],
     }
+
+
+@admin_app.get("/api/vpn/perf")
+def get_vpn_perf(_=Depends(check_admin)):
+    """Einstellungen + letzter Status des Leistungs-Wächters."""
+    return {
+        "auto": db.get_setting("vpn_perf_auto", "0") == "1",
+        "min_pct": _int_setting("vpn_perf_min_pct", 60, 10, 95),
+        "max_latency_pct": _int_setting("vpn_perf_max_latency_pct", 200, 110, 1000),
+        "grace": VPN_PERF_GRACE,
+        "interval_sec": VPN_PERF_INTERVAL,
+        "cooldown_sec": VPN_PERF_COOLDOWN,
+        "warmup": VPN_PERF_WARMUP,
+        "bad_streak": _vpn_perf_bad_streak,
+        "ovpn_count": len(_vpn_list_ovpn_files()),
+        "status": _vpn_perf_status or None,
+    }
+
+
+@admin_app.post("/api/vpn/perf")
+def set_vpn_perf(body: dict, _=Depends(check_admin)):
+    """Auto-Wechsel an/aus + Prozent-Schwellen speichern (mit Begrenzung)."""
+    if "auto" in body:
+        db.set_setting("vpn_perf_auto", "1" if body.get("auto") else "0")
+    if "min_pct" in body:
+        try:
+            v = max(10, min(95, int(float(body["min_pct"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Durchsatz-Schwelle 10–95 %")
+        db.set_setting("vpn_perf_min_pct", str(v))
+    if "max_latency_pct" in body:
+        try:
+            v = max(110, min(1000, int(float(body["max_latency_pct"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Latenz-Schwelle 110–1000 %")
+        db.set_setting("vpn_perf_max_latency_pct", str(v))
+    return {"ok": True}
+
+
+@admin_app.post("/api/vpn/perf/test")
+async def test_vpn_perf(_=Depends(check_admin)):
+    """Sofort EINE Messung des aktuellen Servers + Bewertung – wechselt NICHT.
+    Aktualisiert die Baseline (wie ein normaler Check), damit Testen sie füllt."""
+    if not vpn_is_running():
+        return {"ok": False, "error": "VPN läuft nicht"}
+    name = os.path.basename(db.get_setting("vpn_ovpn_path", "")) or "?"
+    prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
+    if not prov.get("ok"):
+        return {"ok": False, "error": prov.get("error") or "Messung fehlgeschlagen"}
+    _vpn_perf_record(name, prov.get("mbps_parallel_total"), prov.get("latency_ms"))
+    ev = _vpn_perf_evaluate(name, prov.get("mbps_parallel_total"), prov.get("latency_ms"))
+    ev["ts"] = int(time.time())
+    ev["ok"] = True
+    return ev
 
 
 @admin_app.post("/api/vpn/upload")

@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.19
+
+### Neu
+- **Automatischer VPN-Server-Wechsel bei schlechter Leistung** (opt-in). Ein neuer
+  Leistungs-Wächter misst den aktuell verbundenen VPN-Server laufend (Durchsatz +
+  Antwortzeit/Ping zum Anbieter, schonend über 1 Verbindung) und vergleicht ihn mit
+  seiner *eigenen* üblichen Leistung („self-baseline", Perzentil aus einem
+  rollierenden Fenster). Fällt der Durchsatz **unter eine einstellbare Prozent-Schwelle**
+  der Bestleistung ODER steigt die Latenz **über eine einstellbare Prozent-Schwelle**,
+  wird nach 3 schwachen Messungen in Folge automatisch auf die nächste hochgeladene
+  `.ovpn` gewechselt – mit 30-Min-Sperre gegen Hin-und-Her. Beide Schwellen sind im
+  Panel setzbar; ein Knopf „Jetzt testen" zeigt aktuell vs. Baseline + ob gewechselt
+  würde, ohne zu wechseln. Ergänzt den bestehenden Not-Failover (der nur bei einem
+  toten Tunnel greift) um eine Leistungs-Überwachung.
+- Neue Endpunkte `GET/POST /api/vpn/perf` (Einstellungen + Status) und
+  `POST /api/vpn/perf/test` (Sofort-Messung ohne Wechsel).
+
 ## v1.18
 
 ### Entfernt
