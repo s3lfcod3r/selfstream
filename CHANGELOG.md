@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.22
+
+### Neu
+- **Auto-Best: automatisch den besten VPN-Server wählen** (opt-in). SelfStream misst
+  regelmäßig ALLE hochgeladenen .ovpn durch und schaltet automatisch auf den
+  schnellsten. Der Rundum-Vergleich unterbricht kurz alle Streams (nur ein Tunnel),
+  läuft daher **nur bei 0 Zuschauern** und höchstens alle `vpn_autobest_hours`
+  Stunden (einstellbar). Ergänzt den self-baseline-Leistungs-Wächter (schnelle
+  Reaktion auf Einbrüche) um die Frage „welcher Server ist absolut der beste?".
+- **Ziel „muss gut sein für N Streams" einstellbar** (`vpn_min_streams`, Standard 10).
+  Der Vergleich misst mit so vielen Streams und meldet je Server „schafft ~N Streams"
+  (Ziel = N × 8 Mbit/s ≈ Full-HD). Warnt, wenn selbst der beste Server das Ziel nicht
+  sicher packt (dann liegt's am Anbieter/Leitung, nicht am VPN).
+- Neue Endpunkte `GET/POST /api/vpn/autobest` (Einstellungen + Status) und
+  `POST /api/vpn/autobest-now` (sofort suchen & auf den besten schalten). Knopf
+  „🔍 Jetzt besten suchen & draufschalten" im Panel.
+
 ## v1.21
 
 ### Geändert

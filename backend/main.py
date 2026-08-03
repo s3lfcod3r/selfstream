@@ -392,6 +392,7 @@ async def startup():
     _track_background_task(asyncio.create_task(_live_epg_watchdog()))
     _track_background_task(asyncio.create_task(_health_sampler()))
     _track_background_task(asyncio.create_task(_vpn_perf_watch()))
+    _track_background_task(asyncio.create_task(_vpn_autobest_watch()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -4342,6 +4343,17 @@ def _int_setting(key: str, default: int, lo: int, hi: int) -> int:
 # Trennen für einen Ausfall und funkt mit eigenen Neustarts dazwischen.
 _vpn_sweep_active = False
 
+# ── Auto-Best: automatisch den schnellsten VPN-Server wählen ─────────────────
+# Anders als der self-baseline-Wächter (reagiert nur, wenn EIN Server unter seine
+# eigene Norm fällt) sucht Auto-Best aktiv den ABSOLUT besten: misst regelmäßig
+# ALLE .ovpn durch und bleibt auf dem schnellsten. Der Rundum-Vergleich unterbricht
+# kurz alle Streams (nur EIN Tunnel) → läuft daher NUR bei 0 Zuschauern und
+# höchstens alle ``vpn_autobest_hours`` Stunden.
+VPN_AUTOBEST_CHECK = 1800        # alle 30 min prüfen, ob ein Lauf fällig + ruhig ist
+VPN_STREAM_MBPS = 8              # angenommener Bedarf je Stream (~Full-HD) → Ziel = N×8
+_vpn_autobest_last_run = 0.0     # time.monotonic() des letzten Vergleichs
+_vpn_autobest_status: dict = {}  # letztes Ergebnis (fastest/active/results) für UI
+
 # Proaktiver Lebenszeichen-Check: der Log-basierte Zustand erkennt einen "verbunden,
 # aber es fliesst nichts"-Tunnel evtl. spaet. Zusaetzlich sendet der Waechter ein
 # winziges echtes Paket durch den Tunnel. Bewusst SEHR konservativ, um Fehlalarme
@@ -4975,6 +4987,49 @@ async def _vpn_perf_watch():
             raise
         except Exception as e:
             logger.warning(f"VPN perf watch error: {e}")
+
+
+async def _vpn_autobest_watch():
+    """Sucht regelmäßig den besten VPN-Server und schaltet automatisch drauf (opt-in).
+
+    Der Rundum-Vergleich unterbricht kurz ALLE Streams (nur ein Tunnel), deshalb
+    läuft er NUR bei 0 Zuschauern und höchstens alle ``vpn_autobest_hours`` Stunden.
+    Ergänzt den self-baseline-Leistungs-Wächter (der schnell auf Einbrüche reagiert)
+    um die Frage „welcher Server ist ABSOLUT der beste / schafft die Ziel-Streams?"."""
+    global _vpn_autobest_last_run
+    await asyncio.sleep(180)   # Startup abwarten
+    while True:
+        try:
+            await asyncio.sleep(VPN_AUTOBEST_CHECK)
+            if db.get_setting("vpn_autobest", "0") != "1":
+                continue
+            if db.get_setting("vpn_enabled", "0") != "1" or not vpn_is_running():
+                continue
+            if _vpn_sweep_active:
+                continue
+            if len(_vpn_list_ovpn_files()) < 2:
+                continue
+            interval = _int_setting("vpn_autobest_hours", 24, 1, 168) * 3600
+            if _vpn_autobest_last_run and (time.monotonic() - _vpn_autobest_last_run) < interval:
+                continue   # noch nicht fällig
+            # NUR wenn NIEMAND schaut – der Vergleich unterbricht sonst alle Streams.
+            try:
+                _cleanup_sessions()
+                if len(_sessions) > 0:
+                    continue
+            except Exception:
+                continue
+            _vpn_log_add("🏆 Auto-Best: suche besten VPN-Server (0 Zuschauer)…")
+            res = await _vpn_compare_servers(switch_to_best=True)
+            if res.get("ok"):
+                diag_log("INFO", "vpn",
+                         f"Auto-Best: bester = {res.get('fastest')} (aktiv: {res.get('restored')}, "
+                         f"{res.get('best_mbps')} Mbit/s, Ziel {res.get('min_streams')} Streams "
+                         f"{'erreicht' if res.get('meets_target') else 'NICHT erreicht'})")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"VPN autobest watch error: {e}")
 
 
 # Platzhalter, der dem Client statt des echten VPN-Passworts gesendet wird.
@@ -5789,30 +5844,35 @@ async def iptv_capacity_sweep(max_streams: int = 20, _=Depends(check_admin)):
             "first_fail": first_fail, "max_fhd": max_fhd, "summary": summary}
 
 
-@admin_app.get("/api/vpn/speedtest-all")
-async def vpn_speedtest_all(_=Depends(check_admin)):
-    """Vergleicht ALLE hochgeladenen .ovpn: verbindet jede nacheinander und misst
-    pro Server den **IPTV-Anbieter-Durchsatz + Latenz** (nicht den Internet-Speedtest,
-    der durchs VPN unzuverlaessig ist). Rankt nach dem, was wirklich zaehlt: wie gut
-    die Streams ueber den jeweiligen VPN-Server laufen.
+async def _vpn_compare_servers(switch_to_best: bool = False) -> dict:
+    """Verbindet jede hochgeladene .ovpn nacheinander und misst pro Server den
+    IPTV-Anbieter-Durchsatz + Latenz (nicht den durchs VPN unzuverlaessigen
+    Internet-Speedtest). Rankt nach Anbieter-Gesamtdurchsatz.
 
-    ACHTUNG: Es gibt nur EINEN Tunnel – waehrend des Durchlaufs sind alle Streams
-    kurz unterbrochen. Der Waechter wird pausiert (``_vpn_sweep_active``), und der
-    urspruenglich aktive Server wird am Ende GARANTIERT wiederhergestellt (finally).
-    Ergebnisse landen zusaetzlich im VPN-Log, falls der Browser-Request vorher
-    abbricht.
+    ``switch_to_best=False``: am Ende den URSPRUENGLICHEN Server wiederherstellen
+    (reiner Vergleich). ``switch_to_best=True``: am Ende auf den BESTEN Server
+    schalten (Auto-Best). Es gibt nur EINEN Tunnel → waehrend des Durchlaufs sind
+    alle Streams kurz unterbrochen; der Wächter pausiert via ``_vpn_sweep_active``,
+    der Zielserver wird im ``finally`` GARANTIERT hergestellt (auch bei Abbruch).
     """
-    global _vpn_sweep_active
+    global _vpn_sweep_active, _vpn_autobest_last_run, _vpn_autobest_status
     files = _vpn_list_ovpn_files()
     if len(files) < 2:
-        raise HTTPException(status_code=400, detail="Mindestens 2 .ovpn-Dateien nötig für einen Vergleich")
+        return {"ok": False, "error": "Mindestens 2 .ovpn-Dateien nötig für einen Vergleich"}
     if _vpn_sweep_active:
-        raise HTTPException(status_code=409, detail="Ein VPN-Vergleich läuft bereits")
+        return {"ok": False, "error": "Ein VPN-Vergleich läuft bereits"}
 
     original = db.get_setting("vpn_ovpn_path", "") or files[0]
+    target = original          # Fallback: bei Abbruch Original wiederherstellen
+    fastest = None
     results = []
+    min_streams = _int_setting("vpn_min_streams", 10, 1, 20)
+    target_mbps = min_streams * VPN_STREAM_MBPS   # nötiger Gesamtdurchsatz für N Streams
+    meas_streams = max(3, min_streams)            # so viele Streams messen (0 Zuschauer)
     _vpn_sweep_active = True
-    _vpn_log_add(f"🏁 VPN-Vergleich gestartet ({len(files)} Server) – Streams sind kurz unterbrochen.")
+    _vpn_log_add(
+        f"🏁 VPN-Vergleich gestartet ({len(files)} Server, Ziel {min_streams} Streams "
+        f"≈ {target_mbps} Mbit/s) – Streams sind kurz unterbrochen.")
     try:
         for path in files:
             name = os.path.basename(path)
@@ -5827,26 +5887,97 @@ async def vpn_speedtest_all(_=Depends(check_admin)):
                 results.append({"ovpn": name, "ok": False, "error": "Tunnel kam nicht hoch (Timeout)"})
                 _vpn_log_add(f"   {name}: Tunnel-Timeout")
                 continue
-            r = await _iptv_measure_provider(streams=5, per_stream_segments=2)
+            r = await _iptv_measure_provider(streams=meas_streams, per_stream_segments=2)
+            total = r.get("mbps_parallel_total") or 0
+            r["streams_ok"] = int(total // VPN_STREAM_MBPS) if r.get("ok") else 0
+            r["meets_target"] = bool(r.get("ok") and total >= target_mbps)
             results.append({"ovpn": name, **r})
             if r.get("ok"):
-                _vpn_log_add(f"   {name}: {r.get('mbps_parallel_total')} Mbit/s gesamt · Latenz {r.get('latency_ms')} ms")
+                mark = "✅" if r["meets_target"] else "⚠️"
+                _vpn_log_add(f"   {name}: {total} Mbit/s gesamt · Latenz {r.get('latency_ms')} ms "
+                             f"{mark} ~{r['streams_ok']} Streams")
             else:
                 _vpn_log_add(f"   {name}: {r.get('error')}")
+        # Ranking nach ANBIETER-Gesamtdurchsatz (verlaesslich).
+        ranked = sorted([r for r in results if r.get("ok")],
+                        key=lambda x: x.get("mbps_parallel_total", 0), reverse=True)
+        fastest = ranked[0]["ovpn"] if ranked else None
+        if switch_to_best and fastest:
+            target = next((p for p in files if os.path.basename(p) == fastest), original)
     finally:
-        # Urspruenglichen Server GARANTIERT wiederherstellen – auch bei Abbruch.
-        db.set_setting("vpn_ovpn_path", original)
+        # Zielserver GARANTIERT herstellen (bester bei Auto-Best, sonst Original).
+        db.set_setting("vpn_ovpn_path", target)
         await asyncio.to_thread(_vpn_teardown)
         await asyncio.to_thread(vpn_start)
         await _vpn_wait_up(25)
         _vpn_sweep_active = False
-        _vpn_log_add(f"✅ VPN-Vergleich fertig – wiederhergestellt: {os.path.basename(original)}")
+        _vpn_log_add(f"✅ VPN-Vergleich fertig – aktiv: {os.path.basename(target)}")
 
-    # Ranking nach ANBIETER-Gesamtdurchsatz (verlaesslich), nicht nach Internet-Speedtest.
-    ranked = sorted([r for r in results if r.get("ok")], key=lambda x: x.get("mbps_parallel_total", 0), reverse=True)
-    return {
-        "ok": True,
-        "restored": os.path.basename(original),
-        "fastest": ranked[0]["ovpn"] if ranked else None,
-        "results": results,
+    switched = bool(switch_to_best and fastest and os.path.basename(target) != os.path.basename(original))
+    best = next((r for r in results if r.get("ovpn") == fastest), None) if fastest else None
+    best_total = best.get("mbps_parallel_total") if best else None
+    meets_target = bool(best and best.get("meets_target"))
+    _vpn_autobest_last_run = time.monotonic()
+    _vpn_autobest_status = {
+        "ts": int(time.time()), "fastest": fastest, "active": os.path.basename(target),
+        "switched": switched, "min_streams": min_streams, "target_mbps": target_mbps,
+        "best_mbps": best_total, "meets_target": meets_target, "results": results,
     }
+    if fastest and not meets_target:
+        _vpn_log_add(f"⚠️ Auto-Best: auch der beste Server ({fastest}) schafft die "
+                     f"{min_streams} Streams nicht sicher ({best_total} Mbit/s) – Anbieter/Leitung prüfen.")
+    return {"ok": True, "restored": os.path.basename(target), "fastest": fastest,
+            "switched": switched, "min_streams": min_streams, "target_mbps": target_mbps,
+            "best_mbps": best_total, "meets_target": meets_target, "results": results}
+
+
+@admin_app.get("/api/vpn/speedtest-all")
+async def vpn_speedtest_all(_=Depends(check_admin)):
+    """Reiner Vergleich aller VPN-Server (Ergebnis + Ranking), Original bleibt aktiv."""
+    res = await _vpn_compare_servers(switch_to_best=False)
+    if not res.get("ok"):
+        raise HTTPException(status_code=409, detail=res.get("error"))
+    return res
+
+
+@admin_app.get("/api/vpn/autobest")
+def get_vpn_autobest(_=Depends(check_admin)):
+    """Einstellungen + letzter Status des Auto-Best-Modus (automatisch besten wählen)."""
+    return {
+        "auto": db.get_setting("vpn_autobest", "0") == "1",
+        "interval_hours": _int_setting("vpn_autobest_hours", 24, 1, 168),
+        "min_streams": _int_setting("vpn_min_streams", 10, 1, 20),
+        "stream_mbps": VPN_STREAM_MBPS,
+        "running": _vpn_sweep_active,
+        "ovpn_count": len(_vpn_list_ovpn_files()),
+        "status": _vpn_autobest_status or None,
+    }
+
+
+@admin_app.post("/api/vpn/autobest")
+def set_vpn_autobest(body: dict, _=Depends(check_admin)):
+    """Auto-Best an/aus + Prüf-Intervall (Stunden) speichern."""
+    if "auto" in body:
+        db.set_setting("vpn_autobest", "1" if body.get("auto") else "0")
+    if "interval_hours" in body:
+        try:
+            v = max(1, min(168, int(float(body["interval_hours"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Intervall 1–168 Stunden")
+        db.set_setting("vpn_autobest_hours", str(v))
+    if "min_streams" in body:
+        try:
+            v = max(1, min(20, int(float(body["min_streams"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Ziel-Streams 1–20")
+        db.set_setting("vpn_min_streams", str(v))
+    return {"ok": True}
+
+
+@admin_app.post("/api/vpn/autobest-now")
+async def vpn_autobest_now(_=Depends(check_admin)):
+    """Sofort alle Server vergleichen und auf den BESTEN schalten (manueller Anstoß)."""
+    res = await _vpn_compare_servers(switch_to_best=True)
+    if not res.get("ok"):
+        raise HTTPException(status_code=409, detail=res.get("error"))
+    return res

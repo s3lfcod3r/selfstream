@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.21</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.22</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.21</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.22</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1151,6 +1151,37 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <button class="btn" onclick="vpnPerfTest()" id="vpn-perf-test-btn" style="margin-left:8px;">🧪 Jetzt testen (ohne Wechsel)</button>
             <div id="vpn-perf-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
             <div class="form-hint" style="margin-top:10px;">Wechsel erst nach 3 schwachen Messungen in Folge (~6&nbsp;Min) + 30-Min-Sperre danach (kein Hin-und-Her). Jede Entscheidung steht im Live-Log oben. Hinweis: ist der Anbieter selbst langsam, hilft ein Server-Wechsel nicht – dann bleibt es beim Wechseln, aber ehrlich im Log.</div>
+          </div>
+
+          <div class="scard" style="grid-column:1/-1">
+            <div class="scard-title">🏆 Automatisch besten Server wählen</div>
+            <div class="form-hint" style="margin-bottom:14px;">
+              SelfStream misst regelmäßig <strong>alle</strong> hochgeladenen VPN-Server durch und schaltet automatisch auf den <strong>schnellsten</strong>, der deine Ziel-Stream-Zahl sicher packt. Der Rundum-Vergleich unterbricht kurz alle Streams (~2&nbsp;Min, nur ein Tunnel), deshalb läuft er <strong>nur bei 0 Zuschauern</strong>. Ergänzt den Leistungs-Wächter oben (der schnell auf Einbrüche reagiert).
+            </div>
+            <label style="display:flex;align-items:center;gap:10px;margin-bottom:16px;cursor:pointer;">
+              <input type="checkbox" id="vpn-ab-auto" onchange="vpnAutobestSave()">
+              <span style="font-size:13px;">Automatisch besten VPN-Server wählen</span>
+            </label>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+              <div style="flex:1;min-width:200px;">
+                <label class="form-label">Muss gut sein für</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="vpn-ab-streams" min="1" max="20" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">gleichzeitige Streams (Ziel)</span>
+                </div>
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <label class="form-label">Prüfen alle</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="vpn-ab-hours" min="1" max="168" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">Stunden (nur bei 0 Zuschauern)</span>
+                </div>
+              </div>
+            </div>
+            <button class="btn primary" onclick="vpnAutobestSave(true)">💾 Speichern</button>
+            <button class="btn" onclick="vpnAutobestNow()" id="vpn-ab-now-btn" style="margin-left:8px;">🔍 Jetzt besten suchen &amp; draufschalten</button>
+            <div id="vpn-ab-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch kein Vergleich –</div>
+            <div class="form-hint" style="margin-top:10px;">⚠️ „Jetzt suchen" verbindet jeden Server nacheinander (~2&nbsp;Min ALLE Streams unterbrochen) und bleibt danach auf dem besten. Am besten laufen lassen, wenn keiner schaut.</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -3904,6 +3935,7 @@ async function loadVpnSettings() {
   renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
   vpnRefreshStatus();
   vpnPerfLoad();
+  vpnAutobestLoad();
   // Auto-poll log every 3s when on VPN page
   if (_vpnStatusInterval) clearInterval(_vpnStatusInterval);
   _vpnStatusInterval = setInterval(vpnRefreshStatus, 3000);
@@ -4288,6 +4320,79 @@ function vpnPerfRender(s) {
     lines.push(`🔴 WÜRDE WECHSELN: ${why.join(' & ')}  (Schwellen ${s.min_pct}% / ${s.max_latency_pct}%)`);
   } else {
     lines.push(`🟢 OK – kein Wechsel nötig  (Schwellen ${s.min_pct}% / ${s.max_latency_pct}%)`);
+  }
+  box.textContent = lines.join('\n');
+}
+
+// ── VPN Auto-Best (automatisch besten Server wählen) ─────────────────────────
+
+async function vpnAutobestLoad() {
+  let p;
+  try { p = await api('GET', '/api/vpn/autobest'); } catch(e) { return; }
+  if (!p) return;
+  const auto = document.getElementById('vpn-ab-auto');
+  const st   = document.getElementById('vpn-ab-streams');
+  const hr   = document.getElementById('vpn-ab-hours');
+  if (auto) auto.checked = !!p.auto;
+  if (st && document.activeElement !== st) st.value = p.min_streams;
+  if (hr && document.activeElement !== hr) hr.value = p.interval_hours;
+  vpnAutobestRender(p.status);
+}
+
+async function vpnAutobestSave(toast) {
+  const body = {
+    auto: document.getElementById('vpn-ab-auto').checked,
+    min_streams: document.getElementById('vpn-ab-streams').value,
+    interval_hours: document.getElementById('vpn-ab-hours').value,
+  };
+  try {
+    await api('POST', '/api/vpn/autobest', body);
+    if (toast && typeof showToast === 'function') showToast('🏆 Auto-Best-Einstellungen gespeichert');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Fehler: ' + (e.message || e));
+  }
+  vpnAutobestLoad();
+}
+
+async function vpnAutobestNow() {
+  if (!confirm('Jetzt alle VPN-Server vergleichen und auf den besten schalten?\n\n⚠️ Dabei sind ~2 Min ALLE Streams unterbrochen. Am besten laufen lassen, wenn keiner schaut.\n\nStarten?')) return;
+  const btn = document.getElementById('vpn-ab-now-btn');
+  const box = document.getElementById('vpn-ab-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Vergleiche Server…'; }
+  if (box) box.textContent = '⏳ Verbinde jeden Server nacheinander und messe… (~2 Min, bitte warten)';
+  try {
+    const r = await api('POST', '/api/vpn/autobest-now');
+    vpnAutobestRender(r);
+    if (typeof showToast === 'function') showToast('🏆 Bester Server gewählt');
+  } catch(e) {
+    if (box) box.textContent = '❌ ' + (e.message || e);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔍 Jetzt besten suchen & draufschalten'; }
+}
+
+function vpnAutobestRender(s) {
+  const box = document.getElementById('vpn-ab-status');
+  if (!box) return;
+  if (!s || !s.results) { box.textContent = '– noch kein Vergleich –'; return; }
+  const lines = [];
+  (s.results || []).forEach(r => {
+    if (r.ok) {
+      const mark = r.meets_target ? '✅' : '⚠️';
+      const star = (r.ovpn === s.fastest) ? '  🏆 bester' : '';
+      const strv = (r.streams_ok != null) ? r.streams_ok : '?';
+      lines.push(`${mark} ${r.ovpn}: ${r.mbps_parallel_total} Mbit/s · ${r.latency_ms} ms · ~${strv} Streams${star}`);
+    } else {
+      lines.push(`❌ ${r.ovpn}: ${r.error || 'Fehler'}`);
+    }
+  });
+  lines.push('');
+  if (s.fastest) {
+    lines.push(s.meets_target
+      ? `✅ Bester: ${s.fastest} (${s.best_mbps} Mbit/s) – schafft die ${s.min_streams} Streams.`
+      : `⚠️ Bester: ${s.fastest} (${s.best_mbps} Mbit/s) – schafft die ${s.min_streams} Streams NICHT sicher (Anbieter/Leitung?).`);
+    lines.push(`Aktiv jetzt: ${s.active || s.restored || '?'}`);
+  } else {
+    lines.push('Kein Server lieferte gültige Werte.');
   }
   box.textContent = lines.join('\n');
 }

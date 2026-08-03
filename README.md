@@ -96,6 +96,14 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.22)
+
+- **Auto-Best: automatically pick the best VPN server** (opt-in). SelfStream periodically measures ALL uploaded .ovpn files and switches to the fastest on its own. The full comparison briefly interrupts all streams (single tunnel), so it runs **only with 0 viewers** and at most every `vpn_autobest_hours` hours (configurable). Complements the self-baseline performance watchdog (fast reaction to drops) with the question "which server is absolutely the best?".
+- **Configurable target "must be good for N streams"** (`vpn_min_streams`, default 10). The comparison measures with that many streams and reports "handles ~N streams" per server (target = N × 8 Mbit/s ≈ Full-HD). Warns when even the best server can't safely reach the target (then it's the provider/line, not the VPN).
+- New endpoints `GET/POST /api/vpn/autobest` and `POST /api/vpn/autobest-now`, plus a "🔍 Find & switch to best now" button.
+
+---
+
 ## What's New (August 2026 – v1.21)
 
 - **Provider capacity test: set the stream count yourself.** Instead of a fixed 1–20, there's now an input field "up to N concurrent streams" (2–50). The test stages adapt automatically.
@@ -621,6 +629,14 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.22)
+
+- **Auto-Best: automatisch den besten VPN-Server wählen** (opt-in). SelfStream misst regelmäßig ALLE hochgeladenen .ovpn durch und schaltet automatisch auf den schnellsten. Der Rundum-Vergleich unterbricht kurz alle Streams (nur ein Tunnel), läuft daher **nur bei 0 Zuschauern** und höchstens alle `vpn_autobest_hours` Stunden (einstellbar). Ergänzt den Leistungs-Wächter (schnelle Reaktion auf Einbrüche).
+- **Ziel „muss gut sein für N Streams" einstellbar** (`vpn_min_streams`, Standard 10). Der Vergleich misst mit so vielen Streams und meldet je Server „schafft ~N Streams" (Ziel = N × 8 Mbit/s ≈ Full-HD). Warnt, wenn selbst der beste Server das Ziel nicht sicher packt.
+- Neue Endpunkte `GET/POST /api/vpn/autobest`, `POST /api/vpn/autobest-now` + Knopf „🔍 Jetzt besten suchen & draufschalten".
 
 ---
 
