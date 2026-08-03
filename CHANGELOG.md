@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.23
+
+### Behoben
+- **Auto-Best-Vergleich war viel zu langsam** (Minuten pro Server). Der Sweep hat
+  mit der vollen Ziel-Stream-Zahl gemessen (z.B. 10) und damit das Anbieter-
+  Verbindungslimit (~10) getroffen → Stalls/Timeouts. Jetzt misst er eine moderate
+  Parallel-Last (max. 5 Streams) und leitet die „schafft ~N Streams"-Angabe aus dem
+  Gesamtdurchsatz ab (Ziel = N × 8 Mbit/s). Deutlich schneller und schont das Limit.
+
 ## v1.22
 
 ### Neu

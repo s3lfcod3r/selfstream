@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.23)
+
+- **Fixed: Auto-Best comparison was far too slow** (minutes per server). The sweep measured with the full target stream count (e.g. 10), hitting the provider's ~10-connection limit → stalls/timeouts. It now measures a moderate parallel load (max 5 streams) and derives "handles ~N streams" from total throughput (target = N × 8 Mbit/s). Much faster and easier on the limit.
+
+---
+
 ## What's New (August 2026 – v1.22)
 
 - **Auto-Best: automatically pick the best VPN server** (opt-in). SelfStream periodically measures ALL uploaded .ovpn files and switches to the fastest on its own. The full comparison briefly interrupts all streams (single tunnel), so it runs **only with 0 viewers** and at most every `vpn_autobest_hours` hours (configurable). Complements the self-baseline performance watchdog (fast reaction to drops) with the question "which server is absolutely the best?".
@@ -629,6 +635,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.23)
+
+- **Behoben: Auto-Best-Vergleich war viel zu langsam** (Minuten pro Server). Der Sweep maß mit der vollen Ziel-Stream-Zahl (z.B. 10) und traf so das Anbieter-Verbindungslimit (~10) → Stalls/Timeouts. Jetzt misst er eine moderate Parallel-Last (max. 5 Streams) und leitet „schafft ~N Streams" aus dem Gesamtdurchsatz ab. Deutlich schneller.
 
 ---
 

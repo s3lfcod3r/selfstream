@@ -5868,7 +5868,11 @@ async def _vpn_compare_servers(switch_to_best: bool = False) -> dict:
     results = []
     min_streams = _int_setting("vpn_min_streams", 10, 1, 20)
     target_mbps = min_streams * VPN_STREAM_MBPS   # nötiger Gesamtdurchsatz für N Streams
-    meas_streams = max(3, min_streams)            # so viele Streams messen (0 Zuschauer)
+    # NICHT mit der vollen Ziel-Zahl messen: das würde das Anbieter-Verbindungslimit
+    # (oft ~10) treffen → Stalls/Timeouts und ein irre langsamer Sweep (Minuten je
+    # Server). Stattdessen eine MODERATE Parallel-Last messen und die N-Stream-
+    # Tauglichkeit aus dem GESAMTDURCHSATZ ableiten (Ziel = N × VPN_STREAM_MBPS).
+    meas_streams = max(3, min(min_streams, 5))
     _vpn_sweep_active = True
     _vpn_log_add(
         f"🏁 VPN-Vergleich gestartet ({len(files)} Server, Ziel {min_streams} Streams "
