@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.20
+
+### Behoben
+- **Leistungs-Wächter zappelte / löste zu oft aus.** Die Perf-Messung nahm nur
+  eine einzelne 1-Segment-Probe – die schwankt stark (im Log 14 %↔55 % beim selben
+  Server) und erzeugte Fehl-„schwach" plus Server-Flappen. Drei Korrekturen:
+  (1) es wird über mehrere Streams/Segmente gemessen (`VPN_PERF_STREAMS=2`,
+  `VPN_PERF_SEGMENTS=3`) → stabile Zahl statt Rauschen; (2) die Baseline ist jetzt
+  der **Median** (typischer Wert) statt eines Perzentil-Bestwerts – gegen einen
+  Bestwert sah ein normaler Wert fälschlich wie „~55 %" aus; (3) der aktuelle Wert
+  wird über die letzten Messungen **geglättet** (Median der letzten 3). Damit löst
+  nur noch ein echter, anhaltender Einbruch aus.
+
 ## v1.19
 
 ### Neu

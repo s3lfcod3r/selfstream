@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.20)
+
+- **Performance watchdog: fixed flapping / over-eager switching.** The perf check took a single 1-segment probe, which is noisy (14 %↔55 % on the same server in the log) and caused false "weak" readings plus server flapping. Three fixes: it now measures over multiple streams/segments (stable number instead of noise), the baseline is the **median** (typical value) instead of a percentile best-value, and the current value is **smoothed** (median of the last 3 measurements). Only a real, sustained drop triggers a switch now.
+
+---
+
 ## What's New (August 2026 – v1.19)
 
 - **Automatic VPN-server switch on poor performance** (opt-in). A new performance watchdog continuously measures the currently connected VPN server (throughput + response time/ping to the provider, gently via a single connection) and compares it against its *own* usual performance ("self-baseline", percentile over a rolling window). If throughput drops **below a configurable percentage** of its best, OR latency rises **above a configurable percentage**, SelfStream switches to the next uploaded `.ovpn` after 3 weak measurements in a row — with a 30-minute cooldown against flip-flopping. Both thresholds are set in the panel; a **"Test now"** button shows current vs. baseline and whether it would switch, without switching. Complements the existing emergency failover (which only reacts to a dead tunnel). New endpoints: `GET/POST /api/vpn/perf`, `POST /api/vpn/perf/test`.
@@ -609,6 +615,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.20)
+
+- **Leistungs-Wächter: Zappeln / zu häufiges Auslösen behoben.** Die Perf-Messung nahm nur eine einzelne 1-Segment-Probe – die schwankt stark (im Log 14 %↔55 % beim selben Server) und erzeugte Fehl-„schwach" plus Server-Flappen. Drei Korrekturen: es wird über mehrere Streams/Segmente gemessen (stabile Zahl statt Rauschen), die Baseline ist jetzt der **Median** (typischer Wert) statt eines Perzentil-Bestwerts, und der aktuelle Wert wird **geglättet** (Median der letzten 3 Messungen). Nur noch ein echter, anhaltender Einbruch löst aus.
 
 ---
 

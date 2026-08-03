@@ -4306,7 +4306,7 @@ _vpn_failed_restarts = 0
 # ── VPN-Leistungs-Wächter (Auto-Wechsel bei schwacher Leistung) ─────────────
 # Der Wächter oben greift nur bei einem TOTEN Tunnel. Dieser hier misst die
 # tatsächliche LEISTUNG des aktuell verbundenen Servers (Durchsatz + Latenz zum
-# Anbieter, schonend über 1 Verbindung) und wechselt eigenständig auf einen
+# Anbieter, schonend über wenige Verbindungen) und wechselt eigenständig auf einen
 # anderen Server, wenn der aktuelle spürbar unter seine EIGENE übliche Leistung
 # fällt ("self-baseline") – opt-in, mit einstellbaren Prozent-Schwellen. Beide
 # Schwellen (Durchsatz-Minimum in % / Latenz-Maximum in %) sind im Panel setzbar.
@@ -4315,6 +4315,14 @@ VPN_PERF_WARMUP = 5              # so viele Messungen, bevor eine Baseline zähl
 VPN_PERF_GRACE = 3               # so viele schlechte Checks am Stück → Wechsel
 VPN_PERF_COOLDOWN = 1800         # Mindestabstand zwischen zwei Auto-Wechseln (30 min)
 VPN_PERF_WINDOW = 30             # rollierendes Messfenster je Server (Baseline-Basis)
+# Eine EINZELNE 1-Segment-Probe ist zu verrauscht (springt 14 %↔55 %) und würde
+# Fehl-„schwach" + Server-Flappen auslösen. Deshalb misst der Perf-Check über
+# mehrere Streams/Segmente (stabile Zahl), die Baseline ist der MEDIAN (typischer
+# Wert, nicht ein Bestwert) und der aktuelle Wert wird über die letzten Messungen
+# geglättet – so löst nur ein ECHTER, anhaltender Einbruch aus.
+VPN_PERF_STREAMS = 2             # gleichzeitige Streams je Perf-Messung (stabil statt Rauschen)
+VPN_PERF_SEGMENTS = 3           # Segmente je Stream (nachhaltiger Durchsatz)
+VPN_PERF_SMOOTH = 3             # aktueller Wert = Median der letzten N Messungen
 _vpn_perf_stats: dict = {}       # {ovpn_name: {"mbps":[...], "lat":[...]}}
 _vpn_perf_bad_streak = 0
 _vpn_perf_last_switch = 0.0      # time.monotonic() des letzten Auto-Wechsels
@@ -4821,16 +4829,30 @@ def _vpn_perf_pct(values: list, pct: float) -> float:
 
 
 def _vpn_perf_baseline(name: str) -> dict:
-    """Übliche Leistung eines Servers aus dem rollierenden Fenster:
-    Durchsatz = 75. Perzentil (typisch guter Wert), Latenz = 25. Perzentil (typisch niedrig)."""
+    """Übliche Leistung eines Servers aus dem rollierenden Fenster = MEDIAN
+    (typischer Wert). Bewusst NICHT ein Perzentil-Bestwert: gegen einen Bestwert
+    sähe ein ganz normaler Wert wie „nur 55 %" aus und würde ständig auslösen."""
     st = _vpn_perf_stats.get(name) or {}
     mbps = [v for v in st.get("mbps", []) if v is not None]
     lat = [v for v in st.get("lat", []) if v is not None]
     return {
-        "mbps": round(_vpn_perf_pct(mbps, 75), 1) if mbps else None,
-        "latency_ms": round(_vpn_perf_pct(lat, 25), 1) if lat else None,
+        "mbps": round(_vpn_perf_pct(mbps, 50), 1) if mbps else None,
+        "latency_ms": round(_vpn_perf_pct(lat, 50), 1) if lat else None,
         "samples": max(len(mbps), len(lat)),
     }
+
+
+def _vpn_perf_recent(name: str, k: int = VPN_PERF_SMOOTH):
+    """Geglätteter aktueller Wert = Median der letzten k Messungen (killt Rauschen)."""
+    st = _vpn_perf_stats.get(name) or {}
+    def _med(xs):
+        xs = [v for v in xs if v is not None][-k:]
+        if not xs:
+            return None
+        s = sorted(xs)
+        n = len(s)
+        return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+    return _med(st.get("mbps", [])), _med(st.get("lat", []))
 
 
 def _vpn_perf_record(name: str, mbps, lat):
@@ -4842,10 +4864,13 @@ def _vpn_perf_record(name: str, mbps, lat):
         st["lat"] = (st["lat"] + [lat])[-VPN_PERF_WINDOW:]
 
 
-def _vpn_perf_evaluate(name: str, mbps, lat) -> dict:
-    """Aktuelle Messung gegen die Baseline des Servers bewerten (verändert NICHTS)."""
+def _vpn_perf_evaluate(name: str, *_ignored) -> dict:
+    """Geglätteten aktuellen Wert gegen die Baseline des Servers bewerten
+    (verändert NICHTS). Aktuell = Median der letzten Messungen, Baseline = Median
+    des Fensters – so vergleicht man Median gegen Median statt Rauschen gegen Bestwert."""
     min_pct = _int_setting("vpn_perf_min_pct", 60, 10, 95)
     max_lat_pct = _int_setting("vpn_perf_max_latency_pct", 200, 110, 1000)
+    mbps, lat = _vpn_perf_recent(name)
     base = _vpn_perf_baseline(name)
     res = {
         "server": name, "mbps": mbps, "latency_ms": lat,
@@ -4911,13 +4936,11 @@ async def _vpn_perf_watch():
             if _near_capacity():
                 continue   # zu viele Zuschauer → nicht zusätzlich belasten
             name = os.path.basename(db.get_setting("vpn_ovpn_path", "")) or "?"
-            prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
+            prov = await _iptv_measure_provider(streams=VPN_PERF_STREAMS, per_stream_segments=VPN_PERF_SEGMENTS)
             if not prov.get("ok"):
                 continue   # Anbieter-/Messfehler – nicht dem VPN-Server anlasten
-            mbps = prov.get("mbps_parallel_total")
-            lat = prov.get("latency_ms")
-            _vpn_perf_record(name, mbps, lat)
-            ev = _vpn_perf_evaluate(name, mbps, lat)
+            _vpn_perf_record(name, prov.get("mbps_parallel_total"), prov.get("latency_ms"))
+            ev = _vpn_perf_evaluate(name)
             ev["ts"] = int(time.time())
             _vpn_perf_status = ev
             if not ev["have_baseline"]:
@@ -5081,11 +5104,11 @@ async def test_vpn_perf(_=Depends(check_admin)):
     if not vpn_is_running():
         return {"ok": False, "error": "VPN läuft nicht"}
     name = os.path.basename(db.get_setting("vpn_ovpn_path", "")) or "?"
-    prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
+    prov = await _iptv_measure_provider(streams=VPN_PERF_STREAMS, per_stream_segments=VPN_PERF_SEGMENTS)
     if not prov.get("ok"):
         return {"ok": False, "error": prov.get("error") or "Messung fehlgeschlagen"}
     _vpn_perf_record(name, prov.get("mbps_parallel_total"), prov.get("latency_ms"))
-    ev = _vpn_perf_evaluate(name, prov.get("mbps_parallel_total"), prov.get("latency_ms"))
+    ev = _vpn_perf_evaluate(name)
     ev["ts"] = int(time.time())
     ev["ok"] = True
     return ev
