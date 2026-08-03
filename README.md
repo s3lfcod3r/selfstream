@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.21)
+
+- **Provider capacity test: set the stream count yourself.** Instead of a fixed 1–20, there's now an input field "up to N concurrent streams" (2–50). The test stages adapt automatically.
+
+---
+
 ## What's New (August 2026 – v1.20)
 
 - **Performance watchdog: fixed flapping / over-eager switching.** The perf check took a single 1-segment probe, which is noisy (14 %↔55 % on the same server in the log) and caused false "weak" readings plus server flapping. Three fixes: it now measures over multiple streams/segments (stable number instead of noise), the baseline is the **median** (typical value) instead of a percentile best-value, and the current value is **smoothed** (median of the last 3 measurements). Only a real, sustained drop triggers a switch now.
@@ -615,6 +621,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.21)
+
+- **Anbieter-Kapazitätstest: Stream-Zahl selbst einstellbar.** Statt fest 1–20 gibt es jetzt ein Eingabefeld „bis N gleichzeitige Streams" (2–50). Die Test-Stufen passen sich automatisch an.
 
 ---
 

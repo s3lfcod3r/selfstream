@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.21
+
+### Geändert
+- **Anbieter-Kapazitätstest: Stream-Zahl selbst einstellbar.** Statt fest 1–20 gibt
+  es jetzt ein Eingabefeld „bis N gleichzeitige Streams" (2–50). Die Test-Stufen
+  passen sich automatisch an (`/api/iptv/capacity?max_streams=N`, Leiter bis 50).
+
 ## v1.20
 
 ### Behoben

@@ -5732,8 +5732,9 @@ async def iptv_capacity_sweep(max_streams: int = 20, _=Depends(check_admin)):
     global _iptv_capacity_running
     if _iptv_capacity_running:
         raise HTTPException(status_code=409, detail="Kapazitätstest läuft bereits")
-    max_streams = max(2, min(20, int(max_streams)))
-    levels = [n for n in [1, 2, 3, 4, 6, 8, 10, 12, 15, 20] if n <= max_streams]
+    max_streams = max(2, min(50, int(max_streams)))
+    ladder = [1, 2, 3, 4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40, 45, 50]
+    levels = [n for n in ladder if n <= max_streams]
     if max_streams not in levels:
         levels.append(max_streams)
         levels.sort()

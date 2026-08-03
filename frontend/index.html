@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.20</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.21</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.20</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.21</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1169,8 +1169,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
 
             <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-              <button class="btn" id="iptv-cap-btn" onclick="runIptvCapacity()">📊 Anbieter-Kapazität testen (1–20 Streams)</button>
-              <div class="form-hint" style="margin-top:8px;">⚠️ Misst den Anbieter mit steigend vielen gleichzeitigen Streams (1→20) und zeigt, wo er einbricht bzw. das Verbindungslimit greift. Belegt kurz bis zu 20 Anbieter-Verbindungen – am besten laufen lassen, wenn kaum jemand schaut.</div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <button class="btn" id="iptv-cap-btn" onclick="runIptvCapacity()">📊 Anbieter-Kapazität testen</button>
+                <label style="font-size:12px;color:var(--text2);">bis</label>
+                <input class="form-input" type="number" id="iptv-cap-max" value="20" min="2" max="50" style="width:80px;">
+                <label style="font-size:12px;color:var(--text2);">gleichzeitige Streams</label>
+              </div>
+              <div class="form-hint" style="margin-top:8px;">⚠️ Misst den Anbieter mit steigend vielen gleichzeitigen Streams (1 → deine Zahl) und zeigt, wo er einbricht bzw. das Verbindungslimit greift. Belegt kurz so viele Anbieter-Verbindungen wie eingestellt – am besten laufen lassen, wenn kaum jemand schaut. (2–50)</div>
               <div id="iptv-cap-result" style="display:none;margin-top:14px;">
                 <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📊 ANBIETER-KAPAZITÄT</div>
                 <div id="iptv-cap-summary" style="padding:8px 12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:12px;font-size:12px;font-family:var(--mono);"></div>
@@ -4111,18 +4116,22 @@ async function runSpeedtestAll() {
 }
 
 async function runIptvCapacity() {
-  if (!confirm('Anbieter mit 1 bis 20 gleichzeitigen Streams testen?\n\n⚠️ Der Test belegt kurz bis zu 20 Anbieter-Verbindungen und kann laufende Zuschauer stören. Am besten laufen lassen, wenn kaum jemand schaut.\n\nJetzt starten?')) return;
+  let maxS = parseInt(document.getElementById('iptv-cap-max')?.value, 10);
+  if (!maxS || maxS < 2) maxS = 2;
+  if (maxS > 50) maxS = 50;
+  document.getElementById('iptv-cap-max').value = maxS;
+  if (!confirm(`Anbieter mit 1 bis ${maxS} gleichzeitigen Streams testen?\n\n⚠️ Der Test belegt kurz bis zu ${maxS} Anbieter-Verbindungen und kann laufende Zuschauer stören. Am besten laufen lassen, wenn kaum jemand schaut.\n\nJetzt starten?`)) return;
   const btn = document.getElementById('iptv-cap-btn');
   const box = document.getElementById('iptv-cap-result');
   const sum = document.getElementById('iptv-cap-summary');
   const tbl = document.getElementById('iptv-cap-table');
   btn.disabled = true;
-  btn.textContent = '⏳ Teste 1–20 Streams…';
+  btn.textContent = `⏳ Teste 1–${maxS} Streams…`;
   box.style.display = 'block';
-  sum.textContent = '⏳ Messe steigende Stufen (1 → 20 gleichzeitige Streams)…';
+  sum.textContent = `⏳ Messe steigende Stufen (1 → ${maxS} gleichzeitige Streams)…`;
   tbl.innerHTML = '';
   try {
-    const data = await api('GET', '/api/iptv/capacity?max_streams=20');
+    const data = await api('GET', '/api/iptv/capacity?max_streams=' + maxS);
     const warn = (data.summary || '').includes('⚠️');
     sum.style.borderColor = warn ? '#ef4444' : '#00e5c8';
     sum.style.color = warn ? '#ef4444' : 'var(--teal)';
@@ -4153,7 +4162,7 @@ async function runIptvCapacity() {
     sum.textContent = 'Fehler: ' + (e.message || e);
   }
   btn.disabled = false;
-  btn.textContent = '📊 Anbieter-Kapazität testen (1–20 Streams)';
+  btn.textContent = '📊 Anbieter-Kapazität testen';
 }
 
 async function loadHealthHistory() {
