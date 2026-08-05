@@ -4826,6 +4826,16 @@ def _near_capacity() -> bool:
     return bool(cap and active >= cap - 1)
 
 
+def _viewer_count() -> int:
+    """Aktuelle Zuschauer (aktive Streams). 0 = niemand schaut → sicherer Moment
+    für einen Serverwechsel (der Wechsel unterbricht sonst laufende Streams)."""
+    try:
+        _cleanup_sessions()
+        return len(_sessions)
+    except Exception:
+        return 0
+
+
 def _vpn_perf_pct(values: list, pct: float) -> float:
     """Einfaches lineares Perzentil (0..100) einer Werteliste."""
     if not values:
@@ -4970,8 +4980,15 @@ async def _vpn_perf_watch():
                     f"({_vpn_perf_bad_streak}/{VPN_PERF_GRACE}) – {reason}"
                 )
                 if _vpn_perf_bad_streak >= VPN_PERF_GRACE:
+                    viewers = _viewer_count()
                     now = time.monotonic()
-                    if now - _vpn_perf_last_switch < VPN_PERF_COOLDOWN:
+                    if viewers > 0:
+                        # NIE mitten im Gucken umschalten (Wechsel unterbricht alle
+                        # Streams). Streak bleibt stehen → sobald frei, wird gewechselt.
+                        _vpn_log_add(
+                            f"⏸️ Leistungs-Wächter: {name} schwach, aber {viewers} "
+                            f"Zuschauer aktiv – Wechsel erst bei 0 Zuschauern.")
+                    elif now - _vpn_perf_last_switch < VPN_PERF_COOLDOWN:
                         rem = int((VPN_PERF_COOLDOWN - (now - _vpn_perf_last_switch)) / 60)
                         _vpn_log_add(f"⏳ Leistungs-Wächter: Wechsel-Sperre aktiv (~{rem} min) – warte.")
                     else:

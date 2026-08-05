@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.23</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.24</div>
       </div>
     </div>
 
@@ -1052,7 +1052,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.23</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.24</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1150,7 +1150,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <button class="btn primary" onclick="vpnPerfSave(true)">💾 Speichern</button>
             <button class="btn" onclick="vpnPerfTest()" id="vpn-perf-test-btn" style="margin-left:8px;">🧪 Jetzt testen (ohne Wechsel)</button>
             <div id="vpn-perf-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
-            <div class="form-hint" style="margin-top:10px;">Wechsel erst nach 3 schwachen Messungen in Folge (~6&nbsp;Min) + 30-Min-Sperre danach (kein Hin-und-Her). Jede Entscheidung steht im Live-Log oben. Hinweis: ist der Anbieter selbst langsam, hilft ein Server-Wechsel nicht – dann bleibt es beim Wechseln, aber ehrlich im Log.</div>
+            <div class="form-hint" style="margin-top:10px;">Wechsel erst nach 3 schwachen Messungen in Folge (~6&nbsp;Min) + 30-Min-Sperre danach (kein Hin-und-Her) – und <strong>nur bei 0 Zuschauern</strong> (kein laufender Stream wird unterbrochen; schaut jemand, wartet er, bis frei ist). Jede Entscheidung steht im Live-Log oben. Hinweis: ist der Anbieter selbst langsam, hilft ein Server-Wechsel nicht.</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">

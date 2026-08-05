@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.24)
+
+- **Automatic VPN switches now only happen with 0 viewers.** A server switch always briefly interrupts ALL streams (single tunnel). The performance watchdog no longer switches mid-viewing: if it detects a weak server while someone is watching, it waits (log "⏸️ … switch only at 0 viewers") and switches once free. Auto-Best already ran only with 0 viewers. The emergency failover (dead tunnel) stays — it only recovers already-broken streams.
+
+---
+
 ## What's New (August 2026 – v1.23)
 
 - **Fixed: Auto-Best comparison was far too slow** (minutes per server). The sweep measured with the full target stream count (e.g. 10), hitting the provider's ~10-connection limit → stalls/timeouts. It now measures a moderate parallel load (max 5 streams) and derives "handles ~N streams" from total throughput (target = N × 8 Mbit/s). Much faster and easier on the limit.
@@ -635,6 +641,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.24)
+
+- **Automatische VPN-Wechsel nur noch bei 0 Zuschauern.** Ein Serverwechsel unterbricht immer kurz ALLE Streams (nur ein Tunnel). Der Leistungs-Wächter schaltet nicht mehr mitten im Gucken um: erkennt er einen schwachen Server, während jemand schaut, wartet er (Log „⏸️ … Wechsel erst bei 0 Zuschauern") und wechselt erst, sobald frei. Auto-Best lief schon nur bei 0 Zuschauern. Der Not-Failover (toter Tunnel) bleibt.
 
 ---
 

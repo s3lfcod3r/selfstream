@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.24
+
+### Geändert
+- **Automatische VPN-Wechsel nur noch bei 0 Zuschauern.** Ein Serverwechsel
+  unterbricht immer kurz ALLE Streams (nur ein Tunnel). Der Leistungs-Wächter
+  schaltet jetzt **nicht mehr mitten im Gucken** um: erkennt er einen schwachen
+  Server, während jemand schaut, wartet er (Log „⏸️ … Wechsel erst bei 0
+  Zuschauern") und wechselt erst, sobald frei. Auto-Best lief schon nur bei 0
+  Zuschauern. Der Not-Failover (toter Tunnel) bleibt – der rettet nur bereits
+  unterbrochene Streams.
+
 ## v1.23
 
 ### Behoben
