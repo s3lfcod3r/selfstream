@@ -5,6 +5,7 @@ on:
     branches: [ "main", "v1.1" ]
   release:
     types: [ published ]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
