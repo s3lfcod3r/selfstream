@@ -530,6 +530,47 @@ def make_iptv_client(ssrf_guard: bool = False, **kwargs) -> httpx.AsyncClient:
     return httpx.AsyncClient(**kwargs)
 
 
+# ── Persistenter Segment-Client (Keep-Alive, KRITISCH für flüssiges Streaming) ─
+# Vorher öffnete SelfStream für JEDES Segment eine neue Verbindung (neuer TLS-
+# Handshake). Über einen ~500ms-VPN kostet das ~1-2s Handshake PRO Segment, bevor
+# ein Byte Video fliesst → Ruckeln, obwohl der Anbieter direkt perfekt läuft.
+# Ein wiederverwendeter Client hält die Verbindung offen (wie ein normaler Player)
+# → Handshake nur EINMAL, danach reine Übertragung. Das OS-Routing (redirect-
+# gateway) schickt auch diesen Client automatisch durch den VPN-Tunnel.
+_iptv_client: Optional[httpx.AsyncClient] = None
+_iptv_client_lock = asyncio.Lock()
+
+
+async def _get_iptv_client() -> httpx.AsyncClient:
+    """Geteilter httpx-Client mit Keep-Alive-Verbindungspool für Segment-Abrufe."""
+    global _iptv_client
+    c = _iptv_client
+    if c is not None and not c.is_closed:
+        return c
+    async with _iptv_client_lock:
+        if _iptv_client is None or _iptv_client.is_closed:
+            _iptv_client = make_iptv_client(
+                ssrf_guard=True,
+                follow_redirects=True,
+                timeout=httpx.Timeout(20.0, read=30.0),
+                limits=httpx.Limits(max_keepalive_connections=40, max_connections=100,
+                                    keepalive_expiry=60.0),
+            )
+    return _iptv_client
+
+
+async def _reset_iptv_client() -> None:
+    """Client verwerfen (z.B. wenn Pool-Verbindungen nach VPN-Neustart tot sind)."""
+    global _iptv_client
+    c = _iptv_client
+    _iptv_client = None
+    if c is not None:
+        try:
+            await c.aclose()
+        except Exception:
+            pass
+
+
 def _start_socks_proxy(tun_ip: str):
     pass  # Reserved for future use
 
@@ -1612,24 +1653,37 @@ async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
     evt = asyncio.Event()
     _segment_in_progress[url] = evt
     try:
-        buf = bytearray()
-        t_start = time.time()
-        async with make_iptv_client(
-            ssrf_guard=True,
+        req_kw = dict(
             timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
             follow_redirects=hls["hls_follow_redirects"],
-            headers=make_headers(hls)
-        ) as client:
-            async with client.stream("GET", url) as resp:
-                # Manche CDNs liefern kurzzeitig 204/empty body oder 200 mit 0 bytes,
-                # bevor das Segment wirklich verfügbar ist. Ohne Status-Check landet das als "leeres Segment"
-                # im Cache-Pfad und bricht Clients + Live-Sessions weg.
-                if resp.status_code not in (200, 206):
-                    elapsed = time.time() - t_start
-                    _passive_record(elapsed, 0, False)   # echter Anbieter-Fehler → passive Probe
-                    return b"", elapsed, False
-                async for chunk in resp.aiter_bytes(chunk_size=131072):
-                    buf.extend(chunk)
+            headers=make_headers(hls),
+        )
+        buf = bytearray()
+        elapsed = 0.0
+        # Geteilten Keep-Alive-Client benutzen → KEIN neuer TLS-Handshake pro Segment
+        # (über den VPN ~1-2s Ersparnis je Segment). Bei toter Pool-Verbindung
+        # (z.B. nach VPN-Neustart) einmal Client neu aufbauen + Retry.
+        for _try in range(2):
+            buf = bytearray()
+            t_start = time.time()
+            client = await _get_iptv_client()
+            try:
+                async with client.stream("GET", url, **req_kw) as resp:
+                    # Manche CDNs liefern kurzzeitig 204/empty body oder 200 mit 0 bytes,
+                    # bevor das Segment wirklich verfügbar ist. Ohne Status-Check landet das
+                    # als "leeres Segment" im Cache-Pfad und bricht Clients + Live-Sessions weg.
+                    if resp.status_code not in (200, 206):
+                        elapsed = time.time() - t_start
+                        _passive_record(elapsed, 0, False)   # echter Anbieter-Fehler → passive Probe
+                        return b"", elapsed, False
+                    async for chunk in resp.aiter_bytes(chunk_size=131072):
+                        buf.extend(chunk)
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError,
+                    httpx.RemoteProtocolError, httpx.PoolTimeout):
+                await _reset_iptv_client()
+                if _try == 1:
+                    raise
         elapsed = time.time() - t_start
         data = bytes(buf)
         _passive_record(elapsed, len(data), len(data) > 100)   # echter Abruf → passive Probe

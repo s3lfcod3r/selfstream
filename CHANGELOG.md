@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.28
+
+### Kern-Fix: flüssiges Streaming (persistente Verbindung)
+- **SelfStream öffnete für JEDES Segment eine neue Verbindung** (neuer TLS-Handshake).
+  Über einen VPN mit hoher Latenz (~500 ms) kostet das ~1–2 s Handshake **pro Segment**,
+  bevor ein Byte Video fliesst → Ruckeln, obwohl der Anbieter direkt (VLC) perfekt läuft.
+- **Jetzt: ein geteilter Keep-Alive-Client** (`_get_iptv_client`) hält die Verbindung
+  offen und verwendet sie über Segmente hinweg wieder – wie ein normaler Player. Kein
+  Handshake pro Segment mehr. Bei toter Pool-Verbindung (z.B. nach VPN-Neustart) wird der
+  Client automatisch erneuert (ein Retry). Lokal verifiziert: 5 Abrufe geteilt 0,09 s vs.
+  neu-pro-Abruf 0,98 s (~11×; über den VPN entsprechend mehr).
+- Damit ist SelfStream ein **effizienter Durchreicher** – flüssig auch ohne Vorausladen.
+
 ## v1.27
 
 ### Grundlegend geändert – Messung ist jetzt PASSIV
