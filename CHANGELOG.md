@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.25
+
+### Neu
+- **Selbst-Check + E-Mail-Alarm.** SelfStream überwacht sich selbst (VPN-Tunnel,
+  Anbieter erreichbar, Durchsatz/Antwortzeit – über die 5-Min-Stichprobe) und
+  schickt bei einem **anhaltenden** Problem **eine** E-Mail, plus **Entwarnung**,
+  wenn wieder alles läuft (Dedup: kein Spam). Optional **tägliches Lebenszeichen**
+  („alles ok"). SMTP frei konfigurierbar (Server/Port/STARTTLS·SSL/Benutzer/
+  Passwort/Empfänger). Konfiguration + Status-Ampel + „Test-E-Mail senden" oben auf
+  der Diagnose-Seite. Neue Endpunkte `GET/POST /api/alerts`, `POST /api/alerts/test`.
+
 ## v1.24
 
 ### Geändert

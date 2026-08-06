@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.24</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.25</div>
       </div>
     </div>
 
@@ -765,6 +765,59 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
       <!-- Diagnose (Server-Logs, ~30 Tage) -->
       <div id="page-diagnose" class="content-area" style="display:none">
+        <div class="scard" style="margin-bottom:18px;">
+          <div class="scard-title">🔔 Selbst-Check &amp; E-Mail-Alarm</div>
+          <div class="form-hint" style="margin-bottom:12px;">
+            SelfStream prüft sich alle 5&nbsp;Min selbst (VPN, Anbieter erreichbar, Durchsatz/Antwortzeit) und schickt dir bei einem <strong>anhaltenden</strong> Problem <strong>eine</strong> E-Mail – plus Entwarnung, wenn wieder alles läuft. So musst du nicht selbst nachschauen.
+          </div>
+          <div id="alert-status" style="padding:10px 12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:14px;font-family:var(--mono);font-size:12px;">Status wird geladen…</div>
+          <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer;">
+            <input type="checkbox" id="alert-enabled">
+            <span style="font-size:13px;">E-Mail-Alarm aktivieren</span>
+          </label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:12px;">
+            <div>
+              <label class="form-label">Empfänger (deine E-Mail)</label>
+              <input class="form-input" id="alert-to" type="email" placeholder="du@example.de" autocomplete="email">
+            </div>
+            <div>
+              <label class="form-label">Absender (optional)</label>
+              <input class="form-input" id="alert-from" type="email" placeholder="leer = SMTP-Benutzer">
+            </div>
+            <div>
+              <label class="form-label">SMTP-Server</label>
+              <input class="form-input" id="alert-host" placeholder="z.B. smtp.web.de">
+            </div>
+            <div>
+              <label class="form-label">Port</label>
+              <input class="form-input" id="alert-port" type="number" min="1" max="65535" placeholder="587">
+            </div>
+            <div>
+              <label class="form-label">Sicherheit</label>
+              <select class="form-select" id="alert-security">
+                <option value="starttls">STARTTLS (Port 587)</option>
+                <option value="ssl">SSL/TLS (Port 465)</option>
+                <option value="none">Keine</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">SMTP-Benutzer</label>
+              <input class="form-input" id="alert-user" placeholder="meist deine E-Mail" autocomplete="username">
+            </div>
+            <div>
+              <label class="form-label">SMTP-Passwort</label>
+              <input class="form-input" id="alert-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+            </div>
+          </div>
+          <label style="display:flex;align-items:center;gap:10px;margin-bottom:14px;cursor:pointer;">
+            <input type="checkbox" id="alert-heartbeat">
+            <span style="font-size:13px;">Täglich eine „alles ok"-Mail (Lebenszeichen – so weißt du, dass die Überwachung selbst läuft)</span>
+          </label>
+          <button class="btn primary" onclick="alertsSave(true)">💾 Speichern</button>
+          <button class="btn" id="alert-test-btn" onclick="alertsTest()" style="margin-left:8px;">✉️ Test-E-Mail senden</button>
+          <div class="form-hint" style="margin-top:10px;">Beispiel web.de: Server <code>smtp.web.de</code>, Port <code>587</code>, STARTTLS, Benutzer = deine web.de-Adresse. Bei manchen Anbietern brauchst du ein „App-Passwort" statt des normalen Passworts.</div>
+        </div>
+
         <div class="section-hdr">
           <span class="section-title">🔧 Diagnose</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -1052,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.24</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.25</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1761,7 +1814,7 @@ function nav(page, el) {
   if(page==='epg') { loadEpg(); loadEpgChannels(); }
   if(page==='channels') { loadChProviderFilter(); }
   if(page==='logs') loadLogs();
-  if(page==='diagnose') loadDiagnosticLogs();
+  if(page==='diagnose'){ loadDiagnosticLogs(); alertsLoad(); }
   if(page==='settings') loadSettings();
   if(page==='vpn') loadVpnSettings();
   if(page==='traffic') startTrafficMonitor();
@@ -3496,6 +3549,79 @@ async function saveDiagnosticTimezone() {
   if (document.getElementById('page-diagnose') && document.getElementById('page-diagnose').style.display !== 'none') {
     loadDiagnosticLogs();
   }
+}
+
+// ── Selbst-Check & E-Mail-Alarm ───────────────────────────────────────────────
+
+async function alertsLoad() {
+  let a;
+  try { a = await api('GET', '/api/alerts'); } catch(e) { return; }
+  if (!a) return;
+  const setv = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v; };
+  const setc = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+  setc('alert-enabled', a.enabled);
+  setv('alert-to', a.to || '');
+  setv('alert-from', a.alert_from || '');
+  setv('alert-host', a.smtp_host || '');
+  setv('alert-port', a.smtp_port || 587);
+  setv('alert-user', a.smtp_user || '');
+  setv('alert-pass', a.smtp_password || '');
+  const sec = document.getElementById('alert-security'); if (sec) sec.value = a.smtp_security || 'starttls';
+  setc('alert-heartbeat', a.heartbeat);
+  alertsRenderStatus(a.status, a.alert_active);
+}
+
+function alertsRenderStatus(st, active) {
+  const box = document.getElementById('alert-status');
+  if (!box) return;
+  if (!st) { box.textContent = 'Status unbekannt'; return; }
+  const icon = st.level === 'critical' ? '🔴' : (st.level === 'warn' ? '🟡' : '🟢');
+  const label = st.level === 'critical' ? 'KRITISCH' : (st.level === 'warn' ? 'WARNUNG' : 'ALLES OK');
+  let t = `${icon} ${label}`;
+  if (st.issues && st.issues.length) t += ' — ' + st.issues.join(' · ');
+  if (active) t += '   (Alarm-Mail verschickt – warte auf Entwarnung)';
+  box.textContent = t;
+  box.style.borderColor = st.level === 'ok' ? 'var(--border)' : (st.level === 'warn' ? '#f0b400' : '#ef4444');
+  box.style.color = st.level === 'ok' ? 'var(--text2)' : (st.level === 'warn' ? '#f0b400' : '#ef4444');
+}
+
+async function alertsSave(toast) {
+  const body = {
+    enabled: document.getElementById('alert-enabled').checked,
+    to: document.getElementById('alert-to').value,
+    alert_from: document.getElementById('alert-from').value,
+    smtp_host: document.getElementById('alert-host').value,
+    smtp_port: document.getElementById('alert-port').value || 587,
+    smtp_security: document.getElementById('alert-security').value,
+    smtp_user: document.getElementById('alert-user').value,
+    heartbeat: document.getElementById('alert-heartbeat').checked,
+  };
+  const pass = document.getElementById('alert-pass').value;
+  if (pass && pass !== '••••••••') body.smtp_password = pass;
+  try {
+    await api('POST', '/api/alerts', body);
+    if (toast && typeof showToast === 'function') showToast('🔔 Alarm-Einstellungen gespeichert');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Fehler: ' + (e.message || e));
+  }
+  alertsLoad();
+}
+
+async function alertsTest() {
+  const btn = document.getElementById('alert-test-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '✉️ Sende…'; }
+  await alertsSave(false);   // erst speichern, damit der Test die aktuellen Felder nutzt
+  try {
+    const r = await api('POST', '/api/alerts/test');
+    if (r && r.ok) {
+      if (typeof showToast === 'function') showToast('✅ Test-E-Mail verschickt – schau in dein Postfach');
+    } else {
+      if (typeof showToast === 'function') showToast('❌ ' + ((r && r.error) || 'Test fehlgeschlagen'));
+    }
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('❌ ' + (e.message || e));
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '✉️ Test-E-Mail senden'; }
 }
 
 async function loadDiagnosticLogs(pageArg) {

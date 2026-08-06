@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.25)
+
+- **Self-check + email alerts.** SelfStream monitors itself (VPN tunnel, provider reachability, throughput/latency via the 5-min sample) and sends **one** email on a **sustained** problem, plus an **all-clear** when it recovers (deduped — no spam). Optional **daily heartbeat** ("all ok"). Fully configurable SMTP (server/port/STARTTLS·SSL/user/password/recipient). Config + status light + "Send test email" at the top of the Diagnostics page. New endpoints `GET/POST /api/alerts`, `POST /api/alerts/test`.
+
+---
+
 ## What's New (August 2026 – v1.24)
 
 - **Automatic VPN switches now only happen with 0 viewers.** A server switch always briefly interrupts ALL streams (single tunnel). The performance watchdog no longer switches mid-viewing: if it detects a weak server while someone is watching, it waits (log "⏸️ … switch only at 0 viewers") and switches once free. Auto-Best already ran only with 0 viewers. The emergency failover (dead tunnel) stays — it only recovers already-broken streams.
@@ -641,6 +647,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.25)
+
+- **Selbst-Check + E-Mail-Alarm.** SelfStream überwacht sich selbst (VPN, Anbieter erreichbar, Durchsatz/Antwortzeit) und schickt bei anhaltendem Problem **eine** E-Mail + Entwarnung, wenn wieder ok (kein Spam). Optional tägliches Lebenszeichen. SMTP frei konfigurierbar; Konfiguration + Status-Ampel + „Test-E-Mail" oben auf der Diagnose-Seite. Endpunkte `GET/POST /api/alerts`, `POST /api/alerts/test`.
 
 ---
 

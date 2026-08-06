@@ -5704,11 +5704,121 @@ HEALTH_HISTORY_MAX = 288         # ~24 h Verlauf bei 5-min-Takt
 _health_history: list = []
 _health_problem_streak = 0
 
+# ── Selbst-Check + E-Mail-Alarm ─────────────────────────────────────────────
+# Der Nutzer schaut nicht ständig ins Panel. Deshalb prüft SelfStream sich selbst
+# und schickt bei anhaltenden Problemen EINE E-Mail (plus Entwarnung, wenn wieder
+# gut) – kein Spam. Optional täglich ein "alles ok"-Lebenszeichen.
+_alert_active = False            # unbehobene, bereits gemeldete Störung
+_alert_last_heartbeat = 0.0      # time.monotonic() der letzten Lebenszeichen-Mail
+ALERT_HEARTBEAT_INTERVAL = 86400 # täglich
+
+
+def _send_email(subject: str, body: str):
+    """E-Mail über den konfigurierten SMTP-Server senden. Blockierend – via
+    to_thread rufen. Gibt (ok, fehler) zurück."""
+    host = db.get_setting("smtp_host", "").strip()
+    to = db.get_setting("alert_to", "").strip()
+    if not host:
+        return False, "Kein SMTP-Server konfiguriert"
+    if not to:
+        return False, "Kein Empfänger konfiguriert"
+    port = _int_setting("smtp_port", 587, 1, 65535)
+    sec = (db.get_setting("smtp_security", "starttls") or "starttls").lower()
+    user = db.get_setting("smtp_user", "").strip()
+    pw = db.get_setting("smtp_password", "")
+    frm = db.get_setting("alert_from", "").strip() or user or to
+    import smtplib
+    import ssl as _ssl
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = frm
+    msg["To"] = to
+    msg.set_content(body)
+    try:
+        if sec == "ssl":
+            with smtplib.SMTP_SSL(host, port, timeout=20, context=_ssl.create_default_context()) as s:
+                if user:
+                    s.login(user, pw)
+                s.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as s:
+                s.ehlo()
+                if sec == "starttls":
+                    s.starttls(context=_ssl.create_default_context())
+                    s.ehlo()
+                if user:
+                    s.login(user, pw)
+                s.send_message(msg)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def _selfcheck_status() -> dict:
+    """Gesamtzustand aus VPN-Status + letzter Stichprobe → ok/warn/critical."""
+    issues = []
+    level = "ok"
+    vpn_on = db.get_setting("vpn_enabled", "0") == "1"
+    if vpn_on and not (bool(_vpn_link_connected) and bool(vpn_get_tun_ip())):
+        issues.append("VPN-Tunnel ist unten")
+        level = "critical"
+    last = _health_history[-1] if _health_history else None
+    if last:
+        if vpn_on and last.get("vpn_up") is False and "VPN-Tunnel ist unten" not in issues:
+            issues.append("VPN laut Stichprobe unten")
+            level = "critical"
+        if not last.get("ok"):
+            issues.append("Anbieter/Streams nicht erreichbar")
+            level = "critical"
+        elif last.get("latency_ms") is not None and last["latency_ms"] > 400:
+            issues.append(f"Hohe Antwortzeit ({round(last['latency_ms'])} ms)")
+            if level == "ok":
+                level = "warn"
+    return {"level": level, "issues": issues, "vpn_enabled": vpn_on,
+            "checked_ts": last.get("ts") if last else None, "sample": last}
+
+
+def _maybe_send_alert(problem: bool, sample: dict):
+    """Alarm-/Entwarnungs-Mail mit Dedup (eine Mail je Störung). Blockierend."""
+    global _alert_active
+    if db.get_setting("alert_enabled", "0") != "1":
+        return
+    if problem and _alert_active:
+        return
+    if not problem and not _alert_active:
+        return
+    if problem:
+        st = _selfcheck_status()
+        lines = st.get("issues") or ["Anhaltend schwache Anbieter/VPN-Werte"]
+        body = (
+            "SelfStream hat ein Problem erkannt:\n\n- " + "\n- ".join(lines) +
+            "\n\nAktuelle Messwerte:\n"
+            f"  VPN: {'ok' if sample.get('vpn_up') else ('unten' if sample.get('vpn_up') is False else 'aus')}\n"
+            f"  Anbieter erreichbar: {'ja' if sample.get('ok') else 'nein'}\n"
+            f"  Durchsatz: {sample.get('mbps_total')} Mbit/s\n"
+            f"  Antwortzeit: {sample.get('latency_ms')} ms\n\n"
+            "Du bekommst eine Entwarnung, sobald es wieder läuft.\n"
+        )
+        ok, err = _send_email("🔴 SelfStream: Problem erkannt", body)
+        if ok:
+            _alert_active = True
+        else:
+            logger.warning(f"alert email failed: {err}")
+            diag_log("WARNING", "alert", f"Alarm-Mail fehlgeschlagen: {err}")
+    else:
+        ok, err = _send_email(
+            "✅ SelfStream: wieder in Ordnung",
+            "Die zuvor gemeldete Störung ist behoben – SelfStream läuft wieder normal.\n")
+        _alert_active = False
+        if not ok:
+            logger.warning(f"recovery email failed: {err}")
+
 
 async def _health_sampler():
     """Periodische, schonende Gesundheits-Stichprobe fuer den Verlauf + Fruehwarnung.
     Laeuft (wie die anderen Waechter) nur in EINEM Event-Loop dank Startup-Guard."""
-    global _health_problem_streak
+    global _health_problem_streak, _alert_last_heartbeat
     import time as _t
     await asyncio.sleep(90)   # Startup abwarten
     while True:
@@ -5758,10 +5868,23 @@ async def _health_sampler():
                              f"Anhaltend schwache Anbieter/VPN-Stichprobe: vpn_up={vpn_up}, "
                              f"ok={prov.get('ok')}, latenz={prov.get('latency_ms')}ms, "
                              f"durchsatz={prov.get('mbps_parallel_total')}Mbit/s")
+                    await asyncio.to_thread(_maybe_send_alert, True, sample)
             else:
                 if _health_problem_streak >= 2:
                     diag_log("INFO", "health", "Anbieter/VPN-Stichprobe wieder normal")
+                    await asyncio.to_thread(_maybe_send_alert, False, sample)
                 _health_problem_streak = 0
+
+            # Tägliches Lebenszeichen ("alles ok"), nur wenn aktiviert.
+            if db.get_setting("alert_enabled", "0") == "1" and db.get_setting("alert_heartbeat", "0") == "1":
+                now = time.monotonic()
+                if now - _alert_last_heartbeat >= ALERT_HEARTBEAT_INTERVAL:
+                    _alert_last_heartbeat = now
+                    st = _selfcheck_status()
+                    hb = (f"SelfStream lebt – Status: {st['level'].upper()}\n\n"
+                          + ("Alles in Ordnung.\n" if not st["issues"]
+                             else ("Hinweise:\n- " + "\n- ".join(st["issues"]) + "\n")))
+                    await asyncio.to_thread(_send_email, "✅ SelfStream: Tages-Lebenszeichen", hb)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -5785,6 +5908,64 @@ def health_history(_=Depends(check_admin)):
         "provider_fail_samples": fails,
     }
     return {"ok": True, "history": hist, "stats": stats}
+
+
+@admin_app.get("/api/alerts")
+def get_alerts(_=Depends(check_admin)):
+    """E-Mail-Alarm-Einstellungen + aktueller Selbst-Check-Status."""
+    s = db.get_all_settings()
+    has_pw = bool(s.get("smtp_password", ""))
+    return {
+        "enabled": s.get("alert_enabled", "0") == "1",
+        "to": s.get("alert_to", ""),
+        "smtp_host": s.get("smtp_host", ""),
+        "smtp_port": _int_setting("smtp_port", 587, 1, 65535),
+        "smtp_security": s.get("smtp_security", "starttls"),
+        "smtp_user": s.get("smtp_user", ""),
+        "smtp_password": _VPN_PASSWORD_PLACEHOLDER if has_pw else "",
+        "alert_from": s.get("alert_from", ""),
+        "heartbeat": s.get("alert_heartbeat", "0") == "1",
+        "alert_active": _alert_active,
+        "status": _selfcheck_status(),
+    }
+
+
+@admin_app.post("/api/alerts")
+def set_alerts(body: dict, _=Depends(check_admin)):
+    """Alarm-Einstellungen speichern (Passwort per Platzhalter geschützt)."""
+    if "enabled" in body:
+        db.set_setting("alert_enabled", "1" if body.get("enabled") else "0")
+    if "heartbeat" in body:
+        db.set_setting("alert_heartbeat", "1" if body.get("heartbeat") else "0")
+    for k, key in (("to", "alert_to"), ("smtp_host", "smtp_host"),
+                   ("smtp_user", "smtp_user"), ("alert_from", "alert_from")):
+        if k in body:
+            db.set_setting(key, str(body[k]).strip())
+    if "smtp_security" in body:
+        v = str(body["smtp_security"]).lower()
+        db.set_setting("smtp_security", v if v in ("starttls", "ssl", "none") else "starttls")
+    if "smtp_port" in body:
+        try:
+            p = max(1, min(65535, int(float(body["smtp_port"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Port 1–65535")
+        db.set_setting("smtp_port", str(p))
+    if "smtp_password" in body and str(body["smtp_password"]) != _VPN_PASSWORD_PLACEHOLDER:
+        db.set_setting("smtp_password", str(body["smtp_password"]))
+    return {"ok": True}
+
+
+@admin_app.post("/api/alerts/test")
+async def test_alerts(_=Depends(check_admin)):
+    """Sofort eine Test-Mail schicken – prüft die SMTP-Einstellungen."""
+    st = _selfcheck_status()
+    body = ("Dies ist eine Test-Nachricht von SelfStream.\n\n"
+            f"Aktueller Status: {st['level'].upper()}\n"
+            + ("Alles in Ordnung.\n" if not st["issues"]
+               else ("Hinweise:\n- " + "\n- ".join(st["issues"]) + "\n"))
+            + "\nWenn du diese Mail bekommst, funktioniert der E-Mail-Alarm.")
+    ok, err = await asyncio.to_thread(_send_email, "🔔 SelfStream: Test-Benachrichtigung", body)
+    return {"ok": ok, "error": err}
 
 
 _iptv_capacity_running = False
