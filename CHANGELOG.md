@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.26
+
+### Behoben (aus Code-Review)
+- **Alarm-Mail:** schlug der erste SMTP-Versand bei Störungsbeginn fehl, kam für die
+  ganze Störung keine Mail mehr. Jetzt wird bei anhaltendem Problem bei jeder
+  Stichprobe erneut versucht, bis eine Mail wirklich rausging.
+- **Leistungs-Wächter:** ein fehlgeschlagener Server-Neustart wurde als erfolgreicher
+  Wechsel gewertet (30-Min-Sperre trotz nicht erfolgtem Wechsel). Jetzt zählt nur ein
+  echt erfolgreicher Neustart.
+- **Selbst-Check:** der Health-Sampler pausiert jetzt während eines VPN-Server-
+  Vergleichs (verhindert Fehlalarm-Mail für einen absichtlichen Test).
+- **Auto-Best-Zeitplan:** ein manueller „reiner Vergleich" verschob den geplanten
+  Auto-Best-Lauf um bis zu 24 h. Nur echte Auto-Best-Läufe zählen jetzt fürs Intervall.
+- **UI:** der „Jetzt testen"-Knopf (Leistungs-Wächter) konnte bei einem Fehler dauerhaft
+  auf „Messe…" hängen bleiben (try/catch/finally ergänzt).
+
 ## v1.25
 
 ### Neu

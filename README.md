@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.26)
+
+- **Bug fixes from a code review:** alert email now retries each sample until one actually goes out (a failed first send no longer silences the whole outage); a failed VPN restart is no longer counted as a successful switch (no more 30-min blind cooldown); the health sampler pauses during a VPN server comparison (no false-alarm email for a deliberate test); a manual "compare only" no longer postpones the scheduled Auto-Best run; the "Test now" button can't get stuck on "Measuring…".
+
+---
+
 ## What's New (August 2026 – v1.25)
 
 - **Self-check + email alerts.** SelfStream monitors itself (VPN tunnel, provider reachability, throughput/latency via the 5-min sample) and sends **one** email on a **sustained** problem, plus an **all-clear** when it recovers (deduped — no spam). Optional **daily heartbeat** ("all ok"). Fully configurable SMTP (server/port/STARTTLS·SSL/user/password/recipient). Config + status light + "Send test email" at the top of the Diagnostics page. New endpoints `GET/POST /api/alerts`, `POST /api/alerts/test`.
@@ -647,6 +653,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.26)
+
+- **Bugfixes aus einem Code-Review:** Alarm-Mail wird bei anhaltender Störung erneut versucht, bis eine wirklich rausging; ein fehlgeschlagener VPN-Neustart gilt nicht mehr als erfolgreicher Wechsel (keine 30-Min-Blindzeit); der Health-Sampler pausiert während eines Server-Vergleichs (kein Fehlalarm); ein manueller „reiner Vergleich" verschiebt den Auto-Best-Lauf nicht mehr; der „Jetzt testen"-Knopf kann nicht mehr hängen bleiben.
 
 ---
 

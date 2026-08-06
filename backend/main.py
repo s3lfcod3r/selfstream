@@ -4929,9 +4929,11 @@ def _vpn_perf_switch(reason: str) -> str:
     res = _vpn_restart()
     if res.get("ok"):
         _vpn_log_add(f"🟢 Leistungs-Wächter: neuer Server {name} gestartet.")
-    else:
-        _vpn_log_add(f"❌ Leistungs-Wächter: Start {name} fehlgeschlagen: {res.get('error')}")
-    return name
+        return name
+    # Neustart misslungen (z.B. Lock-Kollision oder defekte .ovpn) → NICHT als Erfolg werten,
+    # damit der Aufrufer weder bad_streak zurücksetzt noch den 30-Min-Cooldown startet.
+    _vpn_log_add(f"❌ Leistungs-Wächter: Start {name} fehlgeschlagen: {res.get('error')}")
+    return ""
 
 
 async def _vpn_perf_watch():
@@ -5824,6 +5826,9 @@ async def _health_sampler():
     while True:
         try:
             await asyncio.sleep(HEALTH_SAMPLE_INTERVAL)
+            if _vpn_sweep_active:
+                continue   # VPN-Server-Vergleich läuft (absichtliches Trennen) → nicht messen,
+                           # sonst löst die Stichprobe einen Fehlalarm für einen gewollten Test aus.
             vpn_on = db.get_setting("vpn_enabled", "0") == "1"
             vpn_up = (bool(_vpn_link_connected) and bool(vpn_get_tun_ip())) if vpn_on else None
             # Bei fast vollem Verbindungslimit NICHT zusaetzlich belasten → Sample auslassen.
@@ -5863,11 +5868,15 @@ async def _health_sampler():
                 or (prov.get("latency_ms") is not None and prov["latency_ms"] > 400)
             if bad:
                 _health_problem_streak += 1
-                if _health_problem_streak == 2:   # ~10 min anhaltend → melden
+                if _health_problem_streak == 2:   # ~10 min anhaltend → einmal in die Diagnose
                     diag_log("WARNING", "health",
                              f"Anhaltend schwache Anbieter/VPN-Stichprobe: vpn_up={vpn_up}, "
                              f"ok={prov.get('ok')}, latenz={prov.get('latency_ms')}ms, "
                              f"durchsatz={prov.get('mbps_parallel_total')}Mbit/s")
+                if _health_problem_streak >= 2:
+                    # Bei JEDER weiteren Stichprobe erneut versuchen, bis eine Mail wirklich
+                    # rausging (_maybe_send_alert dedupt selbst über _alert_active). Sonst käme
+                    # bei einem einzelnen fehlgeschlagenen Erstversand für die ganze Störung nichts.
                     await asyncio.to_thread(_maybe_send_alert, True, sample)
             else:
                 if _health_problem_streak >= 2:
@@ -6119,7 +6128,10 @@ async def _vpn_compare_servers(switch_to_best: bool = False) -> dict:
     best = next((r for r in results if r.get("ovpn") == fastest), None) if fastest else None
     best_total = best.get("mbps_parallel_total") if best else None
     meets_target = bool(best and best.get("meets_target"))
-    _vpn_autobest_last_run = time.monotonic()
+    if switch_to_best:
+        # Nur ein echter Auto-Best-Lauf zählt fürs Intervall; ein reiner manueller
+        # Vergleich (speedtest-all) darf den geplanten Auto-Best-Lauf nicht verschieben.
+        _vpn_autobest_last_run = time.monotonic()
     _vpn_autobest_status = {
         "ts": int(time.time()), "fastest": fastest, "active": os.path.basename(target),
         "switched": switched, "min_streams": min_streams, "target_mbps": target_mbps,
