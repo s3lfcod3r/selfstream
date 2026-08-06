@@ -96,6 +96,12 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 
 ---
 
+## What's New (August 2026 – v1.27)
+
+- **Measurement is now PASSIVE — no more active probing that disrupts streams.** The old "auto-switch on poor performance" watchdog pulled extra segments from the provider every 2 minutes, competing with live streams and causing stutter (especially on a limited/slow provider, and with many users there's practically never "0 viewers"). **Removed.** Instead, SelfStream now reads the fetch time of every real segment the viewers already request (`_get_segment`) and derives the actually experienced quality (median fetch time, error rate, throughput → ok/slow/bad). **Zero added load, works while watching, can't disrupt the stream.** The health sampler, self-check and email alert all run on this passive signal; only when idle (no real traffic) does a single light check keep the history graph alive. On a mid-viewing drop: **alert only, no auto-switch.** Emergency failover, nightly Auto-Best (0 viewers) and manual tools stay.
+
+---
+
 ## What's New (August 2026 – v1.26)
 
 - **Bug fixes from a code review:** alert email now retries each sample until one actually goes out (a failed first send no longer silences the whole outage); a failed VPN restart is no longer counted as a successful switch (no more 30-min blind cooldown); the health sampler pauses during a VPN server comparison (no false-alarm email for a deliberate test); a manual "compare only" no longer postpones the scheduled Auto-Best run; the "Test now" button can't get stuck on "Measuring…".
@@ -653,6 +659,12 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.27)
+
+- **Messung ist jetzt PASSIV — kein aktives Extra-Messen mehr, das Streams stört.** Der frühere „Auto-Wechsel bei schlechter Leistung"-Wächter zog alle 2 Min zusätzliche Segmente vom Anbieter → Konkurrenz mit laufenden Streams → Ruckeln (bei vielen Nutzern gibt es nie „0 Zuschauer"). **Entfernt.** Stattdessen liest SelfStream die Ladezeit jedes echten Segment-Abrufs mit, den die Zuschauer eh auslösen, und leitet daraus die real erlebte Qualität ab (Median-Ladezeit, Fehlerrate, Durchsatz → ok/träge/schlecht). **Null Extra-Last, funktioniert während des Schauens, kann den Stream nicht mehr stören.** Health-Sampler, Selbst-Check und E-Mail-Alarm laufen auf diesem passiven Signal; nur bei Leerlauf hält ein Mini-Check die Kurve am Leben. Bei Einbruch während des Schauens: nur Alarm, kein Auto-Wechsel. Not-Failover, Auto-Best (nachts) und manuelle Knöpfe bleiben.
 
 ---
 

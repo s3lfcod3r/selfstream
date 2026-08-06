@@ -391,7 +391,9 @@ async def startup():
     _track_background_task(asyncio.create_task(_catchup_epg_watchdog()))
     _track_background_task(asyncio.create_task(_live_epg_watchdog()))
     _track_background_task(asyncio.create_task(_health_sampler()))
-    _track_background_task(asyncio.create_task(_vpn_perf_watch()))
+    # _vpn_perf_watch ENTFERNT (v1.27): der 2-Min-Wächter maß aktiv Extra-Segmente vom
+    # Anbieter und ruckelte laufende Streams. Ersetzt durch passives Messen im
+    # _health_sampler (aus echtem Verkehr) + Alarm. Auto-Best (nachts) bleibt.
     _track_background_task(asyncio.create_task(_vpn_autobest_watch()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
@@ -1506,6 +1508,66 @@ _prefetch_cache = _segment_cache
 
 _segment_cache_elapsed: dict = {}  # {url: elapsed_seconds} – original download time
 
+# ── Passive Leistungsmessung (aus echtem Stream-Verkehr, KEIN Extra-Abruf) ──
+# Statt aktiv extra Segmente vom Anbieter zu ziehen (das konkurriert mit den
+# laufenden Streams und ruckelt), lesen wir die Ladezeit JEDES echten Segment-
+# Abrufs mit, den die Zuschauer ohnehin auslösen. So misst SelfStream die real
+# erlebte Qualität – ohne den Anbieter zusätzlich zu belasten.
+PASSIVE_WINDOW_SEC = 300      # Signal aus den letzten 5 min echter Abrufe
+PASSIVE_MAX = 600             # Ringgröße (roh)
+PASSIVE_SLOW_SEC = 1.5        # Segment-Ladezeit ab hier "träge" (Warnung)
+PASSIVE_BAD_SEC = 3.0         # ab hier "kritisch" (Stall-Gefahr / Alarm)
+_passive_samples: list = []   # [{"ts","elapsed","bytes","ok"}]
+
+
+def _passive_record(elapsed: float, nbytes: int, ok: bool):
+    """Einen ECHTEN Anbieter-Segment-Abruf als passive Probe festhalten (O(1), hot path)."""
+    try:
+        _passive_samples.append({"ts": time.time(), "elapsed": round(float(elapsed), 3),
+                                 "bytes": int(nbytes), "ok": bool(ok)})
+        if len(_passive_samples) > PASSIVE_MAX:
+            del _passive_samples[:len(_passive_samples) - PASSIVE_MAX]
+    except Exception:
+        pass
+
+
+def _passive_pct(values: list, pct: float):
+    if not values:
+        return None
+    s = sorted(values)
+    if len(s) == 1:
+        return s[0]
+    k = (len(s) - 1) * (pct / 100.0)
+    lo = int(k); hi = min(lo + 1, len(s) - 1)
+    return s[lo] * (1 - (k - lo)) + s[hi] * (k - lo)
+
+
+def _passive_health(window_sec: int = PASSIVE_WINDOW_SEC) -> dict:
+    """Erlebte Qualität aus echten Segment-Abrufen der letzten window_sec.
+    level=None → zu wenig echter Verkehr (niemand schaut) → unbekannt."""
+    now = time.time()
+    recent = [s for s in _passive_samples if now - s["ts"] <= window_sec]
+    if len(recent) < 3:
+        return {"level": None, "samples": len(recent)}
+    good = [s for s in recent if s["ok"]]
+    err_rate = 1.0 - (len(good) / len(recent))
+    lat = [s["elapsed"] for s in good]
+    median = _passive_pct(lat, 50)
+    p90 = _passive_pct(lat, 90)
+    tb = sum(s["bytes"] for s in good)
+    tt = sum(s["elapsed"] for s in good) or 0.001
+    mbps = round((tb * 8) / (tt * 1_000_000), 1)
+    level = "ok"
+    if err_rate >= 0.30 or (median is not None and median >= PASSIVE_BAD_SEC):
+        level = "bad"
+    elif err_rate >= 0.10 or (median is not None and median >= PASSIVE_SLOW_SEC) \
+            or (p90 is not None and p90 >= PASSIVE_BAD_SEC):
+        level = "slow"
+    return {"level": level, "samples": len(recent), "err_rate": round(err_rate, 2),
+            "median_s": round(median, 2) if median is not None else None,
+            "p90_s": round(p90, 2) if p90 is not None else None, "mbps": mbps}
+
+
 async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
     """Download a segment, sharing the result if another coroutine is already fetching it.
     Returns (data: bytes, elapsed: float, from_cache: bool).
@@ -1564,11 +1626,13 @@ async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
                 # im Cache-Pfad und bricht Clients + Live-Sessions weg.
                 if resp.status_code not in (200, 206):
                     elapsed = time.time() - t_start
+                    _passive_record(elapsed, 0, False)   # echter Anbieter-Fehler → passive Probe
                     return b"", elapsed, False
                 async for chunk in resp.aiter_bytes(chunk_size=131072):
                     buf.extend(chunk)
         elapsed = time.time() - t_start
         data = bytes(buf)
+        _passive_record(elapsed, len(data), len(data) > 100)   # echter Abruf → passive Probe
         if len(data) > 100:
             _segment_cache[url] = data
             _segment_cache_time[url] = now
@@ -5758,27 +5822,33 @@ def _send_email(subject: str, body: str):
 
 
 def _selfcheck_status() -> dict:
-    """Gesamtzustand aus VPN-Status + letzter Stichprobe → ok/warn/critical."""
+    """Gesamtzustand → ok/warn/critical. Primär aus dem PASSIVEN Signal (echte
+    Stream-Qualität); VPN-Tunnel-tot ist immer kritisch. Ohne echten Verkehr
+    (niemand schaut) Rückfall auf die letzte Leerlauf-Stichprobe."""
     issues = []
     level = "ok"
     vpn_on = db.get_setting("vpn_enabled", "0") == "1"
     if vpn_on and not (bool(_vpn_link_connected) and bool(vpn_get_tun_ip())):
         issues.append("VPN-Tunnel ist unten")
         level = "critical"
-    last = _health_history[-1] if _health_history else None
-    if last:
-        if vpn_on and last.get("vpn_up") is False and "VPN-Tunnel ist unten" not in issues:
-            issues.append("VPN laut Stichprobe unten")
-            level = "critical"
-        if not last.get("ok"):
-            issues.append("Anbieter/Streams nicht erreichbar")
-            level = "critical"
-        elif last.get("latency_ms") is not None and last["latency_ms"] > 400:
-            issues.append(f"Hohe Antwortzeit ({round(last['latency_ms'])} ms)")
-            if level == "ok":
-                level = "warn"
-    return {"level": level, "issues": issues, "vpn_enabled": vpn_on,
-            "checked_ts": last.get("ts") if last else None, "sample": last}
+    ph = _passive_health()
+    if ph.get("level") == "bad":
+        issues.append(f"Streams laufen schlecht (Ladezeit ~{ph.get('median_s')}s, "
+                      f"{int(ph.get('err_rate', 0) * 100)}% Fehler)")
+        level = "critical"
+    elif ph.get("level") == "slow":
+        issues.append(f"Streams etwas träge (Ladezeit ~{ph.get('median_s')}s)")
+        if level == "ok":
+            level = "warn"
+    elif ph.get("level") is None:
+        # Kein echter Verkehr → auf die letzte (Leerlauf-)Stichprobe zurückfallen.
+        last = _health_history[-1] if _health_history else None
+        if last:
+            if vpn_on and last.get("vpn_up") is False and "VPN-Tunnel ist unten" not in issues:
+                issues.append("VPN laut Stichprobe unten"); level = "critical"
+            if not last.get("ok"):
+                issues.append("Anbieter nicht erreichbar"); level = "critical"
+    return {"level": level, "issues": issues, "vpn_enabled": vpn_on, "passive": ph}
 
 
 def _maybe_send_alert(problem: bool, sample: dict):
@@ -5831,52 +5901,62 @@ async def _health_sampler():
                            # sonst löst die Stichprobe einen Fehlalarm für einen gewollten Test aus.
             vpn_on = db.get_setting("vpn_enabled", "0") == "1"
             vpn_up = (bool(_vpn_link_connected) and bool(vpn_get_tun_ip())) if vpn_on else None
-            # Bei fast vollem Verbindungslimit NICHT zusaetzlich belasten → Sample auslassen.
-            try:
-                _cleanup_sessions()
-                active = len(_sessions)
-            except Exception:
-                active = 0
-            cap = 0
-            try:
-                provs = db.get_m3u_providers()
-                cap = max([int(p.get("line_capacity") or 0) for p in provs], default=0)
-            except Exception:
-                cap = 0
-            if cap and active >= cap - 1:
-                continue   # zu viele Zuschauer → diese Stichprobe ueberspringen
 
-            # Bewusst NUR 1 Verbindung (statt 2): plus der Skip-Guard oben kann die
-            # Hintergrund-Stichprobe damit NIE das Verbindungslimit fuellen und
-            # keinen Zuschauer stoeren.
-            prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
-            sample = {
-                "ts": int(_t.time()),
-                "vpn_up": vpn_up,
-                "ok": bool(prov.get("ok")),
-                "mbps_total": prov.get("mbps_parallel_total"),
-                "latency_ms": prov.get("latency_ms"),
-                "jitter_ms": prov.get("jitter_ms"),
-                "failed": prov.get("failed"),
-            }
+            ph = _passive_health()
+            if ph.get("level") is not None:
+                # Es läuft echter Verkehr → PASSIVES Signal nutzen, KEIN aktiver Abruf.
+                # So belastet nichts Zusätzliches den Anbieter, während jemand schaut.
+                sample = {
+                    "ts": int(_t.time()), "vpn_up": vpn_up,
+                    "ok": ph["level"] != "bad",
+                    "mbps_total": ph.get("mbps"),
+                    "latency_ms": round((ph.get("median_s") or 0) * 1000, 1),
+                    "jitter_ms": None, "failed": None,
+                    "source": "passiv", "level": ph["level"],
+                }
+                bad = (vpn_up is False) or (ph["level"] == "bad")
+            else:
+                # Leerlauf (niemand schaut) → EIN leichter aktiver Mini-Check, damit die
+                # Kurve nicht leer bleibt und ein toter Anbieter auch ohne Zuschauer auffällt.
+                # Bei fast vollem Verbindungslimit auslassen.
+                try:
+                    _cleanup_sessions()
+                    active = len(_sessions)
+                except Exception:
+                    active = 0
+                cap = 0
+                try:
+                    provs = db.get_m3u_providers()
+                    cap = max([int(p.get("line_capacity") or 0) for p in provs], default=0)
+                except Exception:
+                    cap = 0
+                if cap and active >= cap - 1:
+                    continue
+                prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
+                sample = {
+                    "ts": int(_t.time()), "vpn_up": vpn_up,
+                    "ok": bool(prov.get("ok")), "mbps_total": prov.get("mbps_parallel_total"),
+                    "latency_ms": prov.get("latency_ms"), "jitter_ms": prov.get("jitter_ms"),
+                    "failed": prov.get("failed"), "source": "leerlauf",
+                }
+                bad = (vpn_up is False) or (not prov.get("ok")) \
+                    or (prov.get("latency_ms") is not None and prov["latency_ms"] > 400)
+
             _health_history.append(sample)
             if len(_health_history) > HEALTH_HISTORY_MAX:
                 _health_history.pop(0)
 
-            # Fruehwarnung: bei anhaltendem Problem in die Diagnose-Logs (Panel).
-            bad = (vpn_up is False) or (not prov.get("ok")) \
-                or (prov.get("latency_ms") is not None and prov["latency_ms"] > 400)
+            # Fruehwarnung + Alarm bei anhaltendem echten Problem.
             if bad:
                 _health_problem_streak += 1
                 if _health_problem_streak == 2:   # ~10 min anhaltend → einmal in die Diagnose
                     diag_log("WARNING", "health",
-                             f"Anhaltend schwache Anbieter/VPN-Stichprobe: vpn_up={vpn_up}, "
-                             f"ok={prov.get('ok')}, latenz={prov.get('latency_ms')}ms, "
-                             f"durchsatz={prov.get('mbps_parallel_total')}Mbit/s")
+                             f"Anhaltend schwache Qualität ({sample.get('source')}): "
+                             f"vpn_up={vpn_up}, ok={sample.get('ok')}, "
+                             f"ladezeit≈{sample.get('latency_ms')}ms, durchsatz={sample.get('mbps_total')}Mbit/s")
                 if _health_problem_streak >= 2:
                     # Bei JEDER weiteren Stichprobe erneut versuchen, bis eine Mail wirklich
-                    # rausging (_maybe_send_alert dedupt selbst über _alert_active). Sonst käme
-                    # bei einem einzelnen fehlgeschlagenen Erstversand für die ganze Störung nichts.
+                    # rausging (_maybe_send_alert dedupt selbst über _alert_active).
                     await asyncio.to_thread(_maybe_send_alert, True, sample)
             else:
                 if _health_problem_streak >= 2:

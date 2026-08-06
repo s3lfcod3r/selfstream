@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.27
+
+### Grundlegend geändert – Messung ist jetzt PASSIV
+- **Kein aktives Extra-Messen mehr, das Streams stört.** Der frühere „Auto-Wechsel bei
+  schlechter Leistung"-Wächter zog alle 2 Min zusätzliche Segmente vom Anbieter – das
+  konkurrierte mit laufenden Streams und ruckelte (besonders bei begrenztem/trägem
+  Anbieter, und bei vielen Nutzern gibt es praktisch nie „0 Zuschauer"). **Entfernt.**
+- **Neu: passive Messung aus echtem Verkehr.** SelfStream liest jetzt die Ladezeit jedes
+  echten Segment-Abrufs mit, den die Zuschauer ohnehin auslösen (`_get_segment`), und
+  leitet daraus die real erlebte Qualität ab (Median-Ladezeit, Fehlerrate, Durchsatz →
+  ok/träge/schlecht). **Null Extra-Last, funktioniert während des Schauens, kann den
+  Stream prinzipiell nicht mehr stören.**
+- **Health-Sampler/Selbst-Check laufen auf dem passiven Signal.** Nur bei Leerlauf (0
+  echter Verkehr) macht ein einziger Mini-Check die Verlaufskurve am Leben.
+- **E-Mail-Alarm** meldet jetzt echtes Ruckeln/Ausfälle (aus dem passiven Signal), nicht
+  Test-Rauschen. Bei Einbruch während des Schauens: **nur Alarm, kein Auto-Wechsel**.
+- **Bleibt:** Not-Failover bei totem Tunnel, Auto-Best nur nachts (0 Zuschauer),
+  manuelle Knöpfe, billiger VPN-Lebenscheck (1.1.1.1, belastet den Anbieter nicht).
+
 ## v1.26
 
 ### Behoben (aus Code-Review)
