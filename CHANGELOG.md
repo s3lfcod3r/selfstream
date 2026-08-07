@@ -1,6 +1,18 @@
 # Changelog
 
+## v1.31
+
+### Behoben: E-Mail-Alarm flatterte (12 Mails statt 1)
+- Wackelte die Stream-Qualität kurz über die Schwelle (z.B. ein einzelnes langsames
+  Segment), kam sofort eine „Problem"-Mail und gleich danach eine „wieder ok"-Mail –
+  bei mehrmaligem Wackeln 12+ Mails, obwohl der Durchsatz gut war (132 Mbit/s).
+- Jetzt mit HYSTERESE + BREMSE: Alarm erst nach mehreren schlechten Stichproben am
+  Stück (~15 min), Entwarnung erst nach mehreren guten (~15 min), und höchstens alle
+  2 h eine NEUE Problem-Mail. Aus 12 Mails werden ~1–2. Die Problem-Mail nennt jetzt
+  den echten Grund aus der auslösenden Messung (nicht mehr eine generische Meldung).
+
 ## v1.30
+
 
 ### Neu: Durchsatz-Vergleich über zweiten Tunnel (Weg 2, experimentell/opt-in)
 - Neuer Knopf „🔀 Durchsatz-Vergleich (Zweittunnel)": misst den ECHTEN Anbieter-

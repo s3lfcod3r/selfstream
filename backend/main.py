@@ -5831,6 +5831,15 @@ _health_problem_streak = 0
 _alert_active = False            # unbehobene, bereits gemeldete Störung
 _alert_last_heartbeat = 0.0      # time.monotonic() der letzten Lebenszeichen-Mail
 ALERT_HEARTBEAT_INTERVAL = 86400 # täglich
+# Anti-Flatter: verhindert Mail-Spam, wenn das Signal kurz über die Schwelle wackelt
+# (z.B. ein einzelnes langsames Segment). Es braucht MEHRERE schlechte Stichproben am
+# Stück für einen Alarm, MEHRERE gute für die Entwarnung, und höchstens alle 2 h eine
+# NEUE Problem-Mail.
+ALERT_BAD_STREAK = 3             # so viele schlechte am Stück (~15 min) → Alarm
+ALERT_GOOD_STREAK = 3            # so viele gute am Stück (~15 min) → Entwarnung
+ALERT_MIN_INTERVAL = 7200        # frühestens alle 2 h eine neue Problem-Mail
+_health_good_streak = 0
+_alert_last_sent = 0.0           # time.monotonic() der letzten Problem-Mail
 
 
 def _send_email(subject: str, body: str):
@@ -5915,8 +5924,15 @@ def _maybe_send_alert(problem: bool, sample: dict):
     if not problem and not _alert_active:
         return
     if problem:
-        st = _selfcheck_status()
-        lines = st.get("issues") or ["Anhaltend schwache Anbieter/VPN-Werte"]
+        # Grund aus der auslösenden Stichprobe (nicht aus einem frischen Check, der
+        # bei Flattern schon wieder "ok" sein könnte).
+        lines = []
+        if sample.get("vpn_up") is False:
+            lines.append("VPN-Tunnel unten")
+        if sample.get("level") == "bad" or not sample.get("ok"):
+            lines.append("Streams laufen schlecht (langsame oder fehlende Segmente)")
+        if not lines:
+            lines = ["Anhaltend schwache Anbieter/VPN-Werte"]
         body = (
             "SelfStream hat ein Problem erkannt:\n\n- " + "\n- ".join(lines) +
             "\n\nAktuelle Messwerte:\n"
@@ -5944,7 +5960,7 @@ def _maybe_send_alert(problem: bool, sample: dict):
 async def _health_sampler():
     """Periodische, schonende Gesundheits-Stichprobe fuer den Verlauf + Fruehwarnung.
     Laeuft (wie die anderen Waechter) nur in EINEM Event-Loop dank Startup-Guard."""
-    global _health_problem_streak, _alert_last_heartbeat
+    global _health_problem_streak, _alert_last_heartbeat, _health_good_streak, _alert_last_sent
     import time as _t
     await asyncio.sleep(90)   # Startup abwarten
     while True:
@@ -6000,23 +6016,30 @@ async def _health_sampler():
             if len(_health_history) > HEALTH_HISTORY_MAX:
                 _health_history.pop(0)
 
-            # Fruehwarnung + Alarm bei anhaltendem echten Problem.
+            # Alarm mit HYSTERESE + BREMSE (kein Flattern): erst nach mehreren
+            # schlechten Stichproben am Stück melden, Entwarnung erst nach mehreren
+            # guten – und höchstens alle ALERT_MIN_INTERVAL eine NEUE Problem-Mail.
             if bad:
                 _health_problem_streak += 1
-                if _health_problem_streak == 2:   # ~10 min anhaltend → einmal in die Diagnose
+                _health_good_streak = 0
+                if _health_problem_streak == ALERT_BAD_STREAK:   # ~15 min anhaltend → Diagnose
                     diag_log("WARNING", "health",
                              f"Anhaltend schwache Qualität ({sample.get('source')}): "
                              f"vpn_up={vpn_up}, ok={sample.get('ok')}, "
                              f"ladezeit≈{sample.get('latency_ms')}ms, durchsatz={sample.get('mbps_total')}Mbit/s")
-                if _health_problem_streak >= 2:
-                    # Bei JEDER weiteren Stichprobe erneut versuchen, bis eine Mail wirklich
-                    # rausging (_maybe_send_alert dedupt selbst über _alert_active).
-                    await asyncio.to_thread(_maybe_send_alert, True, sample)
+                if _health_problem_streak >= ALERT_BAD_STREAK and not _alert_active:
+                    now = time.monotonic()
+                    if _alert_last_sent == 0.0 or (now - _alert_last_sent) >= ALERT_MIN_INTERVAL:
+                        await asyncio.to_thread(_maybe_send_alert, True, sample)
+                        if _alert_active:            # nur bei tatsächlich verschickter Mail
+                            _alert_last_sent = now
             else:
-                if _health_problem_streak >= 2:
-                    diag_log("INFO", "health", "Anbieter/VPN-Stichprobe wieder normal")
+                _health_good_streak += 1
+                if _alert_active and _health_good_streak >= ALERT_GOOD_STREAK:
+                    diag_log("INFO", "health", "Qualität wieder normal")
                     await asyncio.to_thread(_maybe_send_alert, False, sample)
-                _health_problem_streak = 0
+                if _health_good_streak >= ALERT_GOOD_STREAK:
+                    _health_problem_streak = 0
 
             # Tägliches Lebenszeichen ("alles ok"), nur wenn aktiviert.
             if db.get_setting("alert_enabled", "0") == "1" and db.get_setting("alert_heartbeat", "0") == "1":
