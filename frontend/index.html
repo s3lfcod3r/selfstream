@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.56</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.57</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.56</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.57</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1491,6 +1491,11 @@ tr:hover td{background:rgba(255,255,255,.02);}
 <div class="modal-bg" id="modal-canary-stats">
   <div class="modal" style="width:760px;max-width:96vw;">
     <div class="modal-title">📊 Selbst-Zuschauer – Statistik</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <label style="font-size:11px;color:var(--text3);">Zeitraum:</label>
+      <select class="form-select" id="canary-stats-filter" style="width:auto;min-width:200px;" onchange="canaryStatsFilter()"></select>
+      <span style="font-size:10px;color:var(--text3);">Verlauf wird 30 Tage gespeichert</span>
+    </div>
     <div id="canary-stats-summary" style="margin-bottom:12px;font-size:13px;color:var(--text2);"></div>
     <div id="canary-stats-bars" style="display:flex;gap:2px;align-items:flex-end;height:60px;margin-bottom:6px;overflow-x:auto;padding:2px;background:var(--bg2);border-radius:6px;"></div>
     <div style="font-size:10px;color:var(--text3);margin-bottom:12px;">Neueste Messung rechts · Balkenhöhe = Reserve (höher = mehr Puffer = besser) · 🟢 flüssig · 🟡 knapp · 🔴 ruckelt</div>
@@ -4695,29 +4700,79 @@ function canaryRender(s) {
 
 // ── Canary-Statistik (Popup) ──────────────────────────────────────────────────
 function _fmtTs(ts){ try { return new Date(ts*1000).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}); } catch(e){ return '—'; } }
+// Lokale Tagesgrenzen (Mitternacht bis Mitternacht) als Unix-Sekunden – so filtert
+// das Popup exakt nach dem Tag, den du auch in der Zeit-Spalte siehst (Browser-Zeitzone).
+function _dayBounds(date) {
+  const a = new Date(date); a.setHours(0, 0, 0, 0);
+  const from = Math.floor(a.getTime() / 1000);
+  const b = new Date(a); b.setDate(b.getDate() + 1);
+  return [from, Math.floor(b.getTime() / 1000)];
+}
+
+function _buildCanaryDayOptions(range) {
+  const sel = document.getElementById('canary-stats-filter');
+  if (!sel) return;
+  const oldest = range && range.oldest_ts ? range.oldest_ts * 1000 : Date.now();
+  const days = ['<option value="">Alle (letzte 30 Tage)</option>'];
+  const wd = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+    const [from, to] = _dayBounds(d);
+    if (to * 1000 < oldest) break;   // vor dem ältesten Datensatz → aufhören
+    const label = i === 0 ? 'Heute' : (i === 1 ? 'Gestern'
+      : `${wd[d.getDay()]} ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`);
+    days.push(`<option value="${from},${to}">${label}</option>`);
+  }
+  const prev = sel.value;
+  sel.innerHTML = days.join('');
+  if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+
 async function canaryStats() {
   document.getElementById('modal-canary-stats').classList.add('open');
+  const sel = document.getElementById('canary-stats-filter');
+  if (sel) sel.value = '';
+  await _canaryStatsFetch();
+}
+
+async function canaryStatsFilter() { await _canaryStatsFetch(); }
+
+async function _canaryStatsFetch() {
   const sum = document.getElementById('canary-stats-summary');
   const bars = document.getElementById('canary-stats-bars');
   const tbl = document.getElementById('canary-stats-table');
+  const sel = document.getElementById('canary-stats-filter');
   sum.textContent = 'Lade…'; bars.innerHTML = ''; tbl.innerHTML = '';
+  let path = '/api/vpn/canary/history';
+  if (sel && sel.value) { const [f, t] = sel.value.split(','); path += `?from=${f}&to=${t}`; }
   let r;
-  try { r = await api('GET', '/api/vpn/canary/history'); } catch(e) { sum.textContent = 'Fehler: ' + (e.message || e); return; }
+  try { r = await api('GET', path); } catch(e) { sum.textContent = 'Fehler: ' + (e.message || e); return; }
+  if (r && r.range) _buildCanaryDayOptions(r.range);
   const s = (r && r.summary) || {}, h = (r && r.history) || [];
-  if (!h.length) { sum.textContent = 'Noch keine Messungen aufgezeichnet – der Canary muss dafür laufen (Modus ≠ Aus).'; return; }
+  const listLimit = (r && r.list_limit) || 500;
+  if (!s.samples) {
+    sum.textContent = sel && sel.value
+      ? 'Für diesen Tag wurden keine Messungen aufgezeichnet.'
+      : 'Noch keine Messungen aufgezeichnet – der Canary muss dafür laufen (Modus ≠ Aus).';
+    return;
+  }
   const lv = s.levels || {};
+  const capped = s.samples > listLimit;
   sum.innerHTML = `<strong>${s.samples}</strong> Messungen · <strong>${s.smooth_pct}%</strong> flüssig`
     + ` · Ø Reserve ${s.avg_reserve != null ? (s.avg_reserve + '×') : '–'} (schlechteste ${s.worst_reserve != null ? (s.worst_reserve + '×') : '–'})`
     + ` · Ø ${s.avg_mbps != null ? (s.avg_mbps + ' Mbit/s') : '–'}<br>`
-    + `🟢 flüssig ${(lv.fluessig || 0) + (lv.ok || 0)} · 🟡 knapp ${lv.knapp || 0} · 🔴 ruckelt ${lv.ruckelt || 0}`;
+    + `🟢 flüssig ${(lv.fluessig || 0) + (lv.ok || 0)} · 🟡 knapp ${lv.knapp || 0} · 🔴 ruckelt ${lv.ruckelt || 0}`
+    + (capped ? `<br><span style="font-size:10px;color:var(--text3);">Statistik über alle ${s.samples} · Liste/Balken zeigen die jüngsten ${listLimit}</span>` : '');
   const col = l => l === 'ruckelt' ? '#ef4444' : (l === 'knapp' ? '#eab308' : '#14b8a6');
-  bars.innerHTML = h.map(e => {
+  // history kommt neueste-zuerst → für die Balken (neueste rechts) umdrehen
+  const chron = h.slice().reverse();
+  bars.innerHTML = chron.map(e => {
     const rr = e.reserve != null ? e.reserve : 1;
     const hgt = Math.max(4, Math.min(56, Math.round(Math.max(0, 1 - rr) * 56))); // Reserve: höher = besser
     return `<div title="${_fmtTs(e.ts)} · Reserve ${e.reserve != null ? e.reserve + '×' : '–'} · ${e.level}" style="width:6px;flex:0 0 6px;height:${hgt}px;background:${col(e.level)};border-radius:2px;"></div>`;
   }).join('');
   bars.scrollLeft = bars.scrollWidth;
-  const rows = h.slice().reverse().map(e => {
+  const rows = h.map(e => {
     const badge = e.level === 'ruckelt' ? '🔴' : (e.level === 'knapp' ? '🟡' : '🟢');
     return `<tr style="border-bottom:1px solid var(--border);"><td style="padding:4px 8px;">${_fmtTs(e.ts)}</td>`
       + `<td style="padding:4px 8px;">${badge} ${esc(e.level)}</td>`

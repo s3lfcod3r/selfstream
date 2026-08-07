@@ -2,6 +2,7 @@ import sqlite3
 import os
 import time
 import re
+import json
 import hashlib
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
@@ -121,6 +122,20 @@ class Database:
                     created_at TEXT DEFAULT (datetime('now'))
                 );
                 CREATE INDEX IF NOT EXISTS idx_seg_events_ts ON segment_events(ts);
+
+                CREATE TABLE IF NOT EXISTS canary_events (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts           REAL NOT NULL,
+                    level        TEXT DEFAULT '',
+                    reserve      REAL DEFAULT NULL,
+                    mbps         REAL DEFAULT NULL,
+                    got          INTEGER DEFAULT NULL,
+                    of_seg       INTEGER DEFAULT NULL,
+                    median_s     REAL DEFAULT NULL,
+                    from_viewers INTEGER DEFAULT 0,
+                    created_at   TEXT DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_canary_ts ON canary_events(ts);
 
                 CREATE TABLE IF NOT EXISTS diagnostic_logs (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -696,6 +711,121 @@ class Database:
     def clear_segment_events(self):
         with self.conn() as con:
             con.execute("DELETE FROM segment_events")
+
+    # ── Canary-Verlauf (Selbst-Zuschauer-Statistik, 30-Tage-Aufbewahrung) ────────
+    def add_canary_event(self, entry: dict):
+        """Eine Canary-Messung speichern (Langzeit-Verlauf, echte 30-Tage-Grenze)."""
+        with self.conn() as con:
+            con.execute("""
+                INSERT INTO canary_events (ts, level, reserve, mbps, got, of_seg, median_s, from_viewers)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                entry.get("ts", 0), entry.get("level", "") or "",
+                entry.get("reserve"), entry.get("mbps"),
+                entry.get("got"), entry.get("of"),
+                entry.get("median_s"), 1 if entry.get("from_viewers") else 0,
+            ))
+        self._canary_add_count = getattr(self, "_canary_add_count", 0) + 1
+        if self._canary_add_count % 500 == 0:
+            try:
+                self.purge_canary_events(30)
+            except Exception:
+                pass
+
+    def purge_canary_events(self, retention_days: int = 30):
+        """Canary-Messungen älter als N Tage löschen (echte Aufbewahrungsgrenze)."""
+        d = max(1, min(int(retention_days), 366))
+        cutoff = time.time() - d * 86400
+        with self.conn() as con:
+            con.execute("DELETE FROM canary_events WHERE ts < ?", (cutoff,))
+
+    def get_canary_events(self, from_ts: float, to_ts: float, limit: int = 500) -> List[Dict]:
+        """Canary-Messungen im Zeitfenster (neueste zuerst, gekappt für die Anzeige)."""
+        with self.conn() as con:
+            rows = con.execute("""
+                SELECT ts, level, reserve, mbps, got, of_seg AS "of", median_s, from_viewers
+                FROM canary_events
+                WHERE ts >= ? AND ts < ?
+                ORDER BY ts DESC
+                LIMIT ?
+            """, (from_ts, to_ts, limit)).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_canary_summary(self, from_ts: float, to_ts: float) -> Dict:
+        """Statistik über das ganze Zeitfenster – in SQL gerechnet (auch über 30 Tage schnell)."""
+        with self.conn() as con:
+            agg = con.execute("""
+                SELECT COUNT(*) AS n,
+                       SUM(CASE WHEN level IN ('ok','fluessig') THEN 1 ELSE 0 END) AS good,
+                       SUM(CASE WHEN level='knapp' THEN 1 ELSE 0 END) AS knapp,
+                       SUM(CASE WHEN level='ruckelt' THEN 1 ELSE 0 END) AS ruckelt,
+                       ROUND(AVG(reserve), 2) AS avg_reserve,
+                       MAX(reserve) AS worst_reserve,
+                       ROUND(AVG(mbps), 2) AS avg_mbps,
+                       MIN(ts) AS first_ts, MAX(ts) AS last_ts
+                FROM canary_events
+                WHERE ts >= ? AND ts < ?
+            """, (from_ts, to_ts)).fetchone()
+            d = dict(agg) if agg else {}
+            n = d.get("n") or 0
+            good = d.get("good") or 0
+            levels = {"ok": good, "knapp": d.get("knapp") or 0, "ruckelt": d.get("ruckelt") or 0}
+            return {
+                "samples": n,
+                "levels": levels,
+                "smooth_pct": round(100 * good / n) if n else None,
+                "avg_reserve": d.get("avg_reserve"),
+                "worst_reserve": d.get("worst_reserve"),
+                "avg_mbps": d.get("avg_mbps"),
+                "first_ts": d.get("first_ts"),
+                "last_ts": d.get("last_ts"),
+            }
+
+    def get_canary_range(self) -> Dict:
+        """Ältester/neuester Zeitstempel + Gesamtzahl (für den Tages-Filter im Popup)."""
+        with self.conn() as con:
+            r = con.execute(
+                "SELECT MIN(ts) AS oldest, MAX(ts) AS newest, COUNT(*) AS n FROM canary_events"
+            ).fetchone()
+            d = dict(r) if r else {}
+            return {"oldest_ts": d.get("oldest"), "newest_ts": d.get("newest"), "total": d.get("n") or 0}
+
+    def clear_canary_events(self):
+        with self.conn() as con:
+            con.execute("DELETE FROM canary_events")
+
+    def migrate_canary_history_from_settings(self):
+        """Einmalige Übernahme des alten JSON-Verlaufs (Setting 'canary_history') in die
+        neue Tabelle, damit der bestehende Verlauf beim Update nicht verloren geht."""
+        with self.conn() as con:
+            have = con.execute("SELECT COUNT(*) FROM canary_events").fetchone()[0]
+            if have:
+                return 0
+            row = con.execute("SELECT value FROM settings WHERE key='canary_history'").fetchone()
+        if not row or not row[0]:
+            return 0
+        try:
+            items = json.loads(row[0])
+            if not isinstance(items, list):
+                return 0
+        except Exception:
+            return 0
+        moved = 0
+        with self.conn() as con:
+            for e in items:
+                if not isinstance(e, dict) or not e.get("ts"):
+                    continue
+                con.execute("""
+                    INSERT INTO canary_events (ts, level, reserve, mbps, got, of_seg, median_s, from_viewers)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    e.get("ts", 0), e.get("level", "") or "",
+                    e.get("reserve"), e.get("mbps"), e.get("got"), e.get("of"),
+                    e.get("median_s"), 1 if e.get("from_viewers") else 0,
+                ))
+                moved += 1
+            con.execute("DELETE FROM settings WHERE key='canary_history'")
+        return moved
 
     def add_diagnostic_log(self, level: str, source: str, message: str):
         lv = (level or "INFO").strip().upper()[:16] or "INFO"

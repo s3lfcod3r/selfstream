@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 
-from fastapi import FastAPI, HTTPException, Request, Depends, Header
+from fastapi import FastAPI, HTTPException, Request, Depends, Header, Query
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -384,6 +384,10 @@ async def startup():
     try:
         db.purge_diagnostic_logs(30)
         db.purge_segment_events(30)   # User-Qualitäts-Events max. 30 Tage
+        moved = db.migrate_canary_history_from_settings()  # alten JSON-Verlauf übernehmen
+        if moved:
+            logger.info(f"Canary-Verlauf migriert: {moved} Messungen aus Settings → Tabelle")
+        db.purge_canary_events(CANARY_RETENTION_DAYS)       # Canary-Verlauf max. 30 Tage
     except Exception:
         pass
     _generate_error_video()
@@ -7293,39 +7297,19 @@ async def vpn_dual_compare(_=Depends(check_admin)):
 # fast vollem Verbindungslimit (stiehlt keinem Zuschauer eine Verbindung).
 CANARY_CHECK = 30            # 24/7-Modus: alle 30s ein paar Segmente
 CANARY_ACT_COOLDOWN = 3600   # 'act': höchstens 1 Auto-Wechsel/Stunde
-CANARY_HISTORY_MAX = 500     # so viele Messungen im Verlauf behalten (für die Statistik)
+CANARY_RETENTION_DAYS = 30   # Canary-Verlauf so lange aufbewahren (echte Zeitgrenze)
+CANARY_LIST_LIMIT = 500      # so viele Zeilen zeigt die Liste/Sparkline je Filter (Statistik zählt ALLE)
 _canary_last_run = 0.0
 _canary_last_switch = 0.0
 _canary_status: dict = {}
-_canary_history: list = []   # Verlauf der Messungen (persistiert, überlebt Neustart)
-_canary_history_loaded = False
-
-
-def _canary_history_load():
-    """Verlauf aus den Settings laden (überlebt Container-Neustart)."""
-    global _canary_history, _canary_history_loaded
-    try:
-        raw = db.get_setting("canary_history", "")
-        _canary_history = json.loads(raw) if raw else []
-        if not isinstance(_canary_history, list):
-            _canary_history = []
-    except Exception:
-        _canary_history = []
-    _canary_history_loaded = True
 
 
 def _canary_history_add(entry: dict):
-    """Eine Messung in den Verlauf schreiben (gekappt) und persistieren."""
-    global _canary_history
-    if not _canary_history_loaded:
-        _canary_history_load()
-    _canary_history.append(entry)
-    if len(_canary_history) > CANARY_HISTORY_MAX:
-        _canary_history = _canary_history[-CANARY_HISTORY_MAX:]
+    """Eine Messung in den Langzeit-Verlauf schreiben (DB, echte 30-Tage-Aufbewahrung)."""
     try:
-        db.set_setting("canary_history", json.dumps(_canary_history))
-    except Exception:
-        pass
+        db.add_canary_event(entry)
+    except Exception as e:
+        logger.warning(f"canary history add failed: {e}")
 
 
 def _passive_to_smooth(level) -> str:
@@ -7515,47 +7499,37 @@ def set_canary(body: dict, _=Depends(check_admin)):
 
 
 @admin_app.get("/api/vpn/canary/history")
-def get_canary_history(_=Depends(check_admin)):
-    """Verlauf + Statistik des Selbst-Zuschauers (für das Statistik-Popup)."""
-    if not _canary_history_loaded:
-        _canary_history_load()
-    hist = _canary_history
-    n = len(hist)
-    levels, reserves, mbps_list = {}, [], []
-    for e in hist:
-        lv = e.get("level") or "unbekannt"
-        levels[lv] = levels.get(lv, 0) + 1
-        if e.get("reserve") is not None:
-            reserves.append(e["reserve"])
-        if e.get("mbps") is not None:
-            mbps_list.append(e["mbps"])
+def get_canary_history(from_ts: Optional[float] = Query(None, alias="from"),
+                       to_ts: Optional[float] = Query(None, alias="to"),
+                       _=Depends(check_admin)):
+    """Verlauf + Statistik des Selbst-Zuschauers (für das Statistik-Popup).
 
-    def _avg(xs):
-        return round(sum(xs) / len(xs), 2) if xs else None
-
-    good = levels.get("fluessig", 0) + levels.get("ok", 0)
-    summary = {
-        "samples": n,
-        "levels": levels,
-        "smooth_pct": round(100 * good / n) if n else None,
-        "avg_reserve": _avg(reserves),
-        "worst_reserve": max(reserves) if reserves else None,
-        "avg_mbps": _avg(mbps_list),
-        "first_ts": hist[0]["ts"] if n else None,
-        "last_ts": hist[-1]["ts"] if n else None,
+    Ohne Parameter: die letzten 30 Tage. Mit ``from``/``to`` (Unix-Sekunden):
+    genau dieses Fenster – dafür schickt das Popup pro gewähltem Tag die lokalen
+    Tagesgrenzen. Die Statistik zählt IMMER das ganze Fenster (in SQL), die Liste
+    zeigt die jüngsten CANARY_LIST_LIMIT Zeilen davon."""
+    now = time.time()
+    lo = float(from_ts) if from_ts is not None else now - CANARY_RETENTION_DAYS * 86400
+    hi = float(to_ts) if to_ts is not None else now + 3600   # kleine Reserve für die Zukunft
+    summary = db.get_canary_summary(lo, hi)
+    history = db.get_canary_events(lo, hi, CANARY_LIST_LIMIT)
+    rng = db.get_canary_range()
+    return {
+        "summary": summary,
+        "history": history,
+        "list_limit": CANARY_LIST_LIMIT,
+        "range": rng,                       # oldest_ts/newest_ts/total → Tages-Filter im Popup
+        "retention_days": CANARY_RETENTION_DAYS,
     }
-    return {"summary": summary, "history": hist[-200:]}
 
 
 @admin_app.post("/api/vpn/canary/history/clear")
 def clear_canary_history(_=Depends(check_admin)):
     """Verlauf zurücksetzen."""
-    global _canary_history
-    _canary_history = []
     try:
-        db.set_setting("canary_history", "[]")
-    except Exception:
-        pass
+        db.clear_canary_events()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True}
 
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.57
+
+### Canary-Verlauf: 30 Tage + Tages-Filter im Statistik-Popup
+- Der Selbst-Zuschauer-Verlauf wird jetzt **30 Tage** aufbewahrt (vorher nur die letzten
+  500 Messungen ≈ ~4 Stunden). Speicherung in einer eigenen DB-Tabelle `canary_events`
+  mit echtem 30-Tage-Purge (wie die Buffering-Ereignisse) statt als JSON-Blob in den
+  Settings – dadurch auch bei tausenden Messungen schnell und schonend.
+- **Tages-Filter** oben im Statistik-Popup: „Alle (letzte 30 Tage)" oder ein einzelner Tag
+  (Heute, Gestern, Datum). Die Tagesgrenzen richten sich nach deiner lokalen Zeit (Browser),
+  passend zur angezeigten Zeit-Spalte.
+- Die **Statistik** (Messungen, % flüssig, Ø Reserve, Ø Mbit/s, Zähler) wird immer über den
+  **ganzen** gewählten Zeitraum in SQL gerechnet; Liste + Balken zeigen die jüngsten 500.
+- Bestehender Verlauf wird beim Update **einmalig migriert** (aus dem alten Setting in die
+  neue Tabelle), geht also nicht verloren.
+- Endpoint erweitert: `GET /api/vpn/canary/history?from=<ts>&to=<ts>` (Unix-Sekunden).
+
+
 ## v1.56
 
 ### Auto-Best für WireGuard (nahtlos, auch mit Zuschauern)
