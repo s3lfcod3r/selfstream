@@ -55,13 +55,14 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 - **Local test button** – Each user has a 🏠 button in the admin panel that generates a local test URL (`?local=1`) with internal IP for quick diagnostics without touching the public setup
 - **`PROXY_URL` env variable** – Set the public proxy URL via environment variable for docker-compose setups
 
-### 🔒 VPN (Built-in OpenVPN)
-- **Integrated OpenVPN** – Start/stop VPN directly from the admin panel, no extra container needed
-- **Multiple .ovpn Profiles** – Upload and switch between multiple provider profiles (e.g. ExpressVPN Switzerland, Germany)
-- **Live Status** – Shows connection status and current public IP
-- **Live Log** – Real-time OpenVPN log stream in the browser
-- **Auto-Start** – VPN reconnects automatically on container restart
-- **Local Route Preservation** – Admin panel stays fast even when VPN is active (local network routed via eth0)
+### 🔒 VPN (Built-in WireGuard / Mullvad)
+- **Integrated WireGuard** – Start/stop the tunnel directly from the admin panel, no extra container needed (much faster and more CPU-efficient than OpenVPN)
+- **Mullvad auto-import** – Upload one Mullvad `.conf`, then pull every WireGuard server from Mullvad's API (optionally filtered by country) and get one config per server automatically
+- **Seamless server switch** – Change the exit server **without tearing down the tunnel**: only the peer (server + endpoint) is swapped on the live interface, so switching runs with practically no interruption — **even while viewers are watching**
+- **Auto-Best (WireGuard, seamless)** – A background watcher reacts to real stuttering (measured from actual viewer segments) and seamlessly switches to the fastest reachable alternative server, with a configurable throughput threshold and cooldown (no flapping)
+- **Find fastest server (latency)** – Non-disruptive: measures the response time to every stored server via a stream-safe direct route (probes never go through the tunnel), then ranks them
+- **Live Status + Log** – Connection status, current public IP and a real-time tunnel log in the browser
+- **Auto-Start & Local Route Preservation** – Tunnel reconnects on container restart; the admin panel stays fast even when the VPN is active (local network routed via eth0)
 - **Requires:** `--cap-add=NET_ADMIN` + `--device=/dev/net/tun` (or Privileged mode in Unraid)
 
 ### 📊 Traffic Analysis
@@ -93,6 +94,17 @@ selfstream is a self-hosted IPTV proxy with user management, stream protection, 
 - **Delete user logs** – 🗑 button in the log modal to clear only that user's history
 - **Token display** – Click 👁 to reveal the full token (breaks across lines, fully readable)
 - **Local test URL** – 🏠 button copies a local playlist URL for admin testing without affecting users
+
+---
+
+## What's New (August 2026 – v1.44 → v1.56)
+
+- **Switched to WireGuard + Mullvad.** The built-in VPN now runs **WireGuard** instead of OpenVPN — much faster and far more CPU-efficient (in practice ~6× the throughput of the old OpenVPN tunnel). OpenVPN was removed from the UI; upload is `.conf` only.
+- **Mullvad auto-import.** Upload a single Mullvad `.conf` and SelfStream pulls every WireGuard server from Mullvad's API (optionally by country), generating one config per server automatically — no more uploading hundreds of files by hand.
+- **Seamless server switch (no interruption).** Changing the exit server no longer tears down the tunnel. The `wg0` interface stays up and only the peer (server + endpoint) is swapped live — practically zero interruption, **even while viewers are watching**. Both "Activate" and "Switch" use this path.
+- **Auto-Best for WireGuard (seamless).** A background watcher reacts to **real stuttering** (measured from actual viewer segments) and seamlessly switches to the fastest reachable alternative server, with a configurable throughput threshold and cooldown to prevent flapping. Candidate ranking uses a **stream-safe latency probe** (test packets never go through the tunnel). New endpoints `GET/POST /api/vpn/wg-autobest`.
+- **Two-leg buffering visibility.** Traffic now measures both legs separately: **provider → SelfStream** (from real viewer segments, shown per user) and **SelfStream → device** (the outbound `→ USER` speed, per user) — so you can tell at a glance whether a viewer's problem is the provider/server or that person's own connection (e.g. their 5G). Buffering events keep a real 30-day history with a user filter.
+- **Canary is line-friendly.** SelfStream's own test-viewer uses the real viewers' segments when someone is watching (self-fetches only when idle) and pauses near the connection limit, so it never steals a line from a real viewer.
 
 ---
 
@@ -435,14 +447,16 @@ To make streams accessible from outside your home network:
 ## VPN Setup
 
 1. Admin Panel → **VPN**
-2. Enter your OpenVPN credentials (username & password from your provider)
-3. Click **Choose File** → upload your `.ovpn` file (download from your VPN provider's website under Manual Configuration → OpenVPN)
-4. Click **▶ Start VPN**
+2. Click **Choose File** → upload one WireGuard `.conf` (from your provider; for Mullvad: download a WireGuard config with **IPv4 only**)
+3. **Mullvad only:** in the import box pick a country and click **Import all** — SelfStream creates one config per Mullvad server automatically from the key/address in your uploaded `.conf`
+4. Click **Activate** on a server, then **▶ Start VPN**
 5. The live log shows the connection progress; once connected, the public IP is displayed
 
-**Switching profiles:** Upload multiple `.ovpn` files (e.g. different countries) and click **Activate** to switch between them. Stop and restart the VPN after switching.
+**Switching servers:** With WireGuard, click **Switch** (or **Activate**) on any server — it changes **seamlessly** on the live tunnel, no restart, no stream interruption (even while viewers are watching).
 
-**Tested providers:** ExpressVPN — other OpenVPN-compatible providers should work too.
+**Find the best server:** Use **Find fastest server (latency)** for a stream-safe ranking, or turn on **🏆 Auto-Best** to let SelfStream switch to the fastest server on its own whenever quality drops.
+
+**Tested providers:** Mullvad (WireGuard). Any WireGuard `.conf` should work.
 
 ---
 
@@ -534,9 +548,9 @@ Create your own channel groups independent of provider groups:
 | EPG not showing | Admin → EPG → click "Load EPG"; then Auto-Match |
 | Catchup not working | IPTV provider must support catchup (`tvg-rec` in M3U) |
 | Channel switch slow | Lower Connect Timeout to 3–5s in Settings → HLS |
-| VPN won't connect | Try a different server or switch from UDP to TCP in your `.ovpn` file (`proto tcp`) |
-| VPN active but streams broken | Check that Privileged mode or `--cap-add=NET_ADMIN` is set |
-| Buffering with VPN | Test with Speedtest; try a geographically closer VPN server |
+| VPN won't connect | Try a different server (Activate + Start), and make sure the Mullvad `.conf` was downloaded as **IPv4 only** |
+| VPN active but streams broken | Check that Privileged mode or `--cap-add=NET_ADMIN` + `--device=/dev/net/tun` is set |
+| Buffering with VPN | Use **Find fastest server (latency)** and switch (seamless), or turn on **🏆 Auto-Best** to let it pick automatically |
 | Stream stutters without VPN | Check Buffering Events in Traffic tab; large segments (>5 MB) are normal for some providers |
 | External streams not working | Set your subdomain in Settings → Public Domain. Without it, stream links contain your local IP |
 | Streams work locally but not externally | Check that your reverse proxy forwards to port 8000 (not 8080) |
@@ -559,7 +573,7 @@ A **separate** small Docker image for debugging catchup in the browser (hls.js +
 ## Technology
 
 - **Backend:** Python 3.12, FastAPI, uvicorn, httpx, Pillow
-- **VPN:** OpenVPN (installed in container)
+- **VPN:** WireGuard (wireguard-tools, installed in container)
 - **Database:** SQLite (no external server needed)
 - **Frontend:** Vanilla HTML/CSS/JS (no framework)
 - **Container:** Python 3.12 slim, ~200 MB image
@@ -621,13 +635,14 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **Lokaler Test-Button** – Jeder User hat einen 🏠 Button der eine lokale Test-URL (`?local=1`) mit interner IP generiert — für schnelle Diagnose ohne die öffentliche URL zu beeinflussen
 - **`PROXY_URL` Umgebungsvariable** – Öffentliche Proxy-URL per Umgebungsvariable setzen für docker-compose Setups
 
-### 🔒 VPN (Integriertes OpenVPN)
-- **Integriertes OpenVPN** – VPN direkt im Admin-Panel starten/stoppen, kein Extra-Container nötig
-- **Mehrere .ovpn Profile** – Mehrere Anbieter-Profile hochladen und zwischen ihnen wechseln (z.B. ExpressVPN Schweiz, Deutschland)
-- **Live-Status** – Zeigt Verbindungsstatus und aktuelle öffentliche IP
-- **Live-Log** – Echtzeit-OpenVPN-Log-Stream im Browser
-- **Auto-Start** – VPN verbindet sich automatisch beim Container-Neustart
-- **Lokale Route** – Admin-Panel bleibt schnell auch wenn VPN aktiv ist (lokales Netz via eth0 geroutet)
+### 🔒 VPN (Integriertes WireGuard / Mullvad)
+- **Integriertes WireGuard** – Tunnel direkt im Admin-Panel starten/stoppen, kein Extra-Container nötig (deutlich schneller und CPU-schonender als OpenVPN)
+- **Mullvad-Auto-Import** – Eine Mullvad-`.conf` hochladen, dann zieht SelfStream alle WireGuard-Server aus Mullvads API (optional nach Land gefiltert) und legt automatisch pro Server eine Config an
+- **Nahtloser Server-Wechsel** – Exit-Server wechseln **ohne den Tunnel abzureißen**: nur der Peer (Server + Endpoint) wird auf dem liven Interface getauscht → praktisch keine Unterbrechung, **auch während Zuschauer schauen**
+- **Auto-Best (WireGuard, nahtlos)** – Ein Hintergrund-Wächter reagiert auf echtes Ruckeln (gemessen aus echten Zuschauer-Segmenten) und schaltet nahtlos auf den schnellsten erreichbaren Alternativ-Server – mit einstellbarer Durchsatz-Schwelle und Cooldown (kein Hin-und-Her)
+- **Schnellsten Server finden (Latenz)** – Störungsfrei: misst die Antwortzeit zu jedem hinterlegten Server über eine stream-sichere Direktroute (die Test-Pakete gehen nie durch den Tunnel) und rankt sie
+- **Live-Status + Log** – Verbindungsstatus, aktuelle öffentliche IP und Echtzeit-Tunnel-Log im Browser
+- **Auto-Start & Lokale Route** – Tunnel verbindet sich beim Container-Neustart automatisch; Admin-Panel bleibt schnell auch wenn VPN aktiv ist (lokales Netz via eth0 geroutet)
 - **Voraussetzung:** `--cap-add=NET_ADMIN` + `--device=/dev/net/tun` (oder Privileged-Modus in Unraid)
 
 ### 📊 Traffic-Analyse
@@ -659,6 +674,17 @@ selfstream ist ein selbst gehosteter IPTV-Proxy mit User-Management, Stream-Schu
 - **User-Logs löschen** – 🗑 Button im Log-Modal löscht nur die Logs dieses Users
 - **Token-Anzeige** – Klick auf 👁 zeigt den vollständigen Token (umbrechend, vollständig lesbar)
 - **Lokale Test-URL** – 🏠 Button kopiert eine lokale Playlist-URL für Admin-Tests ohne User zu beeinflussen
+
+---
+
+## Neu seit August 2026 (v1.44 → v1.56)
+
+- **Umstieg auf WireGuard + Mullvad.** Das integrierte VPN läuft jetzt mit **WireGuard** statt OpenVPN — deutlich schneller und viel CPU-schonender (in der Praxis ~6× Durchsatz gegenüber dem alten OpenVPN-Tunnel). OpenVPN wurde aus der Oberfläche entfernt; Upload nur noch `.conf`.
+- **Mullvad-Auto-Import.** Eine einzige Mullvad-`.conf` hochladen, und SelfStream zieht alle WireGuard-Server aus Mullvads API (optional nach Land) und legt automatisch pro Server eine Config an — kein manuelles Hochladen hunderter Dateien mehr.
+- **Nahtloser Server-Wechsel (keine Unterbrechung).** Ein Serverwechsel reißt den Tunnel nicht mehr ab. Das `wg0`-Interface bleibt oben, nur der Peer (Server + Endpoint) wird live getauscht — praktisch keine Unterbrechung, **auch während Zuschauer schauen**. „Aktivieren" und „Wechseln" nutzen beide diesen Weg.
+- **Auto-Best für WireGuard (nahtlos).** Ein Hintergrund-Wächter reagiert auf **echtes Ruckeln** (gemessen aus echten Zuschauer-Segmenten) und schaltet nahtlos auf den schnellsten erreichbaren Alternativ-Server – mit einstellbarer Durchsatz-Schwelle und Cooldown gegen Hin-und-Her. Die Server-Auswahl nutzt eine **stream-sichere Latenz-Messung** (Test-Pakete gehen nie durch den Tunnel). Neue Endpunkte `GET/POST /api/vpn/wg-autobest`.
+- **Beide Strecken sichtbar.** Traffic misst jetzt beide Strecken getrennt: **Anbieter → SelfStream** (aus echten Zuschauer-Segmenten, pro User) und **SelfStream → Gerät** (die Auslieferungs-Geschwindigkeit `→ USER`, pro User) — so siehst du sofort, ob das Problem eines Zuschauers am Anbieter/Server liegt oder an dessen eigener Verbindung (z.B. sein 5G). Buffering-Ereignisse mit echtem 30-Tage-Verlauf und User-Filter.
+- **Canary ist line-schonend.** SelfStreams eigener Test-Zuschauer nutzt bei aktiven Zuschauern deren Segmente (holt nur bei Leerlauf selbst) und pausiert nahe am Verbindungslimit, klaut also nie einem echten Zuschauer eine Line.
 
 ---
 
@@ -1001,14 +1027,16 @@ Damit Streams auch von außerhalb des Heimnetzes erreichbar sind:
 ## VPN einrichten
 
 1. Admin Panel → **VPN**
-2. OpenVPN-Zugangsdaten eintragen (Benutzername & Passwort von deinem VPN-Anbieter)
-3. **Datei wählen** → `.ovpn`-Datei hochladen (vom VPN-Anbieter unter Manuelle Konfiguration → OpenVPN herunterladen)
-4. **▶ VPN Starten** klicken
+2. **Datei wählen** → eine WireGuard-`.conf` hochladen (vom Anbieter; bei Mullvad: WireGuard-Config mit **Nur IPv4** herunterladen)
+3. **Nur Mullvad:** in der Import-Box ein Land wählen und **Alle importieren** klicken — SelfStream legt aus Schlüssel/Adresse deiner hochgeladenen `.conf` automatisch pro Mullvad-Server eine Config an
+4. Bei einem Server **Aktivieren** klicken, dann **▶ VPN Starten**
 5. Das Live-Log zeigt den Verbindungsfortschritt; nach erfolgreicher Verbindung wird die öffentliche IP angezeigt
 
-**Profile wechseln:** Mehrere `.ovpn`-Dateien hochladen (z.B. verschiedene Länder) und mit **Aktivieren** zwischen ihnen wechseln. VPN danach stoppen und neu starten.
+**Server wechseln:** Mit WireGuard bei einem Server auf **Wechseln** (oder **Aktivieren**) klicken — der Wechsel läuft **nahtlos** auf dem liven Tunnel, ohne Neustart, ohne Stream-Unterbrechung (auch während Zuschauer schauen).
 
-**Getestete Anbieter:** ExpressVPN — andere OpenVPN-kompatible Anbieter sollten ebenfalls funktionieren.
+**Besten Server finden:** **Schnellsten Server finden (Latenz)** für ein stream-sicheres Ranking nutzen, oder **🏆 Auto-Best** einschalten — dann wechselt SelfStream bei Qualitätseinbruch von allein nahtlos auf den schnellsten Server.
+
+**Getestete Anbieter:** Mullvad (WireGuard). Jede WireGuard-`.conf` sollte funktionieren.
 
 ---
 
@@ -1100,9 +1128,9 @@ Eigene Kanalgruppen erstellen, unabhängig von Anbieter-Gruppen:
 | EPG wird nicht angezeigt | Admin → EPG → EPG einlesen klicken; danach Auto-Match |
 | Catchup funktioniert nicht | IPTV-Anbieter muss Catchup unterstützen (`tvg-rec` in M3U) |
 | Senderwechsel dauert lange | Connect Timeout auf 3–5s senken in Einstellungen → HLS |
-| VPN verbindet nicht | Anderen Server probieren oder in der `.ovpn`-Datei auf TCP wechseln (`proto tcp`) |
-| VPN aktiv aber Streams kaputt | Prüfen ob Privilegierter Modus oder `--cap-add=NET_ADMIN` gesetzt ist |
-| Buffering mit VPN | Speedtest machen; geografisch näheren VPN-Server probieren |
+| VPN verbindet nicht | Anderen Server probieren (Aktivieren + Starten) und sicherstellen, dass die Mullvad-`.conf` als **Nur IPv4** heruntergeladen wurde |
+| VPN aktiv aber Streams kaputt | Prüfen ob Privilegierter Modus oder `--cap-add=NET_ADMIN` + `--device=/dev/net/tun` gesetzt ist |
+| Buffering mit VPN | **Schnellsten Server finden (Latenz)** nutzen und nahtlos wechseln, oder **🏆 Auto-Best** einschalten (wählt automatisch) |
 | Stream stottert ohne VPN | Buffering-Ereignisse im Traffic-Tab prüfen; große Segmente (>5 MB) sind bei manchen Anbietern normal |
 | Externe Streams funktionieren nicht | Subdomain unter Einstellungen → Öffentliche Domain eintragen. Ohne diese Einstellung enthalten Stream-Links die lokale IP |
 | Lokal geht es, extern nicht | Prüfen ob Reverse Proxy auf Port 8000 weiterleitet (nicht 8080) |
@@ -1125,7 +1153,7 @@ Eigenes kleines Docker-Image zum Debuggen von Catchup im Browser (**hls.js** + E
 ## Technologie
 
 - **Backend:** Python 3.12, FastAPI, uvicorn, httpx, Pillow
-- **VPN:** OpenVPN (im Container installiert)
+- **VPN:** WireGuard (wireguard-tools, im Container installiert)
 - **Datenbank:** SQLite (kein externer Server nötig)
 - **Frontend:** Vanilla HTML/CSS/JS (kein Framework)
 - **Container:** Python 3.12 slim, ~200 MB Image
