@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.51
+
+### Speedtest ehrlich dargestellt (WireGuard)
+- Alt-Warnung der entfernten „Alle Server vergleichen"-Funktion entfernt.
+- Klarer Hinweis: Internet/VPN-Speedtest ist durch JEDES VPN unzuverlässig (öffentliche
+  Test-Server drosseln VPN) → der Canary ist der verlässliche Durchsatz-Wert. Anbieter-
+  Kapazitäts-Test bleibt aussagekräftig (läuft durch den aktiven Tunnel).
+
+
 ## v1.50
 
 ### OpenVPN aus der Oberfläche entfernt · Test-Tools auf WireGuard

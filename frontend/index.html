@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.50</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.51</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.50</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.51</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1214,10 +1214,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="scard" style="grid-column:1/-1">
             <div class="scard-title">🚀 Speedtest – Flaschenhals-Analyse</div>
             <div class="form-hint" style="margin-bottom:14px;">
-              Misst <strong>Internet/VPN</strong> und den <strong>IPTV-Anbieter</strong> mit bis zu <strong>8 gleichzeitigen Streams</strong> – und sagt dir mit einer Ampel, ob dein Setup so viele Zuschauer packt oder wo es klemmt.
+              Misst <strong>Internet/VPN</strong> und den <strong>IPTV-Anbieter</strong> mit mehreren gleichzeitigen Streams – zeigt mit einer Ampel, ob dein Setup viele Zuschauer packt.<br>
+              ⚠️ <strong>Hinweis:</strong> Der <strong>Internet/VPN</strong>-Teil misst über öffentliche Speedtest-Server, die VPN-Traffic <strong>drosseln/blocken</strong> („nicht erreichbar" = deren Problem, nicht deins). Dein <strong>verlässlicher Durchsatz-Wert ist der Canary</strong> (misst echte IPTV-Segmente durch den aktiven Tunnel). Der <strong>Anbieter-Kapazitäts-Test</strong> unten ist aussagekräftig.
             </div>
             <button class="btn primary" id="speedtest-btn" onclick="runSpeedtest()">▶ Speedtest starten</button>
-            <div class="form-hint" style="margin-top:8px;">⚠️ Der Vergleich verbindet jeden VPN-Server nacheinander und misst ihn – dabei sind alle Streams für ~2&nbsp;Min unterbrochen. Danach wird der vorherige Server wiederhergestellt.</div>
 
             <!-- VPN-Server-Vergleich Ergebnis -->
             <div id="speedtest-all-result" style="display:none;margin-top:16px;">
