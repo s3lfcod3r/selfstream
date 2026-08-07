@@ -6785,8 +6785,36 @@ def set_canary(body: dict, _=Depends(check_admin)):
 # ── Canary Browser-Player (③) + Ein-Klick-Umschalten (④) ───────────────────────
 # Der Player spielt einen echten Kanal DURCH SelfStream (also durch den VPN-Tunnel)
 # direkt im Admin-Panel ab, damit man mit eigenen Augen sieht, ob's flüssig läuft.
-# Playlist wird geholt, Segment-Zeilen auf einen admin-geschützten Proxy umgeschrieben;
-# hls.js schickt den X-Admin-Token als Header mit (xhrSetup) → keine Tokens in URLs.
+# Auth über einen KURZLEBIGEN Preview-Token in der URL (nicht der Admin-Token):
+# nötig, weil native HLS-Player (iOS/Safari) keine eigenen Header mitschicken können.
+# Der Token ist zufällig, ~2h gültig, nur für die Vorschau – kein Voll-Admin-Recht.
+
+PREVIEW_TOKEN_TTL = 7200
+_preview_tokens: dict = {}   # token -> Ablauf (monotonic)
+
+
+def _preview_authed(pt: str, x_admin_token: str) -> bool:
+    """Vorschau erlaubt via gültigem Admin-Header ODER gültigem Preview-Token (URL)."""
+    if x_admin_token and x_admin_token == db.get_admin_token():
+        return True
+    if pt:
+        exp = _preview_tokens.get(pt)
+        if exp and exp > time.monotonic():
+            return True
+    return False
+
+
+@admin_app.post("/api/preview/token")
+def preview_token(_=Depends(check_admin)):
+    """Kurzlebigen Vorschau-Token ausgeben (für Player-URLs, damit auch native
+    HLS-Player ohne Header-Support laufen)."""
+    now = time.monotonic()
+    for k in [k for k, v in _preview_tokens.items() if v <= now]:
+        _preview_tokens.pop(k, None)
+    tok = uuid.uuid4().hex
+    _preview_tokens[tok] = now + PREVIEW_TOKEN_TTL
+    return {"token": tok, "ttl": PREVIEW_TOKEN_TTL}
+
 
 def _preview_channel_list() -> list:
     """Erste ~20 aktiven HTTP-Kanäle mit Namen – Index deckt sich mit _iptv_channel_pool."""
@@ -6809,9 +6837,11 @@ def preview_channels(_=Depends(check_admin)):
 
 
 @admin_app.get("/api/preview/playlist.m3u8")
-async def preview_playlist(idx: int = 0, _=Depends(check_admin)):
+async def preview_playlist(idx: int = 0, pt: str = "", x_admin_token: str = Header(None)):
     """Kanal-Playlist holen und Segment-URLs auf /api/preview/seg umschreiben."""
     import base64
+    if not _preview_authed(pt, x_admin_token):
+        raise HTTPException(status_code=403, detail="nicht autorisiert")
     pool = _iptv_channel_pool(20)
     if not pool:
         raise HTTPException(status_code=404, detail="kein Kanal")
@@ -6848,7 +6878,10 @@ async def preview_playlist(idx: int = 0, _=Depends(check_admin)):
 
     def _tok(raw_url: str) -> str:
         absu = raw_url if raw_url.startswith("http") else urllib.parse.urljoin(base_url, raw_url)
-        return "/api/preview/seg?u=" + base64.urlsafe_b64encode(absu.encode()).decode()
+        q = "/api/preview/seg?u=" + base64.urlsafe_b64encode(absu.encode()).decode()
+        if pt:  # Preview-Token durchreichen, damit auch native Player Segmente laden
+            q += "&pt=" + pt
+        return q
 
     out = []
     for line in text.splitlines():
@@ -6863,9 +6896,11 @@ async def preview_playlist(idx: int = 0, _=Depends(check_admin)):
 
 
 @admin_app.get("/api/preview/seg")
-async def preview_seg(u: str, _=Depends(check_admin)):
+async def preview_seg(u: str, pt: str = "", x_admin_token: str = Header(None)):
     """Ein Segment (bzw. Key) durch SelfStream/VPN holen und ausliefern."""
     import base64
+    if not _preview_authed(pt, x_admin_token):
+        raise HTTPException(status_code=403, detail="nicht autorisiert")
     try:
         url = base64.urlsafe_b64decode(u.encode()).decode()
     except Exception:

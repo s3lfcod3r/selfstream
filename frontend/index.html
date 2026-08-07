@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.35</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.36</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.35</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.36</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -4578,23 +4578,36 @@ async function canaryWatch() {
   const msg = document.getElementById('canary-player-msg');
   if (!video) return;
   if (msg) msg.textContent = '⏳ Lade Player…';
-  const src = `/api/preview/playlist.m3u8?idx=${encodeURIComponent(idx)}`;
+  canaryStop(true);
   try {
-    const Hls = await _loadHlsLib();
-    canaryStop(true);
-    if (!Hls.isSupported()) { if (msg) msg.textContent = 'ℹ️ Dieser Browser unterstützt den Player nicht.'; return; }
-    const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30, liveSyncDurationCount: 3,
-                          xhrSetup: xhr => xhr.setRequestHeader('X-Admin-Token', TOKEN) });
-    _canaryHls = hls;
-    hls.on(Hls.Events.ERROR, (evt, data) => {
-      if (!data || !data.fatal) return;
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { try { hls.startLoad(); } catch(e){} }
-      else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { try { hls.recoverMediaError(); } catch(e){} }
-      else { canaryStop(true); if (msg) msg.textContent = '❌ Player-Fehler: ' + (data.details || data.type); }
-    });
-    hls.loadSource(src);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => { video.muted = true; video.play().catch(() => {}); });
+    // Kurzlebigen Preview-Token holen → in die URL (auch native Player ohne Header)
+    const tr = await api('POST', '/api/preview/token');
+    const pt = tr && tr.token;
+    if (!pt) { if (msg) msg.textContent = '❌ Kein Vorschau-Token'; return; }
+    const src = `/api/preview/playlist.m3u8?idx=${encodeURIComponent(idx)}&pt=${pt}`;
+    const Hls = window.Hls || await _loadHlsLib().catch(() => null);
+    if (Hls && Hls.isSupported()) {
+      // Chrome/Firefox/Android via hls.js (MSE) – Auth steckt in der URL (kein Header)
+      const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30, liveSyncDurationCount: 3 });
+      _canaryHls = hls;
+      hls.on(Hls.Events.ERROR, (evt, data) => {
+        if (!data || !data.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { try { hls.startLoad(); } catch(e){} }
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { try { hls.recoverMediaError(); } catch(e){} }
+        else { canaryStop(true); if (msg) msg.textContent = '❌ Player-Fehler: ' + (data.details || data.type); }
+      });
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { video.muted = true; video.play().catch(() => {}); });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari/iOS: native HLS – Token in der URL macht's möglich
+      video.src = src;
+      video.muted = true;
+      video.play().catch(() => {});
+    } else {
+      if (msg) msg.textContent = 'ℹ️ Dieser Browser unterstützt den Player nicht.';
+      return;
+    }
     if (msg) msg.textContent = '▶ Läuft durch SelfStream (VPN) · stumm – im Player oben entstummen.';
   } catch(e) {
     if (msg) msg.textContent = '❌ ' + (e.message || e);

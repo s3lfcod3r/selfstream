@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.36
+
+### Player geräteübergreifend (auch iPhone/Safari) + URL-Token-Auth
+- Diagnose live: Backend liefert alle Segmente einwandfrei (H.264/AAC, je ~3,5 MB, 200)
+  über VPN – Problem war rein clientseitig. iOS/Safari spielt HLS nur NATIV ab und kann
+  keinen X-Admin-Token-HEADER mitschicken → Playlist wurde abgelehnt → kein Bild.
+- Fix: Auth jetzt über kurzlebigen Preview-Token in der URL (`?pt=`, ~2h, zufällig, nur
+  Vorschau – NICHT der Admin-Token). Neuer Endpunkt `POST /api/preview/token`;
+  playlist+seg akzeptieren Admin-Header ODER gültigen pt.
+- Player nutzt jetzt native HLS-Wiedergabe für Safari/iOS und hls.js (ohne Header) für
+  Chrome/Firefox/Android. Damit läuft der Player auch am Handy.
+
+
 ## v1.35
 
 ### Canary-Player: Auto-Wiedergabe (kein Start-Knopf mehr)
