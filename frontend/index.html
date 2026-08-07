@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.44</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.45</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.44</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.45</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1160,6 +1160,17 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <span id="vpn-file-name" style="font-family:var(--mono);font-size:11px;color:var(--text2);">Keine Datei gewählt</span>
               </div>
               <div class="form-hint"><strong>.ovpn</strong> = OpenVPN (z.B. ExpressVPN) · <strong>.conf</strong> = WireGuard (z.B. Mullvad – schneller, CPU-schonender). Bei Mullvad im Konto pro Server eine WireGuard-Config generieren und hochladen. Mehrere Server = mehrere Dateien.</div>
+            </div>
+
+            <div class="form-group" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
+              <label class="form-label">🌍 Mullvad – alle Server automatisch importieren</label>
+              <div class="form-hint" style="margin-bottom:8px;">Lade <strong>eine</strong> Mullvad-<code>.conf</code> hoch (oben), wähle sie hier als Quelle, dann erzeugt SelfStream die Configs für <strong>alle</strong> Server selbst (kein 555×-Download). Dein Schlüssel bleibt nur auf deinem Server.</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select class="form-select" id="mv-source" style="max-width:260px;" title="Deine hochgeladene Mullvad-.conf (Schlüssel-Quelle)"><option value="">– Quelle (.conf) wählen –</option></select>
+                <select class="form-select" id="mv-country" style="max-width:200px;" title="Land"><option value="">Alle Länder</option></select>
+                <button class="btn" onclick="mullvadImport()" id="mv-import-btn">🌍 Alle importieren</button>
+              </div>
+              <div id="mv-import-status" style="margin-top:8px;font-size:11px;color:var(--text2);"></div>
             </div>
 
             <div class="form-group">
@@ -4087,6 +4098,7 @@ async function loadVpnSettings() {
   document.getElementById('vpn-user').value     = s.vpn_user || '';
   document.getElementById('vpn-password').value = s.vpn_password || '';
   renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
+  mullvadFillSources(s.ovpn_files || []);
   vpnRefreshStatus();
   vpnAutobestLoad();
   canaryLoad();
@@ -4112,6 +4124,54 @@ function renderOvpnList(files, activePath) {
       <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn('${_esc(f)}')">🗑</button>
     </div>`;
   }).join('');
+}
+
+// ── Mullvad: alle Server importieren ──────────────────────────────────────────
+let _mvCountriesLoaded = false;
+function mullvadFillSources(files) {
+  const sel = document.getElementById('mv-source');
+  if (!sel) return;
+  const keep = sel.value;
+  const confs = (files || []).filter(f => /\.conf$/i.test(f));
+  sel.innerHTML = '<option value="">– Quelle (.conf) wählen –</option>'
+    + confs.map(f => `<option value="${_esc(f)}">${_esc(f)}</option>`).join('');
+  if (keep) sel.value = keep;
+  else if (confs.length === 1) sel.value = confs[0];  // einzige .conf vorwählen
+  mullvadLoadCountries();
+}
+async function mullvadLoadCountries() {
+  if (_mvCountriesLoaded) return;
+  const sel = document.getElementById('mv-country');
+  if (!sel) return;
+  try {
+    const r = await api('GET', '/api/vpn/mullvad-countries');
+    const cs = (r && r.countries) || [];
+    if (!cs.length) return;
+    sel.innerHTML = '<option value="">Alle Länder</option>'
+      + cs.map(c => `<option value="${_esc(c.code)}">${_esc(c.name)}</option>`).join('');
+    if (cs.some(c => c.code === 'de')) sel.value = 'de';  // Deutschland vorwählen
+    _mvCountriesLoaded = true;
+  } catch(e) {}
+}
+async function mullvadImport() {
+  const src = document.getElementById('mv-source')?.value || '';
+  const country = document.getElementById('mv-country')?.value || '';
+  const st = document.getElementById('mv-import-status');
+  const btn = document.getElementById('mv-import-btn');
+  if (!src) { if (st) st.textContent = 'Bitte zuerst eine hochgeladene Mullvad-.conf als Quelle wählen (oben hochladen).'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Importiere…'; }
+  if (st) st.textContent = '⏳ Hole Serverliste von Mullvad und erzeuge Configs…';
+  try {
+    const r = await api('POST', '/api/vpn/mullvad-import', { from_conf: src, country });
+    if (r && r.ok) {
+      if (st) st.textContent = `✅ ${r.imported} Mullvad-Server importiert (${r.country}). Jetzt einen aktivieren und VPN starten.`;
+      if (typeof showToast === 'function') showToast(`✅ ${r.imported} Server importiert`);
+      loadVpnSettings();
+    } else {
+      if (st) st.textContent = '❌ ' + ((r && r.error) || 'Fehlgeschlagen');
+    }
+  } catch(e) { if (st) st.textContent = '❌ ' + (e.message || e); }
+  if (btn) { btn.disabled = false; btn.textContent = '🌍 Alle importieren'; }
 }
 
 async function vpnSaveCredentials() {

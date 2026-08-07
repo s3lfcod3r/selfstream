@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.45
+
+### Neu: Mullvad – alle Server automatisch importieren
+- Eine Mullvad-.conf hochladen genügt: SelfStream zieht PrivateKey+Address daraus, holt die
+  Serverliste von Mullvads öffentlicher API und erzeugt pro Server eine WireGuard-.conf
+  (optional nach Land gefiltert). Kein 555×-Download mehr.
+- Endpunkte `POST /api/vpn/mullvad-import` + `GET /api/vpn/mullvad-countries`; UI-Box im
+  VPN-Bereich (Quelle wählen, Land wählen, „Alle importieren"). Schlüssel bleibt lokal.
+
+
 ## v1.44
 
 ### Neu: WireGuard-Support (neben OpenVPN, auswählbar)

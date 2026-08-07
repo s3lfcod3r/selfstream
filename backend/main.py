@@ -5277,6 +5277,120 @@ async def _vpn_autobest_watch():
             logger.warning(f"VPN autobest watch error: {e}")
 
 
+# ── Mullvad: alle Server automatisch importieren ───────────────────────────────
+# Mullvads Server teilen sich denselben Nutzer-Schlüssel; unterschiedlich sind nur
+# Peer-PublicKey + Endpoint. Also: einmal Schlüssel+Adresse (aus EINER Mullvad-.conf),
+# dann Serverliste von der öffentlichen API holen und pro Server eine .conf erzeugen.
+MULLVAD_RELAYS_URL = "https://api.mullvad.net/www/relays/wireguard/"
+MULLVAD_WG_PORT = 51820
+
+
+async def _mullvad_fetch_relays() -> list:
+    async with make_iptv_client(timeout=httpx.Timeout(20, read=20)) as client:
+        r = await client.get(MULLVAD_RELAYS_URL)
+        r.raise_for_status()
+        return r.json()
+
+
+def _mullvad_extract_from_conf(text: str) -> tuple:
+    """PrivateKey + Address + DNS aus einer Mullvad-.conf ([Interface]) ziehen."""
+    priv = addr = dns = ""
+    for line in text.splitlines():
+        s = line.strip()
+        low = s.lower()
+        if low.startswith("privatekey"):
+            priv = s.split("=", 1)[1].strip()
+        elif low.startswith("address"):
+            addr = s.split("=", 1)[1].strip()
+        elif low.startswith("dns"):
+            dns = s.split("=", 1)[1].strip()
+    return priv, addr, dns
+
+
+@admin_app.get("/api/vpn/mullvad-countries")
+async def mullvad_countries(_=Depends(check_admin)):
+    """Länder mit WireGuard-Servern (für das Import-Dropdown)."""
+    try:
+        relays = await _mullvad_fetch_relays()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Mullvad-Liste nicht erreichbar: {e}")
+    seen = {}
+    for r in relays:
+        if r.get("type") == "wireguard" and r.get("active"):
+            cc = (r.get("country_code") or "").lower()
+            if cc and cc not in seen:
+                seen[cc] = r.get("country_name") or cc.upper()
+    out = [{"code": c, "name": n} for c, n in sorted(seen.items(), key=lambda x: x[1])]
+    return {"countries": out}
+
+
+@admin_app.post("/api/vpn/mullvad-import")
+async def mullvad_import(body: dict, _=Depends(check_admin)):
+    """Aus Schlüssel+Adresse (direkt oder aus einer hochgeladenen .conf) für alle
+    Mullvad-Server (optional nach Land gefiltert) je eine WireGuard-.conf erzeugen."""
+    priv = str(body.get("private_key", "")).strip()
+    addr = str(body.get("address", "")).strip()
+    dns = str(body.get("dns", "") or "").strip()
+    country = str(body.get("country", "")).strip().lower()   # "" = alle Länder
+    from_conf = os.path.basename(str(body.get("from_conf", "")).strip())
+
+    # Schlüssel/Adresse ggf. aus einer bereits hochgeladenen Mullvad-.conf ziehen
+    if from_conf and (not priv or not addr):
+        p = os.path.join(VPN_OVPN_DIR, from_conf)
+        if os.path.exists(p):
+            with open(p) as f:
+                p2, a2, d2 = _mullvad_extract_from_conf(f.read())
+            priv = priv or p2
+            addr = addr or a2
+            dns = dns or d2
+    if not dns:
+        dns = "10.64.0.1"   # Mullvad-DNS
+    if not priv or not addr:
+        raise HTTPException(status_code=400, detail="PrivateKey + Address nötig (aus einer Mullvad-.conf, [Interface])")
+
+    try:
+        relays = await _mullvad_fetch_relays()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Mullvad-Liste nicht erreichbar: {e}")
+
+    os.makedirs(VPN_OVPN_DIR, exist_ok=True)
+    # Alte auto-importierte Mullvad-Configs entfernen (mullvad-*.conf), Rest bleibt.
+    for old in os.listdir(VPN_OVPN_DIR):
+        if old.startswith("mullvad-") and old.endswith(".conf"):
+            try:
+                os.remove(os.path.join(VPN_OVPN_DIR, old))
+            except Exception:
+                pass
+
+    count = 0
+    for r in relays:
+        if r.get("type") != "wireguard" or not r.get("active"):
+            continue
+        if country and (r.get("country_code") or "").lower() != country:
+            continue
+        host, pub, ip = r.get("hostname", ""), r.get("pubkey", ""), r.get("ipv4_addr_in", "")
+        if not host or not pub or not ip:
+            continue
+        conf = (
+            "[Interface]\n"
+            f"PrivateKey = {priv}\n"
+            f"Address = {addr}\n"
+            f"DNS = {dns}\n\n"
+            "[Peer]\n"
+            f"PublicKey = {pub}\n"
+            f"Endpoint = {ip}:{MULLVAD_WG_PORT}\n"
+            "AllowedIPs = 0.0.0.0/0\n"
+        )
+        fn = f"mullvad-{host}.conf"
+        dest = os.path.join(VPN_OVPN_DIR, fn)
+        with open(dest, "w") as f:
+            f.write(conf)
+        os.chmod(dest, 0o600)
+        count += 1
+
+    return {"ok": True, "imported": count, "country": country or "alle"}
+
+
 # Platzhalter, der dem Client statt des echten VPN-Passworts gesendet wird.
 # Kommt er beim Speichern unverändert zurück, bleibt das bestehende Passwort erhalten.
 _VPN_PASSWORD_PLACEHOLDER = "••••••••"
