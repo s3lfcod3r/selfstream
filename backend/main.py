@@ -4381,13 +4381,6 @@ async def logo():
     # Gestapeltes Logo (Setup-Seite, Fehler-Clips).
     return FileResponse(f"{FRONTEND}/logo.png", media_type="image/png")
 
-@admin_app.get("/hls.min.js")
-async def hls_lib():
-    from fastapi.responses import FileResponse
-    # hls.js SELF-HOSTED (kein CDN) – der Canary-Browser-Player läuft komplett intern,
-    # auch wenn das SelfStream-Netz externe CDNs blockt.
-    return FileResponse(f"{FRONTEND}/hls.min.js", media_type="application/javascript")
-
 @admin_app.get("/icon.png")
 async def icon():
     from fastapi.responses import FileResponse
@@ -6689,28 +6682,73 @@ _canary_last_switch = 0.0
 _canary_status: dict = {}
 
 
+async def _iptv_segments_with_dur(ch_url: str, n: int = 3) -> list:
+    """Erste n Segmente eines Kanals MIT Spieldauer (aus #EXTINF) → [(url, dauer_s)].
+    Für die Puffer-Reserve brauchen wir die Spielzeit, nicht nur die URL."""
+    try:
+        async with make_iptv_client(timeout=httpx.Timeout(4, read=8), follow_redirects=True) as client:
+            r = await client.get(ch_url)
+            if r.status_code != 200:
+                return []
+            base = "/".join(str(r.url).split("/")[:-1])
+            out, dur = [], 0.0
+            for line in r.text.splitlines():
+                line = line.strip()
+                if line.startswith("#EXTINF"):
+                    try:
+                        dur = float(line.split(":", 1)[1].split(",")[0])
+                    except (ValueError, IndexError):
+                        dur = 0.0
+                elif line and not line.startswith("#") and (".ts" in line or ".aac" in line or ".m4s" in line):
+                    out.append((line if line.startswith("http") else f"{base}/{line}", dur))
+                    dur = 0.0
+                    if len(out) >= n:
+                        break
+            return out
+    except Exception:
+        return []
+
+
+def _reserve_level(ratio) -> str:
+    """Puffer-Reserve = Ladezeit ÷ Spielzeit je Segment. <1 = Player kommt mit."""
+    if ratio is None:
+        return "unbekannt"
+    if ratio < 0.5:
+        return "fluessig"    # dicke Reserve – seidenweich
+    if ratio < 0.85:
+        return "ok"          # solide Reserve
+    if ratio < 1.0:
+        return "knapp"       # Ruckelgefahr – kaum Puffer
+    return "ruckelt"         # Segmente langsamer als Spielzeit → stockt
+
+
 async def _canary_fetch_once() -> dict:
-    """Wie ein Zuschauer: von EINEM Live-Kanal ein paar Segmente holen (füllt via
-    _get_segment die Passiv-Proben → hält das Qualitäts-Signal frisch)."""
+    """Wie ein Zuschauer: von EINEM Live-Kanal ein paar Segmente holen und die
+    PUFFER-RESERVE messen (Ladezeit ÷ Spielzeit). <1 = flüssig, ≥1 = Ruckeln.
+    Füllt zusätzlich via _get_segment die Passiv-Proben."""
     pool = _iptv_channel_pool(20)
     if not pool:
         return {"ok": False, "error": "kein Kanal"}
     ch = pool[0]
     hls = get_hls_settings()
-    urls = await _iptv_segment_list(ch, 3)
-    if not urls:
+    segs = await _iptv_segments_with_dur(ch, 3)
+    if not segs:
         return {"ok": False, "error": "keine Segmente"}
-    got = 0
-    for u in urls:
+    got, ratios = 0, []
+    for url, dur in segs:
         try:
-            data, elapsed, cached = await _get_segment(u, hls)
+            data, elapsed, cached = await _get_segment(url, hls)
             if len(data) > 100:
                 got += 1
+                if dur and dur > 0 and not cached:
+                    ratios.append(elapsed / dur)
         except Exception:
             pass
+    reserve = round(sum(ratios) / len(ratios), 2) if ratios else None
     ph = _passive_health()
     host = ch.split("/")[2] if "://" in ch else ch
-    return {"ok": got > 0, "channel": host, "got": got, "of": len(urls),
+    return {"ok": got > 0, "channel": host, "got": got, "of": len(segs),
+            "reserve_ratio": reserve, "smooth_level": _reserve_level(reserve),
             "passive_level": ph.get("level"), "mbps": ph.get("mbps"),
             "median_s": ph.get("median_s")}
 
@@ -6782,168 +6820,7 @@ def set_canary(body: dict, _=Depends(check_admin)):
     return {"ok": True}
 
 
-# ── Canary Browser-Player (③) + Ein-Klick-Umschalten (④) ───────────────────────
-# Der Player spielt einen echten Kanal DURCH SelfStream (also durch den VPN-Tunnel)
-# direkt im Admin-Panel ab, damit man mit eigenen Augen sieht, ob's flüssig läuft.
-# Auth über einen KURZLEBIGEN Preview-Token in der URL (nicht der Admin-Token):
-# nötig, weil native HLS-Player (iOS/Safari) keine eigenen Header mitschicken können.
-# Der Token ist zufällig, ~2h gültig, nur für die Vorschau – kein Voll-Admin-Recht.
-
-PREVIEW_TOKEN_TTL = 7200
-_preview_tokens: dict = {}   # token -> Ablauf (monotonic)
-
-
-def _preview_authed(pt: str, x_admin_token: str) -> bool:
-    """Vorschau erlaubt via gültigem Admin-Header ODER gültigem Preview-Token (URL)."""
-    if x_admin_token and x_admin_token == db.get_admin_token():
-        return True
-    if pt:
-        exp = _preview_tokens.get(pt)
-        if exp and exp > time.monotonic():
-            return True
-    return False
-
-
-@admin_app.post("/api/preview/token")
-def preview_token(_=Depends(check_admin)):
-    """Kurzlebigen Vorschau-Token ausgeben (für Player-URLs, damit auch native
-    HLS-Player ohne Header-Support laufen)."""
-    now = time.monotonic()
-    for k in [k for k, v in _preview_tokens.items() if v <= now]:
-        _preview_tokens.pop(k, None)
-    tok = uuid.uuid4().hex
-    _preview_tokens[tok] = now + PREVIEW_TOKEN_TTL
-    return {"token": tok, "ttl": PREVIEW_TOKEN_TTL}
-
-
-def _preview_channel_list() -> list:
-    """Erste ~20 aktiven HTTP-Kanäle mit Namen – Index deckt sich mit _iptv_channel_pool."""
-    out, idx = [], 0
-    for c in db.get_channels(enabled_only=True):
-        u = (c.get("stream_url") or "")
-        if not u.startswith("http"):
-            continue
-        host = u.split("/")[2] if "://" in u else u
-        out.append({"idx": idx, "name": (c.get("name") or host)})
-        idx += 1
-        if idx >= 20:
-            break
-    return out
-
-
-@admin_app.get("/api/preview/channels")
-def preview_channels(_=Depends(check_admin)):
-    return {"channels": _preview_channel_list()}
-
-
-@admin_app.get("/api/preview/playlist.m3u8")
-async def preview_playlist(idx: int = 0, pt: str = "", x_admin_token: str = Header(None)):
-    """Kanal-Playlist holen und Segment-URLs auf /api/preview/seg umschreiben."""
-    import base64
-    if not _preview_authed(pt, x_admin_token):
-        raise HTTPException(status_code=403, detail="nicht autorisiert")
-    pool = _iptv_channel_pool(20)
-    if not pool:
-        raise HTTPException(status_code=404, detail="kein Kanal")
-    if idx < 0 or idx >= len(pool):
-        idx = 0
-    ch = pool[idx]
-    # WICHTIG: frischer Client (nicht der geteilte _get_iptv_client) – Admin- und
-    # Proxy-App laufen in getrennten Event-Loops; der geteilte Client wäre an den
-    # Proxy-Loop gebunden ("Event bound to a different event loop"). Läuft weiterhin
-    # über den VPN-Tunnel (OS-Routing, redirect-gateway).
-    try:
-        async with make_iptv_client(timeout=httpx.Timeout(6, read=10), follow_redirects=True) as client:
-            r = await client.get(ch)
-            if r.status_code != 200:
-                raise HTTPException(status_code=502, detail=f"Kanal HTTP {r.status_code}")
-            text, base_url = r.text, str(r.url)
-            # Master-Playlist (mehrere Qualitäten)? → erste Variante folgen
-            if "#EXT-X-STREAM-INF" in text:
-                for line in text.splitlines():
-                    s = line.strip()
-                    if s and not s.startswith("#"):
-                        variant = s if s.startswith("http") else urllib.parse.urljoin(base_url, s)
-                        try:
-                            r2 = await client.get(variant)
-                            if r2.status_code == 200:
-                                text, base_url = r2.text, str(r2.url)
-                        except Exception:
-                            pass
-                        break
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Kanal nicht erreichbar: {e}")
-
-    def _tok(raw_url: str) -> str:
-        absu = raw_url if raw_url.startswith("http") else urllib.parse.urljoin(base_url, raw_url)
-        # WICHTIG: URL endet auf .ts, damit strenge Player (VLC/ffmpeg/iOS-nativ) das
-        # Segment akzeptieren (sonst „not in allowed_segment_extensions"). b64 ohne
-        # Padding (=) → sauber im Pfad.
-        b = base64.urlsafe_b64encode(absu.encode()).decode().rstrip("=")
-        q = "/api/preview/seg/" + b + ".ts"
-        if pt:  # Preview-Token durchreichen, damit auch native Player Segmente laden
-            q += "?pt=" + pt
-        return q
-
-    out = []
-    for line in text.splitlines():
-        s = line.strip()
-        if s and not s.startswith("#"):
-            out.append(_tok(s))
-        elif s.startswith("#EXT-X-KEY") and "URI=" in s:
-            out.append(re.sub(r'URI="([^"]+)"', lambda m: f'URI="{_tok(m.group(1))}"', s))
-        else:
-            out.append(line)
-    return Response(content="\n".join(out), media_type="application/vnd.apple.mpegurl")
-
-
-async def _preview_deliver_segment(b64: str) -> Response:
-    """b64 (urlsafe, evtl. ohne Padding) → Original-URL dekodieren, Segment über den
-    VPN-Tunnel holen und mit passendem media_type ausliefern. Loop-sicher (frischer Client)."""
-    import base64
-    b = b64
-    b += "=" * (-len(b) % 4)  # Padding wieder anfügen
-    try:
-        url = base64.urlsafe_b64decode(b.encode()).decode()
-    except Exception:
-        raise HTTPException(status_code=400, detail="ungültige URL")
-    if not url.startswith("http"):
-        raise HTTPException(status_code=400, detail="ungültige URL")
-    try:
-        async with make_iptv_client(timeout=httpx.Timeout(6, read=15), follow_redirects=True) as client:
-            r = await client.get(url)
-            if r.status_code not in (200, 206):
-                raise HTTPException(status_code=502, detail=f"Segment HTTP {r.status_code}")
-            data = r.content
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-    if not data:
-        raise HTTPException(status_code=502, detail="leeres Segment")
-    low = url.lower()
-    mt = "video/mp4" if (".m4s" in low or ".mp4" in low) else "video/mp2t"
-    return Response(content=data, media_type=mt)
-
-
-@admin_app.get("/api/preview/seg/{blob}")
-async def preview_seg_ts(blob: str, pt: str = "", x_admin_token: str = Header(None)):
-    """Segment über .ts-Pfad (VLC/ffmpeg/iOS-nativ akzeptieren nur Endungen sie kennen)."""
-    if not _preview_authed(pt, x_admin_token):
-        raise HTTPException(status_code=403, detail="nicht autorisiert")
-    b = blob[:-3] if blob.endswith(".ts") else blob
-    return await _preview_deliver_segment(b)
-
-
-@admin_app.get("/api/preview/seg")
-async def preview_seg(u: str, pt: str = "", x_admin_token: str = Header(None)):
-    """Alt-Route (Query-Variante, Abwärtskompat.)."""
-    if not _preview_authed(pt, x_admin_token):
-        raise HTTPException(status_code=403, detail="nicht autorisiert")
-    return await _preview_deliver_segment(u)
-
+# ── Ein-Klick-Umschalten (④) ───────────────────────────────────────────────────
 
 @admin_app.post("/api/vpn/switch")
 async def vpn_switch(body: dict, _=Depends(check_admin)):

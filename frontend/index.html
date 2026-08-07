@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.39</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.40</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.39</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.40</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1243,28 +1243,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <button class="btn primary" onclick="canarySave(true)">💾 Speichern</button>
             <div id="canary-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
             <div class="form-hint" style="margin-top:10px;">Bei „handeln" wechselt er nur bei <strong>0 Zuschauern</strong> und höchstens 1×/Stunde.</div>
-
-            <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
-              <label class="form-label">👀 Selbst zusehen (Browser-Player)</label>
-              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
-                  <input type="checkbox" id="canary-auto" checked onchange="canaryAutoToggle()"> Auto-Wiedergabe
-                </label>
-                <select class="form-select" id="canary-ch" style="max-width:280px;" onchange="canaryChannelChange()"></select>
-                <button class="btn sm" onclick="canaryExtLink()" title="Stream-Link zum Öffnen in VLC o.ä.">🔗 Extern/VLC öffnen</button>
-                <span id="canary-player-msg" style="font-size:11px;color:var(--text2);"></span>
-              </div>
-              <div id="canary-ext" style="display:none;margin-top:10px;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
-                <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Stream-Link (gültig ~2&nbsp;h) – in VLC: <strong>Medien → Netzwerkstream öffnen</strong> und einfügen:</div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                  <input id="canary-ext-url" readonly onclick="this.select()" style="flex:1;min-width:260px;font-family:var(--mono);font-size:11px;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;">
-                  <button class="btn sm" onclick="canaryExtCopy()">📋 Kopieren</button>
-                </div>
-              </div>
-              <video id="canary-video" controls playsinline muted style="width:100%;max-width:640px;margin-top:12px;background:#000;border-radius:6px;min-height:200px;"></video>
-              <div id="canary-dbg" style="margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--text3);word-break:break-all;"></div>
-              <div class="form-hint" style="margin-top:8px;">Läuft <strong>automatisch</strong>, sobald diese Seite offen ist – der Stream kommt <strong>durch SelfStream/VPN</strong>, wie bei einem echten Zuschauer. Startet <strong>stumm</strong> (oben im Player entstummen). „Auto-Wiedergabe" aus = Verbindung sofort frei; beim Verlassen der Seite ebenfalls. Player ist in SelfStream integriert (kein externer Dienst).</div>
-            </div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -1847,7 +1825,6 @@ function nav(page, el) {
   if(page==='diagnose'){ loadDiagnosticLogs(); alertsLoad(); }
   if(page==='settings') loadSettings();
   if(page==='vpn') loadVpnSettings();
-  if(page!=='vpn' && typeof canaryStop==='function') canaryStop();  // Player freigeben
   if(page==='traffic') startTrafficMonitor();
   if(page!=='traffic') stopTrafficMonitor();
 }
@@ -4534,7 +4511,6 @@ async function canaryLoad() {
   const iv = document.getElementById('canary-interval');
   if (iv && document.activeElement !== iv) iv.value = (c.interval_h != null ? c.interval_h : 0);
   canaryRender(c.status);
-  canaryLoadChannels();
 }
 
 // Ein-Klick-Umschalten (④) — bewusster manueller Server-Wechsel (Tunnel-Neustart)
@@ -4551,140 +4527,6 @@ async function vpnSwitchTo(ovpn) {
       showToast('❌ ' + ((r && r.error) || 'Fehlgeschlagen'));
     }
   } catch(e) { showToast('❌ ' + (e.message || e)); }
-}
-
-// Browser-Player (③) — Kanal durch SelfStream/VPN im Panel ansehen (Auto-Wiedergabe)
-let _canaryHls = null;
-async function canaryLoadChannels() {
-  const sel = document.getElementById('canary-ch');
-  if (!sel) return;
-  const keep = sel.value;
-  try {
-    const r = await api('GET', '/api/preview/channels');
-    const chs = (r && r.channels) || [];
-    sel.innerHTML = chs.length
-      ? chs.map(c => `<option value="${c.idx}">${(c.name || ('Kanal ' + c.idx)).slice(0, 60)}</option>`).join('')
-      : '<option value="0">Kanal 0</option>';
-    if (keep) sel.value = keep;
-  } catch(e) { sel.innerHTML = '<option value="0">Kanal 0</option>'; }
-  // Auto-Wiedergabe: startet von selbst, sobald die Seite offen ist
-  const auto = document.getElementById('canary-auto');
-  if (auto && auto.checked && !_canaryHls) canaryWatch();
-}
-function _loadHlsLib() {
-  return new Promise((resolve, reject) => {
-    if (window.Hls) return resolve(window.Hls);
-    const s = document.createElement('script');
-    s.src = '/hls.min.js';  // self-hosted (kein CDN) – läuft komplett intern
-    s.onload = () => window.Hls ? resolve(window.Hls) : reject(new Error('hls.js nicht verfügbar'));
-    s.onerror = () => reject(new Error('Player-Bibliothek (hls.js) konnte nicht geladen werden'));
-    document.head.appendChild(s);
-  });
-}
-let _canaryDbg = { branch: '-', frags: 0, err: '', notes: '' };
-let _canaryDbgTimer = null;
-function _canaryDbgTick() {
-  const video = document.getElementById('canary-video');
-  const box = document.getElementById('canary-dbg');
-  if (!video || !box) return;
-  let buf = 0;
-  try { for (let i = 0; i < video.buffered.length; i++) if (video.buffered.end(i) > video.currentTime) { buf = video.buffered.end(i) - video.currentTime; break; } } catch(e) {}
-  const ve = video.error ? (' · Video-Fehler ' + video.error.code + ':' + (video.error.message || '')) : '';
-  box.textContent = `🔎 Zweig:${_canaryDbg.branch} · Segmente:${_canaryDbg.frags} · Puffer:${buf.toFixed(1)}s · Zeit:${video.currentTime.toFixed(1)}s · rs:${video.readyState}`
-    + (_canaryDbg.notes ? (' · ' + _canaryDbg.notes) : '')
-    + (_canaryDbg.err ? (' · ⚠️ ' + _canaryDbg.err) : '') + ve;
-  // Blockt der Browser die Wiedergabe (z.B. Fernsteuerung/Policy)? → auf externen Weg hinweisen
-  const msg = document.getElementById('canary-player-msg');
-  if (video.error && video.error.code === 4 && msg) {
-    msg.innerHTML = '⚠️ Dieser Browser blockt die Wiedergabe – nutze <strong>„🔗 Extern/VLC öffnen"</strong> (spielt garantiert).';
-    if (!_canaryDbg._extAuto) { _canaryDbg._extAuto = true; canaryExtLink(); }
-  }
-}
-async function canaryWatch() {
-  const idx = document.getElementById('canary-ch')?.value || 0;
-  const video = document.getElementById('canary-video');
-  const msg = document.getElementById('canary-player-msg');
-  if (!video) return;
-  if (msg) msg.textContent = '⏳ Lade Player…';
-  canaryStop(true);
-  _canaryDbg = { branch: '-', frags: 0, err: '', notes: '' };
-  try {
-    const tr = await api('POST', '/api/preview/token');
-    const pt = tr && tr.token;
-    if (!pt) { if (msg) msg.textContent = '❌ Kein Vorschau-Token'; return; }
-    const src = `/api/preview/playlist.m3u8?idx=${encodeURIComponent(idx)}&pt=${pt}`;
-    const Hls = window.Hls || await _loadHlsLib().catch(() => null);
-    if (Hls && Hls.isSupported()) {
-      _canaryDbg.branch = 'hls.js';
-      const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30, liveSyncDurationCount: 3 });
-      _canaryHls = hls;
-      hls.on(Hls.Events.FRAG_LOADED, () => { _canaryDbg.frags++; });
-      hls.on(Hls.Events.MANIFEST_PARSED, (e, d) => { _canaryDbg.notes = 'Manifest ok (' + ((d && d.levels && d.levels.length) || '?') + ' Level)'; video.muted = true; video.play().catch(() => {}); });
-      hls.on(Hls.Events.ERROR, (evt, data) => {
-        if (!data) return;
-        _canaryDbg.err = (data.fatal ? 'FATAL ' : '') + (data.details || data.type);
-        if (!data.fatal) return;
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { try { hls.startLoad(); } catch(e){} }
-        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { try { hls.recoverMediaError(); } catch(e){} }
-      });
-      hls.loadSource(src);
-      hls.attachMedia(video);
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      _canaryDbg.branch = 'nativ';
-      video.src = src;
-      video.muted = true;
-      video.addEventListener('loadeddata', () => { _canaryDbg.notes = 'loadeddata'; }, { once: true });
-      video.play().catch(err => { _canaryDbg.err = 'play: ' + (err.message || err); });
-    } else {
-      if (msg) msg.textContent = 'ℹ️ Dieser Browser unterstützt den Player nicht.';
-      return;
-    }
-    if (msg) msg.textContent = '▶ Läuft durch SelfStream (VPN) · stumm – im Player oben entstummen.';
-    _canaryDbgTimer = setInterval(_canaryDbgTick, 1000);
-  } catch(e) {
-    if (msg) msg.textContent = '❌ ' + (e.message || e);
-  }
-}
-function canaryStop(quiet) {
-  const video = document.getElementById('canary-video');
-  const msg = document.getElementById('canary-player-msg');
-  const dbg = document.getElementById('canary-dbg');
-  if (_canaryDbgTimer) { clearInterval(_canaryDbgTimer); _canaryDbgTimer = null; }
-  if (_canaryHls) { try { _canaryHls.destroy(); } catch(e) {} _canaryHls = null; }
-  if (video) { try { video.pause(); video.removeAttribute('src'); video.load(); } catch(e) {} }
-  if (dbg) dbg.textContent = '';
-  if (!quiet && msg) msg.textContent = '⏹ Gestoppt – Verbindung wieder frei.';
-}
-function canaryAutoToggle() {
-  const auto = document.getElementById('canary-auto');
-  if (auto && auto.checked) canaryWatch(); else canaryStop();
-}
-function canaryChannelChange() {
-  const auto = document.getElementById('canary-auto');
-  if (auto && auto.checked) canaryWatch();
-}
-// Extern/VLC öffnen – garantiert funktionierender Weg (unabhängig vom Browser-Player)
-async function canaryExtLink() {
-  const idx = document.getElementById('canary-ch')?.value || 0;
-  const box = document.getElementById('canary-ext');
-  const inp = document.getElementById('canary-ext-url');
-  try {
-    const tr = await api('POST', '/api/preview/token');
-    const pt = tr && tr.token;
-    if (!pt) { showToast('Kein Token'); return; }
-    const url = `${location.origin}/api/preview/playlist.m3u8?idx=${encodeURIComponent(idx)}&pt=${pt}`;
-    if (inp) inp.value = url;
-    if (box) box.style.display = 'block';
-  } catch(e) { showToast('Fehler: ' + (e.message || e)); }
-}
-function canaryExtCopy() {
-  const inp = document.getElementById('canary-ext-url');
-  if (!inp || !inp.value) return;
-  inp.select();
-  navigator.clipboard?.writeText(inp.value).then(
-    () => showToast('📋 Link kopiert – in VLC einfügen'),
-    () => { try { document.execCommand('copy'); showToast('📋 Link kopiert'); } catch(e) { showToast('Bitte manuell kopieren'); } }
-  );
 }
 
 async function canarySave(toast) {
@@ -4704,12 +4546,24 @@ function canaryRender(s) {
   const box = document.getElementById('canary-status');
   if (!box) return;
   if (!s) { box.textContent = '– noch keine Messung (läuft, sobald aktiv) –'; return; }
-  const lvl = s.passive_level === 'bad' ? '🔴 schlecht'
-    : (s.passive_level === 'slow' ? '🟡 träge'
-    : (s.passive_level === 'ok' ? '🟢 ok' : '– zu wenig Daten –'));
-  let t = `Kanal: ${s.channel || '?'}\nSegmente geholt: ${s.got}/${s.of}\nQualität: ${lvl}`;
-  if (s.mbps != null) t += `  (${s.mbps} Mbit/s)`;
-  if (s.median_s != null) t += `\nLadezeit: ${s.median_s}s`;
+  // Ruckel-Frühwarner: Puffer-Reserve = Ladezeit ÷ Spielzeit je Segment
+  const smoothMap = {
+    fluessig: '🟢 flüssig – dicke Reserve',
+    ok:       '🟢 flüssig – solide Reserve',
+    knapp:    '🟡 knapp – Ruckelgefahr',
+    ruckelt:  '🔴 ruckelt – Segmente zu langsam',
+    unbekannt:'– zu wenig Daten –',
+  };
+  const rr = s.reserve_ratio;
+  let t = `Kanal: ${s.channel || '?'}\nSegmente geholt: ${s.got}/${s.of}`;
+  t += `\nFlüssigkeit: ${smoothMap[s.smooth_level] || '– zu wenig Daten –'}`;
+  if (rr != null) {
+    const pct = Math.round(rr * 100);
+    const marge = Math.max(0, Math.round((1 - rr) * 100));
+    t += `\nPuffer-Reserve: Segmente kommen in ${rr}× ihrer Spielzeit (${marge}% Reserve)`;
+  }
+  if (s.mbps != null) t += `\nDurchsatz: ${s.mbps} Mbit/s`;
+  if (s.median_s != null) t += `\nLadezeit (Median): ${s.median_s}s`;
   box.textContent = t;
 }
 

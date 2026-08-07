@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.40
+
+### Ruckel-Frühwarner (Puffer-Reserve) im Canary + Browser-Player entfernt
+- Der Canary misst jetzt die PUFFER-RESERVE: Ladezeit ÷ Spielzeit je Segment.
+  <0,5 = flüssig (dicke Reserve), 0,5–0,85 = ok, 0,85–1,0 = knapp (Ruckelgefahr),
+  ≥1,0 = ruckelt (Segmente kommen langsamer als sie spielen). Treffsicherer als eine
+  feste Sekunden-Schwelle. Status zeigt „Flüssigkeit" + „Puffer-Reserve (X% Reserve)".
+- Segmentliste mit Spieldauer (`_iptv_segments_with_dur` aus #EXTINF); `_reserve_level`.
+- Sichtbaren Browser-Player (③) samt Preview-Endpunkten, hls.js und VLC-Link ENTFERNT –
+  der Canary testet server-seitig, ein Zuschauen im Panel wird nicht gebraucht.
+
+
 ## v1.39
 
 ### Bulletproof: „Extern/VLC öffnen" + Block-Hinweis
