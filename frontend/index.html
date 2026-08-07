@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.38</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.39</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.38</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.39</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1251,7 +1251,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
                   <input type="checkbox" id="canary-auto" checked onchange="canaryAutoToggle()"> Auto-Wiedergabe
                 </label>
                 <select class="form-select" id="canary-ch" style="max-width:280px;" onchange="canaryChannelChange()"></select>
+                <button class="btn sm" onclick="canaryExtLink()" title="Stream-Link zum Öffnen in VLC o.ä.">🔗 Extern/VLC öffnen</button>
                 <span id="canary-player-msg" style="font-size:11px;color:var(--text2);"></span>
+              </div>
+              <div id="canary-ext" style="display:none;margin-top:10px;padding:10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;">
+                <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">Stream-Link (gültig ~2&nbsp;h) – in VLC: <strong>Medien → Netzwerkstream öffnen</strong> und einfügen:</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <input id="canary-ext-url" readonly onclick="this.select()" style="flex:1;min-width:260px;font-family:var(--mono);font-size:11px;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;">
+                  <button class="btn sm" onclick="canaryExtCopy()">📋 Kopieren</button>
+                </div>
               </div>
               <video id="canary-video" controls playsinline muted style="width:100%;max-width:640px;margin-top:12px;background:#000;border-radius:6px;min-height:200px;"></video>
               <div id="canary-dbg" style="margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--text3);word-break:break-all;"></div>
@@ -4585,6 +4593,12 @@ function _canaryDbgTick() {
   box.textContent = `🔎 Zweig:${_canaryDbg.branch} · Segmente:${_canaryDbg.frags} · Puffer:${buf.toFixed(1)}s · Zeit:${video.currentTime.toFixed(1)}s · rs:${video.readyState}`
     + (_canaryDbg.notes ? (' · ' + _canaryDbg.notes) : '')
     + (_canaryDbg.err ? (' · ⚠️ ' + _canaryDbg.err) : '') + ve;
+  // Blockt der Browser die Wiedergabe (z.B. Fernsteuerung/Policy)? → auf externen Weg hinweisen
+  const msg = document.getElementById('canary-player-msg');
+  if (video.error && video.error.code === 4 && msg) {
+    msg.innerHTML = '⚠️ Dieser Browser blockt die Wiedergabe – nutze <strong>„🔗 Extern/VLC öffnen"</strong> (spielt garantiert).';
+    if (!_canaryDbg._extAuto) { _canaryDbg._extAuto = true; canaryExtLink(); }
+  }
 }
 async function canaryWatch() {
   const idx = document.getElementById('canary-ch')?.value || 0;
@@ -4648,6 +4662,29 @@ function canaryAutoToggle() {
 function canaryChannelChange() {
   const auto = document.getElementById('canary-auto');
   if (auto && auto.checked) canaryWatch();
+}
+// Extern/VLC öffnen – garantiert funktionierender Weg (unabhängig vom Browser-Player)
+async function canaryExtLink() {
+  const idx = document.getElementById('canary-ch')?.value || 0;
+  const box = document.getElementById('canary-ext');
+  const inp = document.getElementById('canary-ext-url');
+  try {
+    const tr = await api('POST', '/api/preview/token');
+    const pt = tr && tr.token;
+    if (!pt) { showToast('Kein Token'); return; }
+    const url = `${location.origin}/api/preview/playlist.m3u8?idx=${encodeURIComponent(idx)}&pt=${pt}`;
+    if (inp) inp.value = url;
+    if (box) box.style.display = 'block';
+  } catch(e) { showToast('Fehler: ' + (e.message || e)); }
+}
+function canaryExtCopy() {
+  const inp = document.getElementById('canary-ext-url');
+  if (!inp || !inp.value) return;
+  inp.select();
+  navigator.clipboard?.writeText(inp.value).then(
+    () => showToast('📋 Link kopiert – in VLC einfügen'),
+    () => { try { document.execCommand('copy'); showToast('📋 Link kopiert'); } catch(e) { showToast('Bitte manuell kopieren'); } }
+  );
 }
 
 async function canarySave(toast) {

@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.39
+
+### Bulletproof: „Extern/VLC öffnen" + Block-Hinweis
+- BEWIESEN (Playwright/Chromium + ffmpeg): der Canary-Player spielt den echten Live-Stream
+  über VPN einwandfrei ab (PLAYING 1280x720, durchgehend). „Kein Bild" beim Nutzer lag an
+  der Ansicht: ferngesteuerter Tab (Chromium `URL safety check`) bzw. iOS-nativ + fehlende
+  .ts-Endung (v1.38 behoben).
+- Neuer Knopf „🔗 Extern/VLC öffnen": erzeugt einen ~2h gültigen Stream-Link zum Abspielen in
+  VLC o.ä. (garantiert, unabhängig vom Browser-Player).
+- Erkennt der Player eine Browser-Blockade (Video-Fehler 4), weist er automatisch auf den
+  externen Weg hin und blendet den Link ein.
+
+
 ## v1.38
 
 ### Segment-URLs enden auf .ts (VLC/ffmpeg/iOS-kompatibel)
