@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.46
+
+### Fix: WireGuard-Start im Container (resolvconf fehlte)
+- wg-quick scheiterte am letzten Schritt (`resolvconf: command not found`) beim DNS-Setzen.
+  Fix: DNS- (und Killswitch-)Zeilen werden vor dem Start entfernt – Container-DNS reicht
+  fürs Proxying, PostUp/PreDown würden das Panel aussperren. Interface/Adresse/Routing
+  kamen bereits sauber hoch → WireGuard läuft damit.
+
+
 ## v1.45
 
 ### Neu: Mullvad – alle Server automatisch importieren

@@ -4704,8 +4704,16 @@ def _wg_up(conf_path: str) -> dict:
         dst = f"/etc/wireguard/{WG_IFACE}.conf"
         with open(conf_path, "r") as fsrc:
             content = fsrc.read()
+        # DNS-/Killswitch-Zeilen entfernen: wg-quick ruft für DNS 'resolvconf' auf,
+        # das im schlanken Container fehlt → Start scheitert. Container-DNS reicht
+        # fürs Proxying. PostUp/PreDown (Killswitch) würden das Admin-Panel aussperren.
+        _skip = ("dns", "postup", "predown", "postdown", "preup")
+        content = "\n".join(
+            l for l in content.splitlines()
+            if not l.strip().lower().startswith(_skip)
+        )
         with open(dst, "w") as fdst:
-            fdst.write(content)
+            fdst.write(content.rstrip() + "\n")
         os.chmod(dst, 0o600)
     except Exception as e:
         return {"ok": False, "error": f"Config schreiben fehlgeschlagen: {e}"}
