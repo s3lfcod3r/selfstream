@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.58
+
+### Tages-Filter bei den Buffering-Ereignissen
+- Neuer **Tag-Filter** in der Toolbar der Buffering-Ereignisse: „Alle Tage" oder ein einzelner Tag
+  (Heute, Gestern, Datum). Wirkt **zusammen** mit dem bestehenden User-Filter (Tag + User gleichzeitig).
+- Läuft rein im Browser über die schon geladenen Ereignisse (lokale Tagesgrenzen, passend zur Zeit-Spalte)
+  – kein zusätzlicher Server-Aufruf. Es werden nur Tage angeboten, für die auch Daten vorliegen (innerhalb
+  des oben gewählten Bereichs Heute/7/30/90 Tage).
+
+
 ## v1.57
 
 ### Canary-Verlauf: 30 Tage + Tages-Filter im Statistik-Popup
