@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.50
+
+### OpenVPN aus der Oberfläche entfernt · Test-Tools auf WireGuard
+- ENTFERNT (OpenVPN-only): Zugangsdaten-Feld, „Automatisch besten Server", „Durchsatz-
+  Vergleich (Weg 2)", „Alle VPN-Server vergleichen". Upload akzeptiert nur noch .conf
+  (WireGuard). Titel/Labels WireGuard-fokussiert. ExpressVPN-Dateien gelöscht.
+- Server-Latenz-Prüfung (Weg 1) auf WireGuard umgebaut: liest den `Endpoint` aus der
+  .conf, misst störungsfrei zu jedem Mullvad-Server (echtes LAN-Gateway via gesichertem
+  Original), Rangliste + ⇄ Wechseln-Knopf (funktioniert mit WireGuard).
+- Der Canary misst den echten Durchsatz des aktiven Servers weiterhin laufend.
+
+
 ## v1.49
 
 ### Neu: „→ USER"-Messung (SelfStream → Player)

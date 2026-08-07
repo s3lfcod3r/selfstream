@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.49</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.50</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.49</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.50</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1115,7 +1115,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
       <!-- VPN Page -->
       <div id="page-vpn" class="content-area" style="display:none">
-        <div class="section-title" style="margin-bottom:16px;">🔒 VPN – OpenVPN Integration</div>
+        <div class="section-title" style="margin-bottom:16px;">🔒 VPN – WireGuard / Mullvad</div>
         <div class="settings-grid">
 
           <div class="scard">
@@ -1139,18 +1139,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="scard">
             <div class="scard-title">⚙️ Konfiguration</div>
 
-            <form onsubmit="vpnSaveCredentials();return false;" autocomplete="on">
-            <div class="form-group">
-              <label class="form-label">OpenVPN Benutzername</label>
-              <input class="form-input" id="vpn-user" name="username" placeholder="Benutzername vom VPN-Anbieter" autocomplete="username">
-              <div class="form-hint">Bei ExpressVPN: Manuelle Konfiguration → OpenVPN</div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">OpenVPN Passwort</label>
-              <input class="form-input" type="password" id="vpn-password" name="password" placeholder="Passwort vom VPN-Anbieter" autocomplete="current-password">
-            </div>
-            <button type="submit" class="btn primary" style="margin-bottom:16px;">💾 Zugangsdaten speichern</button>
-            </form>
 
             <div class="form-group" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
               <label class="form-label">VPN-Config hochladen (OpenVPN oder WireGuard)</label>
@@ -1174,7 +1162,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
 
             <div class="form-group">
-              <label class="form-label">Aktive .ovpn Datei</label>
+              <label class="form-label">Server (aktiver ✅)</label>
               <div id="vpn-ovpn-list" style="font-family:var(--mono);font-size:11px;color:var(--teal);padding:6px 0;">Lädt…</div>
             </div>
 
@@ -1187,46 +1175,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
 
           <div class="scard" style="grid-column:1/-1">
-            <div class="scard-title">🏆 Automatisch besten Server wählen</div>
+            <div class="scard-title">🔍 Schnellsten Server finden (Latenz)</div>
             <div class="form-hint" style="margin-bottom:14px;">
-              SelfStream misst regelmäßig <strong>alle</strong> hochgeladenen VPN-Server durch und schaltet automatisch auf den <strong>schnellsten</strong>, der deine Ziel-Stream-Zahl sicher packt. Der Rundum-Vergleich unterbricht kurz alle Streams (~2&nbsp;Min, nur ein Tunnel), deshalb läuft er <strong>nur bei 0 Zuschauern</strong>. Ergänzt den Leistungs-Wächter oben (der schnell auf Einbrüche reagiert).
+              Misst <strong>störungsfrei</strong> die Antwortzeit zu jedem hinterlegten WireGuard-Server – <strong>ohne</strong> Tunnel-Wechsel, <strong>ohne</strong> einen Stream zu unterbrechen. Zeigt eine Rangliste; per <strong>⇄ Wechseln</strong> schaltest du gezielt auf den schnellsten. Bei Mullvad sind alle Server sehr schnell (20 Gbit/s) – die Latenz entscheidet. Den echten Durchsatz deines aktiven Servers zeigt dir der Canary laufend.
             </div>
-            <label style="display:flex;align-items:center;gap:10px;margin-bottom:16px;cursor:pointer;">
-              <input type="checkbox" id="vpn-ab-auto" onchange="vpnAutobestSave()">
-              <span style="font-size:13px;">Automatisch besten VPN-Server wählen</span>
-            </label>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
-              <div style="flex:1;min-width:200px;">
-                <label class="form-label">Muss gut sein für</label>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <input class="form-input" type="number" id="vpn-ab-streams" min="1" max="20" style="width:80px;">
-                  <span style="font-size:11px;color:var(--text2);">gleichzeitige Streams (Ziel)</span>
-                </div>
-              </div>
-              <div style="flex:1;min-width:200px;">
-                <label class="form-label">Prüfen alle</label>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <input class="form-input" type="number" id="vpn-ab-hours" min="1" max="168" style="width:80px;">
-                  <span style="font-size:11px;color:var(--text2);">Stunden (nur bei 0 Zuschauern)</span>
-                </div>
-              </div>
-            </div>
-            <button class="btn primary" onclick="vpnAutobestSave(true)">💾 Speichern</button>
-            <button class="btn" onclick="vpnAutobestNow()" id="vpn-ab-now-btn" style="margin-left:8px;">🔍 Jetzt besten suchen &amp; draufschalten</button>
-            <div id="vpn-ab-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch kein Vergleich –</div>
-            <div class="form-hint" style="margin-top:10px;">⚠️ „Jetzt suchen" verbindet jeden Server nacheinander (~2&nbsp;Min ALLE Streams unterbrochen) und bleibt danach auf dem besten. Am besten laufen lassen, wenn keiner schaut.</div>
-
-            <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
-              <button class="btn" onclick="vpnServerLatency()" id="vpn-lat-btn">🔍 Server-Latenz prüfen (stört nichts)</button>
-              <div id="vpn-lat-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht geprüft –</div>
-              <div class="form-hint" style="margin-top:10px;">✅ <strong>Störungsfrei:</strong> misst nur die Antwortzeit zu jedem VPN-Server, <strong>ohne</strong> den Tunnel zu wechseln und <strong>ohne</strong> einen Stream zu unterbrechen. Zeigt, welcher Server am schnellsten erreichbar ist – zum bewussten manuellen Umschalten.</div>
-            </div>
-
-            <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
-              <button class="btn" onclick="vpnDualCompare()" id="vpn-dual-btn">🔀 Durchsatz-Vergleich (Zweittunnel)</button>
-              <div id="vpn-dual-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht getestet –</div>
-              <div class="form-hint" style="margin-top:10px;">🧪 <strong>Experimentell (Weg 2):</strong> misst den <strong>echten Durchsatz</strong> jedes Servers über einen zweiten, parallelen Tunnel – dein laufender Stream bleibt dabei unberührt. Kann ein paar Testläufe brauchen, bis es sitzt. Am besten bei 0 Zuschauern starten.</div>
-            </div>
+            <button class="btn primary" onclick="vpnServerLatency()" id="vpn-lat-btn">🔍 Server-Latenz prüfen</button>
+            <div id="vpn-lat-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht geprüft –</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -1263,7 +1217,6 @@ tr:hover td{background:rgba(255,255,255,.02);}
               Misst <strong>Internet/VPN</strong> und den <strong>IPTV-Anbieter</strong> mit bis zu <strong>8 gleichzeitigen Streams</strong> – und sagt dir mit einer Ampel, ob dein Setup so viele Zuschauer packt oder wo es klemmt.
             </div>
             <button class="btn primary" id="speedtest-btn" onclick="runSpeedtest()">▶ Speedtest starten</button>
-            <button class="btn" id="speedtest-all-btn" onclick="runSpeedtestAll()" style="margin-left:8px;">🏁 Alle VPN-Server vergleichen</button>
             <div class="form-hint" style="margin-top:8px;">⚠️ Der Vergleich verbindet jeden VPN-Server nacheinander und misst ihn – dabei sind alle Streams für ~2&nbsp;Min unterbrochen. Danach wird der vorherige Server wiederhergestellt.</div>
 
             <!-- VPN-Server-Vergleich Ergebnis -->
@@ -4096,12 +4049,9 @@ let _vpnStatusInterval = null;
 async function loadVpnSettings() {
   const s = await api('GET', '/api/vpn');
   if (!s) return;
-  document.getElementById('vpn-user').value     = s.vpn_user || '';
-  document.getElementById('vpn-password').value = s.vpn_password || '';
   renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
   mullvadFillSources(s.ovpn_files || []);
   vpnRefreshStatus();
-  vpnAutobestLoad();
   canaryLoad();
   // Auto-poll log every 3s when on VPN page
   if (_vpnStatusInterval) clearInterval(_vpnStatusInterval);
@@ -4538,7 +4488,7 @@ async function vpnServerLatency() {
     if (!r || r.ok === false) {
       if (box) box.textContent = '❌ ' + ((r && r.error) || 'Fehlgeschlagen');
     } else {
-      const short = s => (s || '').replace('my_expressvpn_', '').replace('_udp.ovpn', '');
+      const short = s => (s || '').replace('mullvad-', '').replace('.conf', '').replace('my_expressvpn_', '').replace('_udp.ovpn', '');
       const rows = (r.results || []).slice().sort((a, b) => {
         if (!a.reachable) return 1; if (!b.reachable) return -1;
         return a.latency_ms - b.latency_ms;
@@ -4570,7 +4520,7 @@ async function vpnDualCompare() {
     if (!r || r.ok === false) {
       if (box) box.textContent = '❌ ' + ((r && r.error) || 'Fehlgeschlagen');
     } else {
-      const short = s => (s || '').replace('my_expressvpn_', '').replace('_udp.ovpn', '');
+      const short = s => (s || '').replace('mullvad-', '').replace('.conf', '').replace('my_expressvpn_', '').replace('_udp.ovpn', '');
       const rows = (r.results || []).map(x => {
         const star = (x.ovpn === r.fastest) ? ' 🏆' : '';
         const act = (x.ovpn === r.active) ? ' (aktiv)' : '';

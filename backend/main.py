@@ -5671,8 +5671,8 @@ async def vpn_upload_ovpn(request: Request, _=Depends(check_admin)):
         if not file:
             raise HTTPException(status_code=400, detail="Keine Datei")
         filename = os.path.basename(file.filename)
-        if not (filename.endswith(".ovpn") or filename.endswith(".conf")):
-            raise HTTPException(status_code=400, detail="Nur .ovpn (OpenVPN) oder .conf (WireGuard) erlaubt")
+        if not filename.endswith(".conf"):
+            raise HTTPException(status_code=400, detail="Nur .conf (WireGuard, z.B. Mullvad) erlaubt")
         dest = os.path.join(VPN_OVPN_DIR, filename)
         content = await file.read()
         with open(dest, "wb") as f:
@@ -6725,13 +6725,19 @@ async def vpn_autobest_now(_=Depends(check_admin)):
 
 # ── Weg 1: Server-Latenz prüfen OHNE Tunnel-Wechsel (störungsfrei) ───────────
 def _vpn_ovpn_remote(path: str):
-    """Liest die erste 'remote <ip/host> <port>'-Zeile aus einer .ovpn."""
+    """Server-Adresse (host, port) aus einer Config: WireGuard-.conf 'Endpoint'-Zeile
+    ODER OpenVPN-.ovpn 'remote'-Zeile."""
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
-                line = line.strip()
-                if line.startswith("remote ") and not line.startswith("remote-"):
-                    parts = line.split()
+                s = line.strip()
+                if s.lower().startswith("endpoint") and "=" in s:   # WireGuard
+                    v = s.split("=", 1)[1].strip()
+                    if ":" in v:
+                        host, _, port = v.rpartition(":")
+                        return host.strip("[]"), int(port) if port.isdigit() else 51820
+                if s.startswith("remote ") and not s.startswith("remote-"):
+                    parts = s.split()
                     if len(parts) >= 2:
                         port = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else 1194
                         return parts[1], port
@@ -6792,10 +6798,14 @@ async def vpn_server_latency(_=Depends(check_admin)):
     wird pro Server-IP kurz eine /32-Direktroute übers LAN-Gateway gesetzt und danach
     wieder entfernt. Das betrifft NUR die winzigen Test-Pakete zu VPN-Server-Adressen
     und NIEMALS das Standard-Routing / laufende Streams."""
-    files = _vpn_list_ovpn_files()
+    files = [os.path.join(VPN_OVPN_DIR, f) for f in _vpn_list_all_configs()]
     if not files:
-        return {"ok": False, "error": "Keine .ovpn hochgeladen"}
+        return {"ok": False, "error": "Keine VPN-Config hochgeladen"}
     gw, dev = _default_gateway() if vpn_is_running() else (None, None)
+    # WireGuard biegt die Default-Route auf wg0 → echtes LAN-Gateway aus dem
+    # gesicherten Original nehmen (für die stream-sichere /32-Direktroute).
+    if (not gw or not dev) and _wg_saved_default:
+        gw, dev = _wg_saved_default
     results = []
     for path in files:
         name = os.path.basename(path)
