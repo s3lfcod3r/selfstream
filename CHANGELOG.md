@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.33
+
+### Neu: Canary-Browser-Player (③) – selbst zusehen
+- Im Canary-Bereich kann man jetzt einen Kanal **direkt im Panel ansehen** – der Stream
+  läuft **durch SelfStream und den VPN-Tunnel**, genau wie beim echten Zuschauer. So
+  sieht man mit eigenen Augen, ob's flüssig läuft.
+- Kanal-Auswahl (Dropdown), ▶ Ansehen / ⏹ Stop. Läuft über hls.js (lazy per CDN geladen).
+- Neue admin-geschützte Endpunkte: `/api/preview/channels`, `/api/preview/playlist.m3u8`
+  (holt Kanal-Playlist, schreibt Segmente auf den Proxy um; folgt Master→Variante),
+  `/api/preview/seg` (liefert Segmente via `_get_segment`). Auth via X-Admin-Token-Header
+  (hls.js `xhrSetup`) – keine Tokens in URLs. Zählt beim Zusehen als 1 Zuschauer, „Stop" gibt frei.
+
+### Neu: Ein-Klick-Umschalten (④)
+- Neben jedem Server in **Weg 1 (Latenz)** und **Weg 2 (Durchsatz)** gibt es jetzt einen
+  **⇄ Wechseln**-Knopf → bewusst-manueller Server-Wechsel per Klick.
+- Neuer Endpunkt `POST /api/vpn/switch {ovpn}`: setzt den aktiven Server und startet den
+  Tunnel neu. Frontend warnt vorher (Neustart unterbricht Streams ein paar Sekunden).
+  Blockiert, solange ein Server-Test (Sweep/Zweittunnel) läuft.
+
 ## v1.32
 
 ### Neu: Selbst-Zuschauer (Canary) – Kern

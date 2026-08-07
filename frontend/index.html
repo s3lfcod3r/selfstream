@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.32</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.33</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.32</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.33</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1242,7 +1242,19 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
             <button class="btn primary" onclick="canarySave(true)">💾 Speichern</button>
             <div id="canary-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
-            <div class="form-hint" style="margin-top:10px;">Bei „handeln" wechselt er nur bei <strong>0 Zuschauern</strong> und höchstens 1×/Stunde. Browser-Player (zusehen) + Ein-Klick-Umschalten kommen als nächste Stufen.</div>
+            <div class="form-hint" style="margin-top:10px;">Bei „handeln" wechselt er nur bei <strong>0 Zuschauern</strong> und höchstens 1×/Stunde.</div>
+
+            <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
+              <label class="form-label">👀 Selbst zusehen (Browser-Player)</label>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <select class="form-select" id="canary-ch" style="max-width:280px;"></select>
+                <button class="btn" id="canary-watch-btn" onclick="canaryWatch()">▶ Im Browser ansehen</button>
+                <button class="btn" id="canary-stop-btn" onclick="canaryStop()" style="display:none;color:#ef4444;">⏹ Stop</button>
+              </div>
+              <video id="canary-video" controls playsinline style="display:none;width:100%;max-width:640px;margin-top:12px;background:#000;border-radius:6px;"></video>
+              <div id="canary-player-msg" style="margin-top:8px;font-size:11px;color:var(--text2);"></div>
+              <div class="form-hint" style="margin-top:8px;">Spielt einen Kanal <strong>durch SelfStream</strong> (also durch den VPN-Tunnel) direkt hier ab – so siehst du mit eigenen Augen, ob's flüssig läuft. Zählt kurz als <strong>ein Zuschauer</strong>; mit „Stop" wieder frei. Braucht Internet fürs Laden des Players.</div>
+            </div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -4453,16 +4465,19 @@ async function vpnServerLatency() {
       if (box) box.textContent = '❌ ' + ((r && r.error) || 'Fehlgeschlagen');
     } else {
       const short = s => (s || '').replace('my_expressvpn_', '').replace('_udp.ovpn', '');
-      const lines = (r.results || []).slice().sort((a, b) => {
+      const rows = (r.results || []).slice().sort((a, b) => {
         if (!a.reachable) return 1; if (!b.reachable) return -1;
         return a.latency_ms - b.latency_ms;
       }).map(x => {
-        const star = (x.ovpn === r.fastest) ? '  🏆 schnellster' : '';
-        const act = (x.ovpn === r.active) ? '  (aktiv)' : '';
-        return x.reachable ? `${short(x.ovpn)}: ${x.latency_ms} ms${star}${act}`
-                           : `${short(x.ovpn)}: ❌ nicht erreichbar${act}`;
+        const star = (x.ovpn === r.fastest) ? ' 🏆' : '';
+        const act = (x.ovpn === r.active) ? ' (aktiv)' : '';
+        const label = x.reachable ? `${short(x.ovpn)}: ${x.latency_ms} ms${star}${act}`
+                                  : `${short(x.ovpn)}: ❌ nicht erreichbar${act}`;
+        const canSw = x.reachable && x.ovpn !== r.active;
+        const btn = canSw ? `<button class="btn sm" style="margin-left:8px;" onclick="vpnSwitchTo('${_esc(x.ovpn)}')">⇄ Wechseln</button>` : '';
+        return `<div style="display:flex;align-items:center;padding:2px 0;"><span style="flex:1;">${label}</span>${btn}</div>`;
       });
-      if (box) box.textContent = lines.join('\n') || 'keine Server';
+      if (box) box.innerHTML = rows.join('') || 'keine Server';
     }
   } catch(e) {
     if (box) box.textContent = '❌ ' + (e.message || e);
@@ -4482,14 +4497,17 @@ async function vpnDualCompare() {
       if (box) box.textContent = '❌ ' + ((r && r.error) || 'Fehlgeschlagen');
     } else {
       const short = s => (s || '').replace('my_expressvpn_', '').replace('_udp.ovpn', '');
-      const lines = (r.results || []).map(x => {
-        const star = (x.ovpn === r.fastest) ? '  🏆' : '';
-        const act = (x.ovpn === r.active) ? '  (aktiv)' : '';
-        if (x.ok) return `✅ ${short(x.ovpn)}: ${x.mbps_total} Mbit/s${star}${act}`;
-        const steps = x.steps && x.steps.length ? `  [bis: ${x.steps.join(' › ')}]` : '';
-        return `❌ ${short(x.ovpn)}: ${x.error || 'Fehler'}${steps}`;
+      const rows = (r.results || []).map(x => {
+        const star = (x.ovpn === r.fastest) ? ' 🏆' : '';
+        const act = (x.ovpn === r.active) ? ' (aktiv)' : '';
+        let label, canSw = false;
+        if (x.ok) { label = `✅ ${short(x.ovpn)}: ${x.mbps_total} Mbit/s${star}${act}`; canSw = x.ovpn !== r.active; }
+        else { const steps = x.steps && x.steps.length ? `  [bis: ${x.steps.join(' › ')}]` : '';
+               label = `❌ ${short(x.ovpn)}: ${x.error || 'Fehler'}${steps}`; }
+        const btn = canSw ? `<button class="btn sm" style="margin-left:8px;" onclick="vpnSwitchTo('${_esc(x.ovpn)}')">⇄ Wechseln</button>` : '';
+        return `<div style="display:flex;align-items:center;padding:2px 0;"><span style="flex:1;">${label}</span>${btn}</div>`;
       });
-      if (box) box.textContent = lines.join('\n') || 'keine Server';
+      if (box) box.innerHTML = rows.join('') || 'keine Server';
     }
   } catch(e) {
     if (box) box.textContent = '❌ ' + (e.message || e);
@@ -4505,6 +4523,82 @@ async function canaryLoad() {
   const iv = document.getElementById('canary-interval');
   if (iv && document.activeElement !== iv) iv.value = (c.interval_h != null ? c.interval_h : 0);
   canaryRender(c.status);
+  canaryLoadChannels();
+}
+
+// Ein-Klick-Umschalten (④) — bewusster manueller Server-Wechsel (Tunnel-Neustart)
+function _esc(s) { return String(s).replace(/['"\\]/g, ''); }
+async function vpnSwitchTo(ovpn) {
+  if (!confirm(`Jetzt auf diesen Server umschalten?\n\n${ovpn}\n\n⚠️ Der VPN-Tunnel wird neu gestartet – laufende Streams brechen dabei für ein paar Sekunden ab.`)) return;
+  if (typeof showToast === 'function') showToast('🔀 Schalte um… (Tunnel-Neustart, ~10s)');
+  try {
+    const r = await api('POST', '/api/vpn/switch', { ovpn });
+    if (r && r.ok) {
+      showToast('✅ Umgeschaltet auf ' + (r.ovpn || ovpn));
+      loadVpnSettings();
+    } else {
+      showToast('❌ ' + ((r && r.error) || 'Fehlgeschlagen'));
+    }
+  } catch(e) { showToast('❌ ' + (e.message || e)); }
+}
+
+// Browser-Player (③) — Kanal durch SelfStream/VPN im Panel ansehen
+let _canaryHls = null;
+async function canaryLoadChannels() {
+  const sel = document.getElementById('canary-ch');
+  if (!sel) return;
+  try {
+    const r = await api('GET', '/api/preview/channels');
+    const chs = (r && r.channels) || [];
+    sel.innerHTML = chs.length
+      ? chs.map(c => `<option value="${c.idx}">${(c.name || ('Kanal ' + c.idx)).slice(0, 60)}</option>`).join('')
+      : '<option value="0">Kanal 0</option>';
+  } catch(e) { sel.innerHTML = '<option value="0">Kanal 0</option>'; }
+}
+function _loadHlsLib() {
+  return new Promise((resolve, reject) => {
+    if (window.Hls) return resolve(window.Hls);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
+    s.onload = () => window.Hls ? resolve(window.Hls) : reject(new Error('hls.js nicht verfügbar'));
+    s.onerror = () => reject(new Error('Player-Bibliothek (hls.js) konnte nicht geladen werden – Internet/CDN blockiert?'));
+    document.head.appendChild(s);
+  });
+}
+async function canaryWatch() {
+  const idx = document.getElementById('canary-ch')?.value || 0;
+  const video = document.getElementById('canary-video');
+  const msg = document.getElementById('canary-player-msg');
+  const stopBtn = document.getElementById('canary-stop-btn');
+  if (!video) return;
+  if (msg) msg.textContent = '⏳ Lade Player…';
+  const src = `/api/preview/playlist.m3u8?idx=${encodeURIComponent(idx)}`;
+  try {
+    const Hls = await _loadHlsLib();
+    canaryStop();
+    const hls = new Hls({ xhrSetup: xhr => xhr.setRequestHeader('X-Admin-Token', TOKEN) });
+    _canaryHls = hls;
+    hls.on(Hls.Events.ERROR, (evt, data) => {
+      if (data && data.fatal && msg) msg.textContent = '❌ Player-Fehler: ' + (data.details || data.type);
+    });
+    hls.loadSource(src);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+    video.style.display = 'block';
+    if (stopBtn) stopBtn.style.display = '';
+    if (msg) msg.textContent = '▶ Läuft durch SelfStream (VPN). Zählt gerade als 1 Zuschauer.';
+  } catch(e) {
+    if (msg) msg.textContent = '❌ ' + (e.message || e);
+  }
+}
+function canaryStop() {
+  const video = document.getElementById('canary-video');
+  const stopBtn = document.getElementById('canary-stop-btn');
+  const msg = document.getElementById('canary-player-msg');
+  if (_canaryHls) { try { _canaryHls.destroy(); } catch(e) {} _canaryHls = null; }
+  if (video) { try { video.pause(); video.removeAttribute('src'); video.load(); } catch(e) {} video.style.display = 'none'; }
+  if (stopBtn) stopBtn.style.display = 'none';
+  if (msg) msg.textContent = '⏹ Gestoppt – Verbindung wieder frei.';
 }
 
 async function canarySave(toast) {

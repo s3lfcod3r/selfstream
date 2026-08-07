@@ -6773,3 +6773,121 @@ def set_canary(body: dict, _=Depends(check_admin)):
             raise HTTPException(status_code=400, detail="Intervall 0–168 Stunden")
         db.set_setting("canary_interval_h", str(v))
     return {"ok": True}
+
+
+# ── Canary Browser-Player (③) + Ein-Klick-Umschalten (④) ───────────────────────
+# Der Player spielt einen echten Kanal DURCH SelfStream (also durch den VPN-Tunnel)
+# direkt im Admin-Panel ab, damit man mit eigenen Augen sieht, ob's flüssig läuft.
+# Playlist wird geholt, Segment-Zeilen auf einen admin-geschützten Proxy umgeschrieben;
+# hls.js schickt den X-Admin-Token als Header mit (xhrSetup) → keine Tokens in URLs.
+
+def _preview_channel_list() -> list:
+    """Erste ~20 aktiven HTTP-Kanäle mit Namen – Index deckt sich mit _iptv_channel_pool."""
+    out, idx = [], 0
+    for c in db.get_channels(enabled_only=True):
+        u = (c.get("stream_url") or "")
+        if not u.startswith("http"):
+            continue
+        host = u.split("/")[2] if "://" in u else u
+        out.append({"idx": idx, "name": (c.get("name") or host)})
+        idx += 1
+        if idx >= 20:
+            break
+    return out
+
+
+@admin_app.get("/api/preview/channels")
+def preview_channels(_=Depends(check_admin)):
+    return {"channels": _preview_channel_list()}
+
+
+@admin_app.get("/api/preview/playlist.m3u8")
+async def preview_playlist(idx: int = 0, _=Depends(check_admin)):
+    """Kanal-Playlist holen und Segment-URLs auf /api/preview/seg umschreiben."""
+    import base64
+    pool = _iptv_channel_pool(20)
+    if not pool:
+        raise HTTPException(status_code=404, detail="kein Kanal")
+    if idx < 0 or idx >= len(pool):
+        idx = 0
+    ch = pool[idx]
+    client = await _get_iptv_client()
+    try:
+        r = await client.get(ch, follow_redirects=True)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Kanal nicht erreichbar: {e}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Kanal HTTP {r.status_code}")
+    text, base_url = r.text, str(r.url)
+    # Master-Playlist (mehrere Qualitäten)? → erste Variante folgen
+    if "#EXT-X-STREAM-INF" in text:
+        for line in text.splitlines():
+            s = line.strip()
+            if s and not s.startswith("#"):
+                variant = s if s.startswith("http") else urllib.parse.urljoin(base_url, s)
+                try:
+                    r2 = await client.get(variant, follow_redirects=True)
+                    if r2.status_code == 200:
+                        text, base_url = r2.text, str(r2.url)
+                except Exception:
+                    pass
+                break
+
+    def _tok(raw_url: str) -> str:
+        absu = raw_url if raw_url.startswith("http") else urllib.parse.urljoin(base_url, raw_url)
+        return "/api/preview/seg?u=" + base64.urlsafe_b64encode(absu.encode()).decode()
+
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            out.append(_tok(s))
+        elif s.startswith("#EXT-X-KEY") and "URI=" in s:
+            out.append(re.sub(r'URI="([^"]+)"', lambda m: f'URI="{_tok(m.group(1))}"', s))
+        else:
+            out.append(line)
+    return Response(content="\n".join(out), media_type="application/vnd.apple.mpegurl")
+
+
+@admin_app.get("/api/preview/seg")
+async def preview_seg(u: str, _=Depends(check_admin)):
+    """Ein Segment (bzw. Key) durch SelfStream/VPN holen und ausliefern."""
+    import base64
+    try:
+        url = base64.urlsafe_b64decode(u.encode()).decode()
+    except Exception:
+        raise HTTPException(status_code=400, detail="ungültige URL")
+    if not url.startswith("http"):
+        raise HTTPException(status_code=400, detail="ungültige URL")
+    try:
+        data, _elapsed, _cached = await _get_segment(url, get_hls_settings())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    if not data:
+        raise HTTPException(status_code=502, detail="leeres Segment")
+    low = url.lower()
+    mt = "video/mp4" if (".m4s" in low or ".mp4" in low) else "video/mp2t"
+    return Response(content=data, media_type=mt)
+
+
+@admin_app.post("/api/vpn/switch")
+async def vpn_switch(body: dict, _=Depends(check_admin)):
+    """Bewusst-manuelles Ein-Klick-Umschalten auf einen bestimmten VPN-Server.
+
+    Setzt den aktiven ovpn-Pfad und startet den Tunnel neu (falls VPN an ist).
+    Der Neustart unterbricht laufende Streams kurz – deshalb ist das eine bewusste
+    Aktion des Admins (Frontend fragt vorher nach)."""
+    fn = os.path.basename(str(body.get("ovpn", "")).strip())
+    if not fn or fn not in _vpn_list_ovpn_files():
+        raise HTTPException(status_code=400, detail="unbekannte ovpn-Datei")
+    if _vpn_sweep_active or _dual_lock.locked():
+        return {"ok": False, "error": "Server-Test läuft gerade – bitte kurz warten"}
+    db.set_setting("vpn_ovpn_path", f"/data/vpn/{fn}")
+    restarted = False
+    if db.get_setting("vpn_enabled", "0") == "1":
+        res = await asyncio.to_thread(_vpn_restart)
+        if not res.get("ok"):
+            return {"ok": False, "error": res.get("error", "Neustart fehlgeschlagen"), "ovpn": fn}
+        restarted = True
+    _vpn_log_add(f"🔀 Manuell auf {fn} umgeschaltet")
+    return {"ok": True, "ovpn": fn, "restarted": restarted}
