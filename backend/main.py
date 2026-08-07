@@ -4872,6 +4872,48 @@ def _wg_up(conf_path: str) -> dict:
     return {"ok": True}
 
 
+def _wg_switch_seamless(conf_path: str) -> dict:
+    """Server wechseln OHNE Tunnel-Abriss: das wg0-Interface bleibt oben, nur der PEER
+    (Endpoint + PublicKey) wird getauscht. Gleicher Mullvad-Schlüssel → gleiche Interface-
+    Adresse, daher kein Neuaufbau nötig → praktisch keine Unterbrechung (auch mit Zuschauern)."""
+    if not _iface_exists(WG_IFACE):
+        return {"ok": False, "error": "WireGuard läuft nicht"}
+    try:
+        with open(conf_path, "r") as f:
+            iface, peer = _wg_parse_conf(f.read())
+    except Exception as e:
+        return {"ok": False, "error": f"Config lesen: {e}"}
+    new_pub = peer.get("publickey", "")
+    new_endpoint = peer.get("endpoint", "")
+    if not (new_pub and new_endpoint):
+        return {"ok": False, "error": "Config unvollständig (PublicKey/Endpoint)"}
+    new_ip = new_endpoint.rsplit(":", 1)[0].strip("[]")
+    try:
+        old_peers = subprocess.run(["wg", "show", WG_IFACE, "peers"],
+                                   capture_output=True, text=True, timeout=5).stdout.split()
+    except Exception:
+        old_peers = []
+    gw, dev = (_wg_saved_default or _wg_default_gw())
+    try:
+        # Route zum NEUEN Endpoint via echtem Gateway (der Handshake muss am Tunnel vorbei)
+        if gw and dev:
+            subprocess.run(["ip", "route", "replace", f"{new_ip}/32", "via", gw, "dev", dev],
+                           capture_output=True, timeout=5)
+        # neuen Peer setzen – Interface + Default-Route via wg0 bleiben unverändert
+        r = subprocess.run(["wg", "set", WG_IFACE, "peer", new_pub, "endpoint", new_endpoint,
+                            "allowed-ips", "0.0.0.0/0", "persistent-keepalive", "25"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            return {"ok": False, "error": (r.stderr or r.stdout).strip()[:300]}
+        # alte Peers entfernen (sonst mehrere Peers gleichzeitig)
+        for op in old_peers:
+            if op and op != new_pub:
+                subprocess.run(["wg", "set", WG_IFACE, "peer", op, "remove"], capture_output=True, timeout=5)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:300]}
+    return {"ok": True}
+
+
 def _vpn_start_wireguard(conf_path: str) -> dict:
     """WireGuard-Tunnel starten (Alternative zu OpenVPN, gleiche Split-Logik)."""
     global _vpn_log, _vpn_link_connected, _vpn_link_last_event
@@ -7348,16 +7390,34 @@ async def vpn_switch(body: dict, _=Depends(check_admin)):
     Der Neustart unterbricht laufende Streams kurz – deshalb ist das eine bewusste
     Aktion des Admins (Frontend fragt vorher nach)."""
     fn = os.path.basename(str(body.get("ovpn", "")).strip())
-    if not fn or fn not in _vpn_list_ovpn_files():
-        raise HTTPException(status_code=400, detail="unbekannte ovpn-Datei")
+    if not fn or fn not in _vpn_list_all_configs():
+        raise HTTPException(status_code=400, detail="unbekannte VPN-Config")
     if _vpn_sweep_active or _dual_lock.locked():
         return {"ok": False, "error": "Server-Test läuft gerade – bitte kurz warten"}
-    db.set_setting("vpn_ovpn_path", f"/data/vpn/{fn}")
+    new_path = os.path.join(VPN_OVPN_DIR, fn)
+    cur_path = db.get_setting("vpn_ovpn_path", "")
+    running = db.get_setting("vpn_enabled", "0") == "1"
+
+    # NAHTLOS: WireGuard läuft + Ziel ist auch WireGuard → nur den Peer tauschen.
+    # Interface + Default-Route bleiben oben → praktisch keine Unterbrechung, auch mit Zuschauern.
+    if (running and _iface_exists(WG_IFACE)
+            and _vpn_config_type(cur_path) == "wireguard"
+            and _vpn_config_type(new_path) == "wireguard"):
+        res = await asyncio.to_thread(_wg_switch_seamless, new_path)
+        if res.get("ok"):
+            db.set_setting("vpn_ovpn_path", new_path)
+            await _reset_iptv_client()   # frische Verbindungen über den neuen Server
+            _vpn_log_add(f"🔀 Nahtlos auf {fn} umgeschaltet (kein Tunnel-Neustart)")
+            return {"ok": True, "ovpn": fn, "seamless": True}
+        _vpn_log_add(f"⚠️ Nahtloser Wechsel fehlgeschlagen ({res.get('error')}) → Neustart")
+
+    # Fallback (OpenVPN / VPN aus / nahtlos fehlgeschlagen): Pfad setzen + ggf. Neustart.
+    db.set_setting("vpn_ovpn_path", new_path)
     restarted = False
-    if db.get_setting("vpn_enabled", "0") == "1":
+    if running:
         res = await asyncio.to_thread(_vpn_restart)
         if not res.get("ok"):
             return {"ok": False, "error": res.get("error", "Neustart fehlgeschlagen"), "ovpn": fn}
         restarted = True
-    _vpn_log_add(f"🔀 Manuell auf {fn} umgeschaltet")
-    return {"ok": True, "ovpn": fn, "restarted": restarted}
+    _vpn_log_add(f"🔀 Auf {fn} umgeschaltet")
+    return {"ok": True, "ovpn": fn, "restarted": restarted, "seamless": False}

@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.54</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.55</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.54</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.55</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -4154,8 +4154,12 @@ async function vpnUpload(input) {
 }
 
 async function vpnSetActive(filename) {
-  await api('POST', '/api/vpn', { vpn_ovpn_path: `/data/vpn/${filename}` });
-  showToast(`${filename} aktiviert`);
+  showToast('🔀 Wechsle zu ' + filename + '…');
+  try {
+    const r = await api('POST', '/api/vpn/switch', { ovpn: filename });
+    if (r && r.ok) showToast(r.seamless ? '✅ Nahtlos gewechselt: ' + filename : '✅ Aktiviert: ' + filename);
+    else showToast('❌ ' + ((r && r.error) || 'Fehlgeschlagen'));
+  } catch(e) { showToast('❌ ' + (e.message || e)); }
   loadVpnSettings();
 }
 
@@ -4552,12 +4556,12 @@ async function canaryLoad() {
 // Ein-Klick-Umschalten (④) — bewusster manueller Server-Wechsel (Tunnel-Neustart)
 function _esc(s) { return String(s).replace(/['"\\]/g, ''); }
 async function vpnSwitchTo(ovpn) {
-  if (!confirm(`Jetzt auf diesen Server umschalten?\n\n${ovpn}\n\n⚠️ Der VPN-Tunnel wird neu gestartet – laufende Streams brechen dabei für ein paar Sekunden ab.`)) return;
-  if (typeof showToast === 'function') showToast('🔀 Schalte um… (Tunnel-Neustart, ~10s)');
+  if (!confirm(`Auf diesen Server wechseln?\n\n${ovpn}\n\nBei WireGuard nahtlos – nur der Server wird getauscht, das Interface bleibt oben (praktisch keine Unterbrechung, auch mit Zuschauern).`)) return;
+  if (typeof showToast === 'function') showToast('🔀 Wechsle…');
   try {
     const r = await api('POST', '/api/vpn/switch', { ovpn });
     if (r && r.ok) {
-      showToast('✅ Umgeschaltet auf ' + (r.ovpn || ovpn));
+      showToast(r.seamless ? '✅ Nahtlos umgeschaltet: ' + (r.ovpn || ovpn) : '✅ Umgeschaltet: ' + (r.ovpn || ovpn));
       loadVpnSettings();
     } else {
       showToast('❌ ' + ((r && r.error) || 'Fehlgeschlagen'));

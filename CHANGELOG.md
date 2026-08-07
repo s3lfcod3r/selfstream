@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.55
+
+### Nahtloser WireGuard-Server-Wechsel (kein Abbruch)
+- Server umschalten reißt den Tunnel nicht mehr ab. Bei WireGuard bleibt das Interface (wg0)
+  oben – nur der Peer (Server) und die Endpunkt-Route werden live getauscht
+  (`wg set wg0 peer …`). Das funktioniert praktisch ohne Unterbrechung, **auch während
+  Zuschauer schauen**. (Vorher: Tunnel-Neustart, Streams brachen ~10s ab.)
+- „Aktivieren" und „Wechseln" in der VPN-Liste nutzen jetzt beide den nahtlosen Weg
+  (Fallback auf Neustart nur, wenn kein WireGuard-Tunnel aktiv ist).
+- Nach dem Wechsel wird der IPTV-Client zurückgesetzt, damit neue Segmente sofort über den
+  neuen Server laufen.
+
+
 ## v1.54
 
 ### → USER-Strecke jetzt PRO USER
