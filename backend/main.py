@@ -4557,33 +4557,45 @@ def _vpn_reader(proc: subprocess.Popen):
         pass
 
 
-def vpn_is_running() -> bool:
-    global _vpn_process
-    # Check process is alive
-    if _vpn_process is not None and _vpn_process.poll() is None:
-        return True
-    # Fallback: check if tun0 interface exists
+WG_IFACE = "wg0"   # WireGuard-Interface-Name (wg-quick nutzt den Dateinamen)
+
+
+def _vpn_config_type(path: str) -> str:
+    """WireGuard erkennt man an der .conf-Endung, sonst OpenVPN (.ovpn)."""
+    return "wireguard" if (path or "").lower().endswith(".conf") else "openvpn"
+
+
+def _iface_exists(iface: str) -> bool:
     try:
-        result = subprocess.run(["ip", "link", "show", "tun0"],
-                                capture_output=True, timeout=2)
-        return result.returncode == 0
+        return subprocess.run(["ip", "link", "show", iface],
+                              capture_output=True, timeout=2).returncode == 0
     except Exception:
         return False
 
 
+def vpn_is_running() -> bool:
+    global _vpn_process
+    # OpenVPN: Prozess lebt
+    if _vpn_process is not None and _vpn_process.poll() is None:
+        return True
+    # Fallback / WireGuard: tun0 ODER wg0 vorhanden
+    return _iface_exists("tun0") or _iface_exists(WG_IFACE)
+
+
 def vpn_get_tun_ip() -> str:
-    """Get the IP address assigned to tun0 interface."""
-    try:
-        result = subprocess.run(
-            ["ip", "addr", "show", "tun0"],
-            capture_output=True, text=True, timeout=2
-        )
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("inet "):
-                return line.split()[1].split("/")[0]
-    except Exception:
-        pass
+    """IP des aktiven VPN-Interfaces (tun0 für OpenVPN, wg0 für WireGuard)."""
+    for iface in ("tun0", WG_IFACE):
+        try:
+            result = subprocess.run(
+                ["ip", "addr", "show", iface],
+                capture_output=True, text=True, timeout=2
+            )
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("inet "):
+                    return line.split()[1].split("/")[0]
+        except Exception:
+            pass
     return ""
 
 
@@ -4628,12 +4640,26 @@ def _vpn_harden_config(ovpn_content: str) -> tuple[str, int]:
 
 
 def _vpn_list_ovpn_files() -> list:
-    """Alle hochgeladenen .ovpn-Dateien (sortiert) – Grundlage fürs Ausweichen."""
+    """Nur .ovpn (OpenVPN) – Grundlage fürs Ausweichen + Server-Vergleiche.
+    WireGuard-.conf bewusst NICHT hier (die Vergleiche bauen OpenVPN-Tunnel)."""
     try:
         return sorted(
             os.path.join(VPN_OVPN_DIR, f)
             for f in os.listdir(VPN_OVPN_DIR)
             if f.endswith(".ovpn") and f != "split.ovpn"
+        )
+    except Exception:
+        return []
+
+
+def _vpn_list_all_configs() -> list:
+    """Alle VPN-Configs für die UI: .ovpn (OpenVPN) UND .conf (WireGuard).
+    Ausgeschlossen: Arbeitskopien (split.ovpn, dual.ovpn, wg0.conf)."""
+    _skip = {"split.ovpn", "dual.ovpn", f"{WG_IFACE}.conf"}
+    try:
+        return sorted(
+            f for f in os.listdir(VPN_OVPN_DIR)
+            if (f.endswith(".ovpn") or f.endswith(".conf")) and f not in _skip
         )
     except Exception:
         return []
@@ -4660,6 +4686,74 @@ def _vpn_rotate_ovpn() -> str:
     return nxt
 
 
+def _wg_down():
+    """WireGuard-Interface abbauen (falls aktiv)."""
+    try:
+        subprocess.run(["wg-quick", "down", WG_IFACE], capture_output=True, timeout=20)
+    except Exception:
+        pass
+
+
+def _wg_up(conf_path: str) -> dict:
+    """WireGuard über wg-quick starten. wg-quick nutzt den Dateinamen als Interface,
+    daher kopieren wir die gewählte .conf nach /etc/wireguard/wg0.conf.
+    AllowedIPs=0.0.0.0/0 in der Mullvad-Config routet automatisch alles durch wg0
+    (wie redirect-gateway), die connected LAN-Route bleibt via eth0 erhalten."""
+    try:
+        os.makedirs("/etc/wireguard", exist_ok=True)
+        dst = f"/etc/wireguard/{WG_IFACE}.conf"
+        with open(conf_path, "r") as fsrc:
+            content = fsrc.read()
+        with open(dst, "w") as fdst:
+            fdst.write(content)
+        os.chmod(dst, 0o600)
+    except Exception as e:
+        return {"ok": False, "error": f"Config schreiben fehlgeschlagen: {e}"}
+    # Erst sicher runter (falls Reste), dann hoch.
+    _wg_down()
+    try:
+        r = subprocess.run(["wg-quick", "up", WG_IFACE],
+                           capture_output=True, text=True, timeout=45)
+    except Exception as e:
+        return {"ok": False, "error": f"wg-quick up: {e}"}
+    if r.returncode != 0:
+        return {"ok": False, "error": (r.stderr or r.stdout or "wg-quick up fehlgeschlagen").strip()[:400]}
+    return {"ok": True}
+
+
+def _vpn_start_wireguard(conf_path: str) -> dict:
+    """WireGuard-Tunnel starten (Alternative zu OpenVPN, gleiche Split-Logik)."""
+    global _vpn_log, _vpn_link_connected, _vpn_link_last_event
+    _vpn_log = []
+    _vpn_link_connected = False
+    _vpn_link_last_event = ""
+    _vpn_log_add("⏳ WireGuard wird gestartet…")
+    _vpn_log_add(f"ℹ️ Konfig: {os.path.basename(conf_path)} (WireGuard)")
+    res = _wg_up(conf_path)
+    if not res.get("ok"):
+        _vpn_log_add(f"❌ WireGuard-Start fehlgeschlagen: {res.get('error')}")
+        return res
+    # LAN-Ausnahme (Admin-Panel bleibt erreichbar) – analog zum OpenVPN-Pfad.
+    try:
+        result = subprocess.run(["ip", "route", "show", "default"],
+                                capture_output=True, text=True, timeout=2)
+        for line in result.stdout.splitlines():
+            if "eth0" in line and "via" in line:
+                gw = line.split("via")[1].strip().split()[0]
+                subprocess.run(["ip", "route", "add", "192.168.0.0/16", "via", gw, "dev", "eth0"],
+                               capture_output=True, timeout=2)
+                _vpn_log_add(f"🏠 Lokales Netz via eth0 ({gw}) – Admin-Panel bleibt schnell")
+                break
+    except Exception:
+        pass
+    wg_ip = vpn_get_tun_ip()
+    _vpn_link_connected = True
+    _vpn_link_last_event = "WireGuard aktiv"
+    _vpn_log_add(f"🌐 WireGuard aktiv: {wg_ip or WG_IFACE} – VPN läuft!")
+    db.set_setting("vpn_enabled", "1")
+    return {"ok": True}
+
+
 def vpn_start() -> dict:
     global _vpn_process, _vpn_log, _vpn_link_connected, _vpn_link_last_event
 
@@ -4671,7 +4765,11 @@ def vpn_start() -> dict:
     vpn_pass  = db.get_setting("vpn_password", "")
 
     if not ovpn_path or not os.path.exists(ovpn_path):
-        return {"ok": False, "error": f"OVPN-Datei nicht gefunden: {ovpn_path}"}
+        return {"ok": False, "error": f"VPN-Datei nicht gefunden: {ovpn_path}"}
+
+    # WireGuard-Config? → eigener Startpfad (OpenVPN bleibt unberührt).
+    if _vpn_config_type(ovpn_path) == "wireguard":
+        return _vpn_start_wireguard(ovpn_path)
 
     os.makedirs(VPN_OVPN_DIR, exist_ok=True)
 
@@ -4766,13 +4864,17 @@ def _vpn_teardown():
     except Exception:
         pass
 
-    # Wait for tun interfaces to disappear (max 5s)
+    # WireGuard-Interface abbauen (falls aktiv)
+    if _iface_exists(WG_IFACE):
+        _wg_down()
+
+    # Wait for tun/wg interfaces to disappear (max 5s)
     import time
     for _ in range(10):
         try:
             result = subprocess.run(["ip", "link", "show"],
                                     capture_output=True, text=True, timeout=2)
-            if "tun" not in result.stdout:
+            if "tun" not in result.stdout and WG_IFACE not in result.stdout:
                 break
         except Exception:
             break
@@ -4798,8 +4900,12 @@ def _vpn_healthy() -> tuple[bool, bool, str]:
     gar nichts mehr durch den Tunnel geht. Ohne diese Prüfung meldete der Wächter
     "gesund" und griff bei echten Ausfällen nie ein. Blockierend (subprocess).
     """
-    proc_alive = _vpn_process is not None and _vpn_process.poll() is None
     tun_ip = vpn_get_tun_ip()
+    # WireGuard hat KEINEN Prozess – gesund = Interface da + IP + als verbunden markiert.
+    if _vpn_config_type(db.get_setting("vpn_ovpn_path", "")) == "wireguard":
+        up = _iface_exists(WG_IFACE) and bool(tun_ip) and _vpn_link_connected
+        return (up, up, tun_ip)
+    proc_alive = _vpn_process is not None and _vpn_process.poll() is None
     return (proc_alive and bool(tun_ip) and _vpn_link_connected, proc_alive, tun_ip)
 
 
@@ -5179,17 +5285,17 @@ _VPN_PASSWORD_PLACEHOLDER = "••••••••"
 @admin_app.get("/api/vpn")
 def get_vpn_settings(_=Depends(check_admin)):
     s = db.get_all_settings()
-    # List uploaded .ovpn files
-    ovpn_files = []
-    if os.path.exists(VPN_OVPN_DIR):
-        ovpn_files = [f for f in os.listdir(VPN_OVPN_DIR) if f.endswith(".ovpn") and f != "split.ovpn"]
+    # Alle Configs: .ovpn (OpenVPN) UND .conf (WireGuard)
+    ovpn_files = _vpn_list_all_configs() if os.path.exists(VPN_OVPN_DIR) else []
     # Passwort niemals im Klartext an den Client geben – nur ob eines gesetzt ist.
     has_password = bool(s.get("vpn_password", ""))
+    active_path = s.get("vpn_ovpn_path", "")
     return {
         "vpn_enabled":  s.get("vpn_enabled", "0"),
         "vpn_user":     s.get("vpn_user", ""),
         "vpn_password": _VPN_PASSWORD_PLACEHOLDER if has_password else "",
-        "vpn_ovpn_path": s.get("vpn_ovpn_path", ""),
+        "vpn_ovpn_path": active_path,
+        "vpn_type":     _vpn_config_type(active_path),   # "openvpn" | "wireguard"
         "vpn_running":  vpn_is_running(),
         "ovpn_files":   ovpn_files,
     }
@@ -5317,8 +5423,8 @@ async def vpn_upload_ovpn(request: Request, _=Depends(check_admin)):
         if not file:
             raise HTTPException(status_code=400, detail="Keine Datei")
         filename = os.path.basename(file.filename)
-        if not filename.endswith(".ovpn"):
-            raise HTTPException(status_code=400, detail="Nur .ovpn Dateien erlaubt")
+        if not (filename.endswith(".ovpn") or filename.endswith(".conf")):
+            raise HTTPException(status_code=400, detail="Nur .ovpn (OpenVPN) oder .conf (WireGuard) erlaubt")
         dest = os.path.join(VPN_OVPN_DIR, filename)
         content = await file.read()
         with open(dest, "wb") as f:

@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.43</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.44</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.43</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.44</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1153,13 +1153,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </form>
 
             <div class="form-group" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
-              <label class="form-label">.ovpn Datei hochladen</label>
+              <label class="form-label">VPN-Config hochladen (OpenVPN oder WireGuard)</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <input type="file" id="vpn-file" accept=".ovpn" style="display:none" onchange="vpnUpload(this)">
+                <input type="file" id="vpn-file" accept=".ovpn,.conf" style="display:none" onchange="vpnUpload(this)">
                 <button class="btn sm" onclick="document.getElementById('vpn-file').click()">📁 Datei wählen</button>
                 <span id="vpn-file-name" style="font-family:var(--mono);font-size:11px;color:var(--text2);">Keine Datei gewählt</span>
               </div>
-              <div class="form-hint">Lade deine .ovpn Datei vom VPN-Anbieter hoch (z.B. expressvpn_switzerland.ovpn)</div>
+              <div class="form-hint"><strong>.ovpn</strong> = OpenVPN (z.B. ExpressVPN) · <strong>.conf</strong> = WireGuard (z.B. Mullvad – schneller, CPU-schonender). Bei Mullvad im Konto pro Server eine WireGuard-Config generieren und hochladen. Mehrere Server = mehrere Dateien.</div>
             </div>
 
             <div class="form-group">
@@ -4097,14 +4097,19 @@ async function loadVpnSettings() {
 
 function renderOvpnList(files, activePath) {
   const el = document.getElementById('vpn-ovpn-list');
-  if (!files.length) { el.textContent = 'Keine .ovpn Datei hochgeladen'; return; }
+  if (!files.length) { el.textContent = 'Keine VPN-Config hochgeladen'; return; }
   el.innerHTML = files.map(f => {
     const fullPath = `/data/vpn/${f}`;
     const isActive = activePath === fullPath;
+    const isWg = /\.conf$/i.test(f);
+    const badge = isWg
+      ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:#14b8a6;color:#04211d;font-weight:700;">WireGuard</span>'
+      : '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:#3b4048;color:var(--text2);font-weight:700;">OpenVPN</span>';
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-      <span style="color:${isActive ? 'var(--teal)' : 'var(--text2)'};">${isActive ? '✅' : '○'} ${f}</span>
-      ${!isActive ? `<button class="btn sm" onclick="vpnSetActive('${f}')">Aktivieren</button>` : ''}
-      <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn('${f}')">🗑</button>
+      <span style="color:${isActive ? 'var(--teal)' : 'var(--text2)'};">${isActive ? '✅' : '○'} ${_esc(f)}</span>
+      ${badge}
+      ${!isActive ? `<button class="btn sm" onclick="vpnSetActive('${_esc(f)}')">Aktivieren</button>` : ''}
+      <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn('${_esc(f)}')">🗑</button>
     </div>`;
   }).join('');
 }

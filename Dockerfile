@@ -7,10 +7,12 @@ LABEL org.opencontainers.image.licenses="GPL-3.0"
 
 WORKDIR /app
 
-# Install OpenVPN + microsocks (SOCKS5 proxy for split-tunnel)
+# Install OpenVPN + WireGuard + microsocks (SOCKS5 proxy for split-tunnel)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openvpn \
+    wireguard-tools \
     iproute2 \
+    iptables \
     git \
     build-essential \
     && git clone https://github.com/rofl0r/microsocks.git /tmp/microsocks \

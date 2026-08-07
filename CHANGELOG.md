@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.44
+
+### Neu: WireGuard-Support (neben OpenVPN, auswählbar)
+- Du kannst jetzt **WireGuard-Configs (.conf)** hochladen (z.B. von Mullvad) – neben den
+  bestehenden OpenVPN **.ovpn**. SelfStream erkennt den Typ automatisch an der Endung.
+- WireGuard läuft über `wg-quick` (gleiche Split-Logik: alles durch den Tunnel, LAN/Panel
+  bleibt via eth0 erreichbar). Kein Prozess-Zwang im Wächter – WG-Gesundheit über das
+  Interface (wg0) geprüft. OpenVPN bleibt unangetastet als Fallback.
+- Datei-Liste zeigt pro Config ein Typ-Badge (WireGuard/OpenVPN). Upload akzeptiert .ovpn + .conf.
+- Dockerfile: wireguard-tools + iptables ergänzt.
+- Hinweis: WireGuard ist schneller + CPU-schonender als OpenVPN (behebt den OpenVPN-Engpass).
+
+
 ## v1.43
 
 ### User-Filter + echte 30-Tage-Aufbewahrung für Qualitäts-Events
