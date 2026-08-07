@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.37
+
+### Live-Diagnose im Player
+- Kleine Diagnose-Zeile unter dem Player (Zweig hls.js/nativ, geladene Segmente, Puffer,
+  Zeit, genauer Fehler) – damit sich Wiedergabe-Probleme im echten Browser des Nutzers
+  ablesen lassen (der ferngesteuerte Test-Browser blockt Video via „URL safety check").
+
+
 ## v1.36
 
 ### Player geräteübergreifend (auch iPhone/Safari) + URL-Token-Auth
