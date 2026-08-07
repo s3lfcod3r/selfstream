@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.35
+
+### Canary-Player: Auto-Wiedergabe (kein Start-Knopf mehr)
+- Der Player **läuft automatisch**, sobald die VPN-Seite offen ist – kein „▶ Ansehen"
+  mehr nötig. Startet **stumm** (Autoplay-Regel der Browser); im Player oben entstummen.
+- Checkbox **„Auto-Wiedergabe"** (an per Default) + Kanal-Dropdown (Wechsel startet neu).
+  Beim Verlassen der VPN-Seite oder Auto-Aus wird die Verbindung sofort freigegeben
+  (`nav()` ruft `canaryStop()`).
+- Robustere Live-Config: `lowLatencyMode:false`, `liveSyncDurationCount:3`,
+  Auto-Recover bei Netz-/Media-Fehlern (`startLoad`/`recoverMediaError`).
+- Hinweis: Die eigentliche Video-Wiedergabe zeigt sich nur im normalen Browser – der
+  ferngesteuerte Test-Browser blockt MediaSource-Wiedergabe („URL safety check"),
+  daher wird die Bildausgabe vom Nutzer verifiziert (Datenkette ist verifiziert:
+  Playlist 200, Segmente über VPN, hls.js self-hosted).
+
 ## v1.34
 
 ### Fix: Canary-Player läuft jetzt komplett intern + stabil
