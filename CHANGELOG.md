@@ -1,6 +1,20 @@
 # Changelog
 
+## v1.32
+
+### Neu: Selbst-Zuschauer (Canary) – Kern
+- SelfStream kann sich jetzt selbst zuschauen: holt periodisch von einem Live-Kanal
+  ein paar Segmente (wie ein echter Player) → füllt das Passiv-Qualitätssignal, damit
+  Güte + E-Mail-Alarm auch dann greifen, wenn NIEMAND schaut.
+- Zwei Modi (Einstellung): „Nur beobachten" (misst + alarmiert) und „Beobachten +
+  handeln" (wechselt bei 0 Zuschauern + schlechter Qualität selbst auf den besten
+  Server, höchstens 1×/Stunde). Zeit einstellbar: alle X Stunden oder 0 = 24/7.
+- Schlau: pausiert automatisch bei fast vollem Verbindungslimit (stiehlt keinem
+  Zuschauer eine Verbindung) und während laufender Server-Tests. Endpunkte
+  `GET/POST /api/vpn/canary`. (Browser-Player + Ein-Klick-Umschalten folgen.)
+
 ## v1.31
+
 
 ### Behoben: E-Mail-Alarm flatterte (12 Mails statt 1)
 - Wackelte die Stream-Qualität kurz über die Schwelle (z.B. ein einzelnes langsames

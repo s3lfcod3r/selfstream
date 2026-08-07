@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.31</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.32</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.31</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.32</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1216,6 +1216,33 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <div id="vpn-dual-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht getestet –</div>
               <div class="form-hint" style="margin-top:10px;">🧪 <strong>Experimentell (Weg 2):</strong> misst den <strong>echten Durchsatz</strong> jedes Servers über einen zweiten, parallelen Tunnel – dein laufender Stream bleibt dabei unberührt. Kann ein paar Testläufe brauchen, bis es sitzt. Am besten bei 0 Zuschauern starten.</div>
             </div>
+          </div>
+
+          <div class="scard" style="grid-column:1/-1">
+            <div class="scard-title">👁️ Selbst-Zuschauer (Canary)</div>
+            <div class="form-hint" style="margin-bottom:14px;">
+              SelfStream hält selbst einen Stream offen – wie ein echter Zuschauer – und misst laufend die Qualität. So kennt es die Stream-Güte <strong>auch wenn niemand schaut</strong>, und der E-Mail-Alarm greift immer. Pausiert automatisch, wenn's eng wird (nahe am Verbindungslimit).
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+              <div style="flex:1;min-width:240px;">
+                <label class="form-label">Modus</label>
+                <select class="form-select" id="canary-mode">
+                  <option value="off">Aus</option>
+                  <option value="observe">Nur beobachten (misst + alarmiert)</option>
+                  <option value="act">Beobachten + handeln (wechselt bei 0 Zuschauern selbst)</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <label class="form-label">Prüfen alle</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="canary-interval" min="0" max="168" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">Stunden — <strong>0 = 24/7</strong> (dauerhaft)</span>
+                </div>
+              </div>
+            </div>
+            <button class="btn primary" onclick="canarySave(true)">💾 Speichern</button>
+            <div id="canary-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
+            <div class="form-hint" style="margin-top:10px;">Bei „handeln" wechselt er nur bei <strong>0 Zuschauern</strong> und höchstens 1×/Stunde. Browser-Player (zusehen) + Ein-Klick-Umschalten kommen als nächste Stufen.</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -4042,6 +4069,7 @@ async function loadVpnSettings() {
   renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
   vpnRefreshStatus();
   vpnAutobestLoad();
+  canaryLoad();
   // Auto-poll log every 3s when on VPN page
   if (_vpnStatusInterval) clearInterval(_vpnStatusInterval);
   _vpnStatusInterval = setInterval(vpnRefreshStatus, 3000);
@@ -4467,6 +4495,42 @@ async function vpnDualCompare() {
     if (box) box.textContent = '❌ ' + (e.message || e);
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔀 Durchsatz-Vergleich (Zweittunnel)'; }
+}
+
+async function canaryLoad() {
+  let c;
+  try { c = await api('GET', '/api/vpn/canary'); } catch(e) { return; }
+  if (!c) return;
+  const m = document.getElementById('canary-mode'); if (m) m.value = c.mode || 'off';
+  const iv = document.getElementById('canary-interval');
+  if (iv && document.activeElement !== iv) iv.value = (c.interval_h != null ? c.interval_h : 0);
+  canaryRender(c.status);
+}
+
+async function canarySave(toast) {
+  try {
+    await api('POST', '/api/vpn/canary', {
+      mode: document.getElementById('canary-mode').value,
+      interval_h: document.getElementById('canary-interval').value || 0,
+    });
+    if (toast && typeof showToast === 'function') showToast('👁️ Selbst-Zuschauer gespeichert');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Fehler: ' + (e.message || e));
+  }
+  canaryLoad();
+}
+
+function canaryRender(s) {
+  const box = document.getElementById('canary-status');
+  if (!box) return;
+  if (!s) { box.textContent = '– noch keine Messung (läuft, sobald aktiv) –'; return; }
+  const lvl = s.passive_level === 'bad' ? '🔴 schlecht'
+    : (s.passive_level === 'slow' ? '🟡 träge'
+    : (s.passive_level === 'ok' ? '🟢 ok' : '– zu wenig Daten –'));
+  let t = `Kanal: ${s.channel || '?'}\nSegmente geholt: ${s.got}/${s.of}\nQualität: ${lvl}`;
+  if (s.mbps != null) t += `  (${s.mbps} Mbit/s)`;
+  if (s.median_s != null) t += `\nLadezeit: ${s.median_s}s`;
+  box.textContent = t;
 }
 
 function vpnAutobestRender(s) {

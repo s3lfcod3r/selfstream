@@ -395,6 +395,7 @@ async def startup():
     # Anbieter und ruckelte laufende Streams. Ersetzt durch passives Messen im
     # _health_sampler (aus echtem Verkehr) + Alarm. Auto-Best (nachts) bleibt.
     _track_background_task(asyncio.create_task(_vpn_autobest_watch()))
+    _track_background_task(asyncio.create_task(_canary_watch()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
         result = vpn_start()
@@ -6666,3 +6667,109 @@ async def vpn_dual_compare(_=Depends(check_admin)):
                     key=lambda x: x["mbps_total"], reverse=True)
     return {"ok": True, "fastest": ranked[0]["ovpn"] if ranked else None,
             "active": os.path.basename(db.get_setting("vpn_ovpn_path", "")), "results": results}
+
+
+# ── Selbst-Zuschauer (Canary): hält die Qualität auch bei 0 Zuschauern frisch ─
+# Wie ein echter Player: holt periodisch von einem Live-Kanal ein paar Segmente
+# (via _get_segment → füllt die Passiv-Proben) → das Qualitäts-Signal + der Alarm
+# funktionieren auch, wenn NIEMAND schaut. Modus 'act' wechselt bei 0 Zuschauern +
+# schlechter Qualität selbst auf den besten Server (Cooldown). Schlau: pausiert bei
+# fast vollem Verbindungslimit (stiehlt keinem Zuschauer eine Verbindung).
+CANARY_CHECK = 30            # 24/7-Modus: alle 30s ein paar Segmente
+CANARY_ACT_COOLDOWN = 3600   # 'act': höchstens 1 Auto-Wechsel/Stunde
+_canary_last_run = 0.0
+_canary_last_switch = 0.0
+_canary_status: dict = {}
+
+
+async def _canary_fetch_once() -> dict:
+    """Wie ein Zuschauer: von EINEM Live-Kanal ein paar Segmente holen (füllt via
+    _get_segment die Passiv-Proben → hält das Qualitäts-Signal frisch)."""
+    pool = _iptv_channel_pool(20)
+    if not pool:
+        return {"ok": False, "error": "kein Kanal"}
+    ch = pool[0]
+    hls = get_hls_settings()
+    urls = await _iptv_segment_list(ch, 3)
+    if not urls:
+        return {"ok": False, "error": "keine Segmente"}
+    got = 0
+    for u in urls:
+        try:
+            data, elapsed, cached = await _get_segment(u, hls)
+            if len(data) > 100:
+                got += 1
+        except Exception:
+            pass
+    ph = _passive_health()
+    host = ch.split("/")[2] if "://" in ch else ch
+    return {"ok": got > 0, "channel": host, "got": got, "of": len(urls),
+            "passive_level": ph.get("level"), "mbps": ph.get("mbps"),
+            "median_s": ph.get("median_s")}
+
+
+async def _canary_watch():
+    """Selbst-Zuschauer: läuft (wie die anderen Wächter) nur in EINEM Event-Loop."""
+    global _canary_last_run, _canary_last_switch, _canary_status
+    await asyncio.sleep(150)
+    while True:
+        try:
+            await asyncio.sleep(CANARY_CHECK)
+            mode = db.get_setting("canary_mode", "off")
+            if mode not in ("observe", "act"):
+                continue
+            if db.get_setting("vpn_enabled", "0") == "1" and (not _vpn_link_connected or not vpn_get_tun_ip()):
+                continue   # toter Tunnel → macht der andere Wächter
+            if _vpn_sweep_active or _dual_lock.locked():
+                continue   # nicht während eines Server-Tests dazwischenfunken
+            if _near_capacity():
+                continue   # zu voll → keinem Zuschauer eine Verbindung stehlen
+            interval_h = _int_setting("canary_interval_h", 0, 0, 168)
+            now = time.monotonic()
+            if interval_h > 0 and _canary_last_run and (now - _canary_last_run) < interval_h * 3600:
+                continue   # Intervall-Modus: noch nicht fällig
+            _canary_last_run = now
+            res = await _canary_fetch_once()
+            res["ts"] = int(time.time())
+            res["mode"] = mode
+            _canary_status = res
+            # Modus 'act': bei 0 Zuschauern + schlechter Qualität selbst auf den besten
+            if (mode == "act" and _viewer_count() == 0
+                    and res.get("passive_level") == "bad"
+                    and (time.monotonic() - _canary_last_switch) >= CANARY_ACT_COOLDOWN
+                    and len(_vpn_list_ovpn_files()) >= 2):
+                _vpn_log_add("👁️ Canary: schlechte Qualität bei 0 Zuschauern → suche besten Server…")
+                r = await _vpn_compare_servers(switch_to_best=True)
+                if r.get("ok"):
+                    _canary_last_switch = time.monotonic()
+                    diag_log("INFO", "canary", f"Canary-Wechsel auf {r.get('restored')} ({r.get('best_mbps')} Mbit/s)")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"canary error: {e}")
+
+
+@admin_app.get("/api/vpn/canary")
+def get_canary(_=Depends(check_admin)):
+    """Einstellungen + letzter Zustand des Selbst-Zuschauers."""
+    return {
+        "mode": db.get_setting("canary_mode", "off"),
+        "interval_h": _int_setting("canary_interval_h", 0, 0, 168),
+        "check_sec": CANARY_CHECK,
+        "status": _canary_status or None,
+    }
+
+
+@admin_app.post("/api/vpn/canary")
+def set_canary(body: dict, _=Depends(check_admin)):
+    """Canary-Modus (off/observe/act) + Intervall (Stunden, 0 = 24/7) speichern."""
+    if "mode" in body:
+        m = str(body["mode"])
+        db.set_setting("canary_mode", m if m in ("off", "observe", "act") else "off")
+    if "interval_h" in body:
+        try:
+            v = max(0, min(168, int(float(body["interval_h"]))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Intervall 0–168 Stunden")
+        db.set_setting("canary_interval_h", str(v))
+    return {"ok": True}
