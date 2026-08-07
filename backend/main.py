@@ -6411,28 +6411,235 @@ async def vpn_server_latency(_=Depends(check_admin)):
         if not host:
             results.append({"ovpn": name, "reachable": False, "error": "keine remote-Adresse"})
             continue
+        # Hostnamen (z.B. ExpressVPN) zuerst zur IP auflösen – nur mit einer IP kann die
+        # stream-sichere Direktroute greifen, sonst läuft die Messung durchs aktuelle Tunnel.
+        ip = host if _is_ipv4(host) else None
+        if ip is None:
+            try:
+                infos = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET)
+                ip = infos[0][4][0] if infos else None
+            except Exception:
+                ip = None
+        target = ip or host
         route_added = False
-        if gw and dev and _is_ipv4(host):
+        if gw and dev and ip:
             try:
                 await asyncio.to_thread(subprocess.run,
-                                        ["ip", "route", "replace", f"{host}/32", "via", gw, "dev", dev],
+                                        ["ip", "route", "replace", f"{ip}/32", "via", gw, "dev", dev],
                                         capture_output=True, timeout=5)
                 route_added = True
             except Exception:
                 pass
         try:
-            lat = await _probe_tcp_latency(host, 443)
+            lat = await _probe_tcp_latency(target, 443)
             if lat is None and port != 443:
-                lat = await _probe_tcp_latency(host, port)
+                lat = await _probe_tcp_latency(target, port)
         finally:
             if route_added:
                 try:
-                    await asyncio.to_thread(subprocess.run, ["ip", "route", "del", f"{host}/32"],
+                    await asyncio.to_thread(subprocess.run, ["ip", "route", "del", f"{ip}/32"],
                                             capture_output=True, timeout=5)
                 except Exception:
                     pass
-        results.append({"ovpn": name, "host": host, "reachable": lat is not None, "latency_ms": lat})
+        results.append({"ovpn": name, "host": host, "ip": ip,
+                        "direkt_gemessen": route_added, "reachable": lat is not None, "latency_ms": lat})
     ranked = sorted([r for r in results if r.get("reachable")], key=lambda x: x["latency_ms"])
     active = os.path.basename(db.get_setting("vpn_ovpn_path", ""))
     return {"ok": True, "fastest": ranked[0]["ovpn"] if ranked else None,
             "active": active, "results": results}
+
+
+# ── Weg 2: Zweiter Tunnel (tun1) – echter Durchsatz OHNE Stream-Stopp ────────
+# Opt-in/manuell. tun0 (Haupt-Tunnel + alle Streams) bleibt UNBERÜHRT: der zweite
+# Tunnel startet mit route-noexec/route-nopull (fasst die Haupt-Routing-Tabelle
+# NICHT an); nur die Messung (Quelle = tun1-IP) wird per Policy-Routing durch tun1
+# geleitet. Läuft build-blind → viel Schritt-Logging fürs Live-Debuggen bei Sven.
+DUAL_TABLE = 201
+_dual_lock = asyncio.Lock()
+_dual_process: Optional[subprocess.Popen] = None
+
+
+def _dual_dev_ip(dev: str) -> str:
+    try:
+        r = subprocess.run(["ip", "addr", "show", dev], capture_output=True, text=True, timeout=2)
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("inet "):
+                return line.split()[1].split("/")[0]
+    except Exception:
+        pass
+    return ""
+
+
+def _dual_sh(args, timeout=6):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+
+def _dual_cleanup(server_ip: str):
+    """Zweiten Tunnel + ALLE temporären Routen/Regeln garantiert abräumen (blockierend)."""
+    global _dual_process
+    p = _dual_process
+    _dual_process = None
+    if p is not None:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+        try:
+            p.wait(timeout=8)
+        except Exception:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    tun1_ip = _dual_dev_ip("tun1")
+    if tun1_ip:
+        _dual_sh(["ip", "rule", "del", "from", tun1_ip, "table", str(DUAL_TABLE)])
+    _dual_sh(["ip", "route", "flush", "table", str(DUAL_TABLE)])
+    if server_ip:
+        _dual_sh(["ip", "route", "del", f"{server_ip}/32"])
+    _dual_sh(["ip", "link", "del", "tun1"])
+
+
+async def _dual_dl_bytes(client, url) -> int:
+    total = 0
+    try:
+        async with client.stream("GET", url, timeout=httpx.Timeout(5, read=12),
+                                 follow_redirects=True) as resp:
+            if resp.status_code in (200, 206):
+                async for chunk in resp.aiter_bytes(65536):
+                    total += len(chunk)
+    except Exception:
+        pass
+    return total
+
+
+async def _dual_measure_throughput(tun1_ip: str, streams: int = 3, segs: int = 2) -> dict:
+    """Anbieter-Durchsatz GEBUNDEN an tun1 messen (egress über den zweiten Tunnel)."""
+    import time as _t
+    pool = _iptv_channel_pool(max(streams * 4, 12))
+    if not pool:
+        return {"ok": False, "error": "kein Kanal"}
+    seglists = [s for s in await asyncio.gather(
+        *[_iptv_segment_list(c, segs) for c in pool[:streams]]) if s]
+    if not seglists:
+        return {"ok": False, "error": "keine Segmente"}
+    client = make_iptv_client(ssrf_guard=True, follow_redirects=True,
+                              transport=httpx.AsyncHTTPTransport(local_address=tun1_ip),
+                              timeout=httpx.Timeout(6, read=15))
+    try:
+        async def one(urls):
+            tot = 0
+            for u in urls:
+                tot += await _dual_dl_bytes(client, u)
+            return tot
+        start = _t.monotonic()
+        parts = await asyncio.gather(*[one(sl) for sl in seglists])
+        wall = _t.monotonic() - start
+        good = [b for b in parts if b > 30_000]
+        tb = sum(good)
+        return {"ok": bool(good),
+                "mbps_total": round((tb * 8) / (wall * 1_000_000), 1) if wall > 0 else 0,
+                "streams_ok": len(good)}
+    finally:
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+
+
+async def _dual_measure_one(candidate_path: str) -> dict:
+    """Einen Kandidaten via zweitem Tunnel messen. Räumt am Ende IMMER auf."""
+    global _dual_process
+    name = os.path.basename(candidate_path)
+    steps = []
+    host, port = _vpn_ovpn_remote(candidate_path)
+    if not host:
+        return {"ovpn": name, "ok": False, "error": "keine remote-Adresse"}
+    ip = host if _is_ipv4(host) else None
+    if ip is None:
+        try:
+            infos = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET)
+            ip = infos[0][4][0] if infos else None
+        except Exception:
+            ip = None
+    if not ip:
+        return {"ovpn": name, "ok": False, "error": f"IP nicht auflösbar ({host})"}
+    gw, dev = _default_gateway()
+    if not (gw and dev):
+        return {"ovpn": name, "ok": False, "error": "LAN-Gateway nicht gefunden"}
+    server_ip = ip
+    try:
+        # Config-Kopie OHNE 'remote'-Zeilen – wir erzwingen die IP per CLI (kein VPN-über-VPN)
+        with open(candidate_path, "r", encoding="utf-8", errors="ignore") as f:
+            cfg = "\n".join(l for l in f.read().splitlines() if not l.strip().startswith("remote "))
+        dual_cfg = os.path.join(VPN_OVPN_DIR, "dual.ovpn")
+        with open(dual_cfg, "w") as f:
+            f.write(cfg + "\n")
+        # 1) Direktroute zum Kandidaten (Zweittunnel geht NICHT durch tun0)
+        await asyncio.to_thread(_dual_sh, ["ip", "route", "replace", f"{server_ip}/32", "via", gw, "dev", dev])
+        steps.append("route /32 gesetzt")
+        # 2) Zweiten OpenVPN starten – fasst die Haupt-Routing-Tabelle NICHT an
+        cmd = ["openvpn", "--config", dual_cfg, "--dev", "tun1",
+               "--route-noexec", "--route-nopull",
+               "--pull-filter", "ignore", "redirect-gateway",
+               "--remote", server_ip, str(port),
+               "--auth-user-pass", VPN_AUTH_FILE]
+        _dual_process = await asyncio.to_thread(
+            lambda: subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, bufsize=1))
+        steps.append("openvpn tun1 gestartet")
+        # 3) auf 'Initialization Sequence Completed' + tun1-IP warten (~25s)
+        up = False
+        log_tail = []
+        for _ in range(60):
+            line = await asyncio.to_thread(_dual_process.stdout.readline)
+            if not line:
+                if _dual_process.poll() is not None:
+                    break
+                continue
+            log_tail = (log_tail + [line.rstrip()])[-8:]
+            if "Initialization Sequence Completed" in line:
+                up = True
+                break
+        tun1_ip = _dual_dev_ip("tun1")
+        if not (up and tun1_ip):
+            return {"ovpn": name, "ok": False, "error": "Zweittunnel kam nicht hoch",
+                    "steps": steps, "log": log_tail}
+        steps.append(f"tun1 up ({tun1_ip})")
+        # 4) Policy-Routing: NUR Pakete aus tun1 → durch tun1 (isoliert, Streams unberührt)
+        await asyncio.to_thread(_dual_sh, ["ip", "route", "replace", "default", "dev", "tun1", "table", str(DUAL_TABLE)])
+        await asyncio.to_thread(_dual_sh, ["ip", "rule", "add", "from", tun1_ip, "table", str(DUAL_TABLE)])
+        steps.append("policy-routing gesetzt")
+        # 5) Durchsatz durch tun1 messen
+        m = await _dual_measure_throughput(tun1_ip)
+        steps.append("gemessen")
+        return {"ovpn": name, "ok": bool(m.get("ok")), "tun1_ip": tun1_ip,
+                "mbps_total": m.get("mbps_total"), "streams_ok": m.get("streams_ok"),
+                "error": m.get("error"), "steps": steps}
+    except Exception as e:
+        return {"ovpn": name, "ok": False, "error": f"Ausnahme: {e}", "steps": steps}
+    finally:
+        await asyncio.to_thread(_dual_cleanup, server_ip)
+
+
+@admin_app.post("/api/vpn/dual-compare")
+async def vpn_dual_compare(_=Depends(check_admin)):
+    """Weg 2 (opt-in/manuell): misst den ECHTEN Durchsatz jedes Servers über einen
+    ZWEITEN Tunnel (tun1), während tun0 + laufende Streams unberührt weiterlaufen."""
+    files = _vpn_list_ovpn_files()
+    if not files:
+        return {"ok": False, "error": "Keine .ovpn hochgeladen"}
+    if _dual_lock.locked():
+        return {"ok": False, "error": "Ein Zweittunnel-Vergleich läuft bereits"}
+    async with _dual_lock:
+        results = []
+        for path in files:
+            results.append(await _dual_measure_one(path))
+    ranked = sorted([r for r in results if r.get("ok") and r.get("mbps_total")],
+                    key=lambda x: x["mbps_total"], reverse=True)
+    return {"ok": True, "fastest": ranked[0]["ovpn"] if ranked else None,
+            "active": os.path.basename(db.get_setting("vpn_ovpn_path", "")), "results": results}

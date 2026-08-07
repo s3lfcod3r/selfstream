@@ -1,6 +1,20 @@
 # Changelog
 
+## v1.30
+
+### Neu: Durchsatz-Vergleich über zweiten Tunnel (Weg 2, experimentell/opt-in)
+- Neuer Knopf „🔀 Durchsatz-Vergleich (Zweittunnel)": misst den ECHTEN Anbieter-
+  Durchsatz jedes VPN-Servers über einen ZWEITEN, parallelen Tunnel (tun1) – der
+  Haupt-Tunnel (tun0) + alle laufenden Streams bleiben unberührt. Sicher gebaut:
+  zweiter Tunnel mit route-noexec/route-nopull (fasst die Haupt-Routing-Tabelle
+  nicht an); nur die Messung (Quelle = tun1-IP) läuft per Policy-Routing durch tun1.
+  Manuell/opt-in, mit Schritt-Logging. Endpunkt `POST /api/vpn/dual-compare`.
+- Weg-1-Genauigkeit: Server-Hostnamen werden jetzt zuerst zur IP aufgelöst, damit
+  die stream-sichere Direktroute greift und die Latenz wirklich VON DER BOX gemessen
+  wird (nicht durchs aktuelle Tunnel).
+
 ## v1.29
+
 
 ### Neu: Server-Latenz prüfen OHNE Stream-Unterbrechung (Weg 1)
 - Neuer Knopf „🔍 Server-Latenz prüfen (stört nichts)" im VPN-Bereich: misst die
