@@ -7090,6 +7090,11 @@ def _canary_history_add(entry: dict):
         pass
 
 
+def _passive_to_smooth(level) -> str:
+    """Passives Qualitäts-Level (aus echtem Zuschauer-Verkehr) → Flüssigkeits-Level."""
+    return {"ok": "ok", "slow": "knapp", "bad": "ruckelt"}.get(level, "unbekannt")
+
+
 async def _iptv_segments_with_dur(ch_url: str, n: int = 3) -> list:
     """Erste n Segmente eines Kanals MIT Spieldauer (aus #EXTINF) → [(url, dauer_s)].
     Für die Puffer-Reserve brauchen wir die Spielzeit, nicht nur die URL."""
@@ -7205,16 +7210,29 @@ async def _canary_watch():
             if interval_h > 0 and _canary_last_run and (now - _canary_last_run) < interval_h * 3600:
                 continue   # Intervall-Modus: noch nicht fällig
             _canary_last_run = now
-            res = await _canary_fetch_once()
+            if _viewer_count() > 0:
+                # Zuschauer da → DEREN echte Segmente sind die Messung (passive Probe).
+                # Kein eigener Abruf → keine Line belegt, keine Konkurrenz.
+                ph = _passive_health()
+                res = {"ok": ph.get("level") is not None, "channel": "Zuschauer-Verkehr",
+                       "got": None, "of": None, "from_viewers": True, "yielded": False,
+                       "reserve_ratio": None, "smooth_level": _passive_to_smooth(ph.get("level")),
+                       "passive_level": ph.get("level"), "mbps": ph.get("mbps"),
+                       "median_s": ph.get("median_s")}
+            else:
+                # Niemand schaut → selbst ein paar Segmente holen (sonst kein Signal).
+                res = await _canary_fetch_once()
             res["ts"] = int(time.time())
             res["mode"] = mode
             _canary_status = res
-            if res.get("got", 0) > 0:   # nur echte Messungen (nicht reine „pausiert"-Zyklen)
+            # In den Verlauf: echte Selbst-Messung (got>0) ODER Zuschauer-Messung mit Werten.
+            _real = ((res.get("got") or 0) > 0) or (res.get("from_viewers") and res.get("mbps") is not None)
+            if _real:
                 _canary_history_add({
                     "ts": res["ts"], "reserve": res.get("reserve_ratio"),
                     "level": res.get("smooth_level"), "got": res.get("got"),
                     "of": res.get("of"), "mbps": res.get("mbps"),
-                    "median_s": res.get("median_s"),
+                    "median_s": res.get("median_s"), "from_viewers": bool(res.get("from_viewers")),
                 })
             # Modus 'act': bei 0 Zuschauern + schlechter Qualität selbst auf den besten
             if (mode == "act" and _viewer_count() == 0

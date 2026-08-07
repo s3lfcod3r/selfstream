@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.53
+
+### Canary nutzt Zuschauer-Segmente (kein doppeltes Messen)
+- Sind Zuschauer aktiv, misst der Canary jetzt NUR deren echte Segmente (passive Probe) –
+  KEIN eigener Abruf mehr → belegt keine Line, keine Konkurrenz. Status zeigt
+  „Quelle: echter Zuschauer-Verkehr".
+- Nur wenn NIEMAND schaut, holt der Canary selbst 3 Test-Segmente (Reserve-Metrik).
+- Statistik: Zuschauer-Messungen erscheinen mit „👥 User" statt Segment-Zähler.
+
+
 ## v1.52
 
 ### Canary schont die Lines noch besser (sequenziell + pro Segment prüfen)
