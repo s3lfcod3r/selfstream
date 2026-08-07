@@ -6709,17 +6709,28 @@ async def _iptv_segments_with_dur(ch_url: str, n: int = 3) -> list:
         return []
 
 
-def _reserve_level(ratio) -> str:
-    """Puffer-Reserve = Ladezeit ÷ Spielzeit je Segment. <1 = Player kommt mit."""
+def _reserve_level(ratio, got=None, of=None) -> str:
+    """Puffer-Reserve = Ladezeit ÷ Spielzeit je Segment. <1 = Player kommt mit.
+    FEHLENDE Segmente (got < of) zählen als Stocker – egal wie schnell der Rest kam."""
+    miss = (of - got) if (of is not None and got is not None) else 0
+    if of and got == 0:
+        return "ruckelt"                 # gar nichts geladen → tot
     if ratio is None:
-        return "unbekannt"
-    if ratio < 0.5:
-        return "fluessig"    # dicke Reserve – seidenweich
-    if ratio < 0.85:
-        return "ok"          # solide Reserve
-    if ratio < 1.0:
-        return "knapp"       # Ruckelgefahr – kaum Puffer
-    return "ruckelt"         # Segmente langsamer als Spielzeit → stockt
+        base = "unbekannt"
+    elif ratio < 0.5:
+        base = "fluessig"                # dicke Reserve – seidenweich
+    elif ratio < 0.85:
+        base = "ok"                      # solide Reserve
+    elif ratio < 1.0:
+        base = "knapp"                   # Ruckelgefahr – kaum Puffer
+    else:
+        base = "ruckelt"                 # Segmente langsamer als Spielzeit → stockt
+    if miss > 0:
+        if of and miss * 2 >= of:
+            return "ruckelt"             # ≥50% der Segmente fehlten
+        if base in ("fluessig", "ok", "unbekannt"):
+            return "knapp"               # fehlende Segmente → mind. Ruckelgefahr
+    return base
 
 
 async def _canary_fetch_once() -> dict:
@@ -6748,7 +6759,7 @@ async def _canary_fetch_once() -> dict:
     ph = _passive_health()
     host = ch.split("/")[2] if "://" in ch else ch
     return {"ok": got > 0, "channel": host, "got": got, "of": len(segs),
-            "reserve_ratio": reserve, "smooth_level": _reserve_level(reserve),
+            "reserve_ratio": reserve, "smooth_level": _reserve_level(reserve, got, len(segs)),
             "passive_level": ph.get("level"), "mbps": ph.get("mbps"),
             "median_s": ph.get("median_s")}
 

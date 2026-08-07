@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.41
+
+### Ruckel-Frühwarner: fehlende Segmente zählen jetzt als Stocker
+- Live-Test zeigte: Reserve meldete „flüssig" (0,47), obwohl 1 von 3 Segmenten NICHT kam.
+  Ein fehlendes Segment ruckelt aber garantiert. Fix: `_reserve_level(ratio, got, of)`
+  wertet Segment-Verluste mit — <100% geladen ⇒ mind. „knapp", ≥50% weg ⇒ „ruckelt".
+
+
 ## v1.40
 
 ### Ruckel-Frühwarner (Puffer-Reserve) im Canary + Browser-Player entfernt
