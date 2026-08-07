@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.38
+
+### Segment-URLs enden auf .ts (VLC/ffmpeg/iOS-kompatibel)
+- Verifiziert mit ffmpeg: die Segmente sind valides H.264 720p50 + AAC und dekodieren
+  sauber (288 Frames/5,75s) – Stream einwandfrei. Strenge Player (VLC/ffmpeg/iOS-nativ)
+  lehnten aber die alten `/api/preview/seg?u=` URLs ab (keine .ts-Endung).
+- Segment-URLs jetzt als `/api/preview/seg/<b64>.ts` (Endung im Pfad). Neue Route
+  `GET /api/preview/seg/{blob}`; Alt-Route `?u=` bleibt (Abwärtskompat.). Damit lässt
+  sich der Stream auch extern (VLC) öffnen und mit ffmpeg verifizieren.
+
+
 ## v1.37
 
 ### Live-Diagnose im Player

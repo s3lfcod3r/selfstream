@@ -6878,9 +6878,13 @@ async def preview_playlist(idx: int = 0, pt: str = "", x_admin_token: str = Head
 
     def _tok(raw_url: str) -> str:
         absu = raw_url if raw_url.startswith("http") else urllib.parse.urljoin(base_url, raw_url)
-        q = "/api/preview/seg?u=" + base64.urlsafe_b64encode(absu.encode()).decode()
+        # WICHTIG: URL endet auf .ts, damit strenge Player (VLC/ffmpeg/iOS-nativ) das
+        # Segment akzeptieren (sonst „not in allowed_segment_extensions"). b64 ohne
+        # Padding (=) → sauber im Pfad.
+        b = base64.urlsafe_b64encode(absu.encode()).decode().rstrip("=")
+        q = "/api/preview/seg/" + b + ".ts"
         if pt:  # Preview-Token durchreichen, damit auch native Player Segmente laden
-            q += "&pt=" + pt
+            q += "?pt=" + pt
         return q
 
     out = []
@@ -6895,19 +6899,18 @@ async def preview_playlist(idx: int = 0, pt: str = "", x_admin_token: str = Head
     return Response(content="\n".join(out), media_type="application/vnd.apple.mpegurl")
 
 
-@admin_app.get("/api/preview/seg")
-async def preview_seg(u: str, pt: str = "", x_admin_token: str = Header(None)):
-    """Ein Segment (bzw. Key) durch SelfStream/VPN holen und ausliefern."""
+async def _preview_deliver_segment(b64: str) -> Response:
+    """b64 (urlsafe, evtl. ohne Padding) → Original-URL dekodieren, Segment über den
+    VPN-Tunnel holen und mit passendem media_type ausliefern. Loop-sicher (frischer Client)."""
     import base64
-    if not _preview_authed(pt, x_admin_token):
-        raise HTTPException(status_code=403, detail="nicht autorisiert")
+    b = b64
+    b += "=" * (-len(b) % 4)  # Padding wieder anfügen
     try:
-        url = base64.urlsafe_b64decode(u.encode()).decode()
+        url = base64.urlsafe_b64decode(b.encode()).decode()
     except Exception:
         raise HTTPException(status_code=400, detail="ungültige URL")
     if not url.startswith("http"):
         raise HTTPException(status_code=400, detail="ungültige URL")
-    # Frischer Client (Loop-sicher, s.o.); Segment läuft über den VPN-Tunnel.
     try:
         async with make_iptv_client(timeout=httpx.Timeout(6, read=15), follow_redirects=True) as client:
             r = await client.get(url)
@@ -6923,6 +6926,23 @@ async def preview_seg(u: str, pt: str = "", x_admin_token: str = Header(None)):
     low = url.lower()
     mt = "video/mp4" if (".m4s" in low or ".mp4" in low) else "video/mp2t"
     return Response(content=data, media_type=mt)
+
+
+@admin_app.get("/api/preview/seg/{blob}")
+async def preview_seg_ts(blob: str, pt: str = "", x_admin_token: str = Header(None)):
+    """Segment über .ts-Pfad (VLC/ffmpeg/iOS-nativ akzeptieren nur Endungen sie kennen)."""
+    if not _preview_authed(pt, x_admin_token):
+        raise HTTPException(status_code=403, detail="nicht autorisiert")
+    b = blob[:-3] if blob.endswith(".ts") else blob
+    return await _preview_deliver_segment(b)
+
+
+@admin_app.get("/api/preview/seg")
+async def preview_seg(u: str, pt: str = "", x_admin_token: str = Header(None)):
+    """Alt-Route (Query-Variante, Abwärtskompat.)."""
+    if not _preview_authed(pt, x_admin_token):
+        raise HTTPException(status_code=403, detail="nicht autorisiert")
+    return await _preview_deliver_segment(u)
 
 
 @admin_app.post("/api/vpn/switch")
