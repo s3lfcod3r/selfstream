@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.34
+
+### Fix: Canary-Player läuft jetzt komplett intern + stabil
+- **hls.js self-hosted** statt vom CDN (`/hls.min.js`, in SelfStream integriert) – der
+  Player öffnet keinen externen Dienst mehr und funktioniert auch, wenn das Netz CDNs
+  blockt. Kein „konnte nicht geladen werden"-Fehler mehr.
+- **Cross-Event-Loop-Bug behoben:** `/api/preview/playlist.m3u8` und `/api/preview/seg`
+  nutzten den geteilten HTTP-Client (an den Proxy-Loop gebunden) → sporadisch 502
+  „Event bound to a different event loop". Jetzt frischer `make_iptv_client` je Anfrage
+  (loop-sicher). Läuft weiterhin über den VPN-Tunnel (OS-Routing).
+
 ## v1.33
 
 ### Neu: Canary-Browser-Player (③) – selbst zusehen

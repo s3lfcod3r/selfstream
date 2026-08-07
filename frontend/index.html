@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.33</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.34</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.33</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.34</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1253,7 +1253,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </div>
               <video id="canary-video" controls playsinline style="display:none;width:100%;max-width:640px;margin-top:12px;background:#000;border-radius:6px;"></video>
               <div id="canary-player-msg" style="margin-top:8px;font-size:11px;color:var(--text2);"></div>
-              <div class="form-hint" style="margin-top:8px;">Spielt einen Kanal <strong>durch SelfStream</strong> (also durch den VPN-Tunnel) direkt hier ab – so siehst du mit eigenen Augen, ob's flüssig läuft. Zählt kurz als <strong>ein Zuschauer</strong>; mit „Stop" wieder frei. Braucht Internet fürs Laden des Players.</div>
+              <div class="form-hint" style="margin-top:8px;">Spielt einen Kanal <strong>durch SelfStream</strong> (also durch den VPN-Tunnel) direkt hier ab – so siehst du mit eigenen Augen, ob's flüssig läuft. Zählt kurz als <strong>ein Zuschauer</strong>; mit „Stop" wieder frei. Player ist in SelfStream integriert (kein externer Dienst).</div>
             </div>
           </div>
 
@@ -4559,9 +4559,9 @@ function _loadHlsLib() {
   return new Promise((resolve, reject) => {
     if (window.Hls) return resolve(window.Hls);
     const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
+    s.src = '/hls.min.js';  // self-hosted (kein CDN) – läuft komplett intern
     s.onload = () => window.Hls ? resolve(window.Hls) : reject(new Error('hls.js nicht verfügbar'));
-    s.onerror = () => reject(new Error('Player-Bibliothek (hls.js) konnte nicht geladen werden – Internet/CDN blockiert?'));
+    s.onerror = () => reject(new Error('Player-Bibliothek (hls.js) konnte nicht geladen werden'));
     document.head.appendChild(s);
   });
 }

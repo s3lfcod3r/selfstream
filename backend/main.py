@@ -4381,6 +4381,13 @@ async def logo():
     # Gestapeltes Logo (Setup-Seite, Fehler-Clips).
     return FileResponse(f"{FRONTEND}/logo.png", media_type="image/png")
 
+@admin_app.get("/hls.min.js")
+async def hls_lib():
+    from fastapi.responses import FileResponse
+    # hls.js SELF-HOSTED (kein CDN) – der Canary-Browser-Player läuft komplett intern,
+    # auch wenn das SelfStream-Netz externe CDNs blockt.
+    return FileResponse(f"{FRONTEND}/hls.min.js", media_type="application/javascript")
+
 @admin_app.get("/icon.png")
 async def icon():
     from fastapi.responses import FileResponse
@@ -6811,27 +6818,33 @@ async def preview_playlist(idx: int = 0, _=Depends(check_admin)):
     if idx < 0 or idx >= len(pool):
         idx = 0
     ch = pool[idx]
-    client = await _get_iptv_client()
+    # WICHTIG: frischer Client (nicht der geteilte _get_iptv_client) – Admin- und
+    # Proxy-App laufen in getrennten Event-Loops; der geteilte Client wäre an den
+    # Proxy-Loop gebunden ("Event bound to a different event loop"). Läuft weiterhin
+    # über den VPN-Tunnel (OS-Routing, redirect-gateway).
     try:
-        r = await client.get(ch, follow_redirects=True)
+        async with make_iptv_client(timeout=httpx.Timeout(6, read=10), follow_redirects=True) as client:
+            r = await client.get(ch)
+            if r.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"Kanal HTTP {r.status_code}")
+            text, base_url = r.text, str(r.url)
+            # Master-Playlist (mehrere Qualitäten)? → erste Variante folgen
+            if "#EXT-X-STREAM-INF" in text:
+                for line in text.splitlines():
+                    s = line.strip()
+                    if s and not s.startswith("#"):
+                        variant = s if s.startswith("http") else urllib.parse.urljoin(base_url, s)
+                        try:
+                            r2 = await client.get(variant)
+                            if r2.status_code == 200:
+                                text, base_url = r2.text, str(r2.url)
+                        except Exception:
+                            pass
+                        break
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Kanal nicht erreichbar: {e}")
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Kanal HTTP {r.status_code}")
-    text, base_url = r.text, str(r.url)
-    # Master-Playlist (mehrere Qualitäten)? → erste Variante folgen
-    if "#EXT-X-STREAM-INF" in text:
-        for line in text.splitlines():
-            s = line.strip()
-            if s and not s.startswith("#"):
-                variant = s if s.startswith("http") else urllib.parse.urljoin(base_url, s)
-                try:
-                    r2 = await client.get(variant, follow_redirects=True)
-                    if r2.status_code == 200:
-                        text, base_url = r2.text, str(r2.url)
-                except Exception:
-                    pass
-                break
 
     def _tok(raw_url: str) -> str:
         absu = raw_url if raw_url.startswith("http") else urllib.parse.urljoin(base_url, raw_url)
@@ -6859,8 +6872,15 @@ async def preview_seg(u: str, _=Depends(check_admin)):
         raise HTTPException(status_code=400, detail="ungültige URL")
     if not url.startswith("http"):
         raise HTTPException(status_code=400, detail="ungültige URL")
+    # Frischer Client (Loop-sicher, s.o.); Segment läuft über den VPN-Tunnel.
     try:
-        data, _elapsed, _cached = await _get_segment(url, get_hls_settings())
+        async with make_iptv_client(timeout=httpx.Timeout(6, read=15), follow_redirects=True) as client:
+            r = await client.get(url)
+            if r.status_code not in (200, 206):
+                raise HTTPException(status_code=502, detail=f"Segment HTTP {r.status_code}")
+            data = r.content
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
     if not data:
