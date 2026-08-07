@@ -623,6 +623,31 @@ class Database:
                 event.get("size_kb", 0), event.get("mbps", 0),
                 event.get("seg", "")
             ))
+        # Aufbewahrung erzwingen: gelegentlich alte Zeilen (>30 Tage) löschen,
+        # damit die Tabelle nicht unbegrenzt wächst (nicht nur beim Lesen filtern).
+        self._seg_add_count = getattr(self, "_seg_add_count", 0) + 1
+        if self._seg_add_count % 500 == 0:
+            try:
+                self.purge_segment_events(30)
+            except Exception:
+                pass
+
+    def purge_segment_events(self, retention_days: int = 30):
+        """Segment-Events älter als N Tage löschen (echte Aufbewahrungsgrenze)."""
+        d = max(1, min(int(retention_days), 366))
+        cutoff = time.time() - d * 86400
+        with self.conn() as con:
+            con.execute("DELETE FROM segment_events WHERE ts < ?", (cutoff,))
+
+    def get_segment_event_users(self, days: int = 30) -> List[str]:
+        """Verschiedene User-Namen mit Events im Zeitraum (für den Filter)."""
+        cutoff = time.time() - max(1, int(days)) * 86400
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT DISTINCT user_name FROM segment_events WHERE ts >= ? AND user_name != '' ORDER BY user_name",
+                (cutoff,)
+            ).fetchall()
+            return [r[0] for r in rows]
 
     def get_segment_events(self, limit: int = 10000, days: int = 30, include_ok: bool = True) -> List[Dict]:
         cutoff = time.time() - (days * 86400)

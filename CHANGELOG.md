@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.43
+
+### User-Filter + echte 30-Tage-Aufbewahrung für Qualitäts-Events
+- Buffering-/Qualitäts-Events (pro User + Kanal, mit Zeit) haben jetzt einen
+  **User-Filter** (Dropdown „Alle User" / einzelner User) neben dem Tages-Filter.
+- **Echte 30-Tage-Löschung:** `purge_segment_events(30)` beim Start UND alle 500 Events
+  (vorher wurden Zeilen nie gelöscht, nur beim Lesen gefiltert → Tabelle wuchs endlos).
+- Neuer Endpunkt `/api/segment-events/users`.
+
+
 ## v1.42
 
 ### Canary-Statistik-Popup + 24/7 leichter einstellbar

@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.42</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.43</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.42</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.43</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1455,6 +1455,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="7">7 Tage</option>
                 <option value="30" selected>30 Tage</option>
                 <option value="90">90 Tage</option>
+              </select>
+              <select id="seg-user" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="window._segEventsPage=1;renderSegEvents()" title="Nach User filtern">
+                <option value="">Alle User</option>
               </select>
               <select id="seg-limit" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="window._segEventsPage=1;renderSegEvents()">
                 <option value="25">25 / Seite</option>
@@ -4726,6 +4729,14 @@ async function loadSegmentEvents() {
 
   // Events table - keep current page on auto-refresh
   window._segEventsAll = events;
+  // User-Filter-Dropdown aus den geladenen Events füllen (Auswahl beibehalten)
+  const userSel = document.getElementById('seg-user');
+  if (userSel) {
+    const keep = userSel.value;
+    const users = [...new Set((events || []).map(e => e.user_name || e.user).filter(Boolean))].sort();
+    userSel.innerHTML = '<option value="">Alle User</option>' + users.map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
+    if (keep && users.includes(keep)) userSel.value = keep;
+  }
   if (!window._segEventsPage || window._segManualReload) {
     window._segEventsPage = 1;
     window._segManualReload = false;
@@ -4737,7 +4748,9 @@ function renderSegEvents() {
   const el = document.getElementById('tr-seg-events');
   const pager = document.getElementById('tr-seg-pager');
   if (!el) return;
-  const events = window._segEventsAll || [];
+  let events = window._segEventsAll || [];
+  const userFilter = document.getElementById('seg-user')?.value || '';
+  if (userFilter) events = events.filter(e => (e.user_name || e.user) === userFilter);
   const pageSize = parseInt(document.getElementById('seg-limit')?.value || '100');
   const totalPages = Math.max(1, Math.ceil(events.length / pageSize));
   window._segEventsPage = Math.min(window._segEventsPage || 1, totalPages);

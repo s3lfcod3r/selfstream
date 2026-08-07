@@ -383,6 +383,7 @@ async def startup():
     db.migrate_watch_logs()
     try:
         db.purge_diagnostic_logs(30)
+        db.purge_segment_events(30)   # User-Qualitäts-Events max. 30 Tage
     except Exception:
         pass
     _generate_error_video()
@@ -5358,6 +5359,14 @@ def get_segment_events(days: int = 30, limit: int = 500, debug: int = 0, _=Depen
         if not include_ok:
             evs = [e for e in evs if e.get("type") != "ok"]
         return evs
+
+@admin_app.get("/api/segment-events/users")
+def get_segment_event_users(days: int = 30, _=Depends(check_admin)):
+    """Liste der User mit Qualitäts-Events im Zeitraum (für den Filter)."""
+    try:
+        return db.get_segment_event_users(days=days)
+    except Exception:
+        return sorted({e.get("user", "") for e in _segment_events if e.get("user")})
 
 @admin_app.get("/api/segment-events/stats")
 def get_segment_stats(days: int = 30, _=Depends(check_admin)):
