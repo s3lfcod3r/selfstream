@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.48
+
+### Fix: WireGuard-DNS (behebt Segment-Aussetzer)
+- Canary zeigte über WireGuard top Durchsatz (~145 Mbit/s, 0,2s) aber nur 1-2/3 Segmente
+  → flaky Container-DNS. Jetzt setzt SelfStream beim WireGuard-Start Mullvads DNS
+  (10.64.0.1) + Quad9-Fallback und stellt das Original beim Teardown wieder her.
+
+
 ## v1.47
 
 ### Fix: WireGuard startet jetzt (manuell statt wg-quick)

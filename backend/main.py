@@ -4687,13 +4687,14 @@ def _vpn_rotate_ovpn() -> str:
 
 
 _wg_saved_default = None   # (gateway, dev) der Original-Default-Route vor WireGuard
+_wg_saved_resolv = None    # Original /etc/resolv.conf vor WireGuard
 
 
 def _wg_down():
-    """WireGuard-Interface abbauen (löscht seine Routen/Adressen) und die Original-
-    Default-Route wiederherstellen – sonst hätte der Container nach dem Teardown
-    kein Internet mehr (wir haben default auf wg0 umgebogen)."""
-    global _wg_saved_default
+    """WireGuard-Interface abbauen (löscht seine Routen/Adressen), Original-Default-Route
+    UND DNS wiederherstellen – sonst hätte der Container nach dem Teardown kein Internet
+    bzw. Mullvad-DNS (nur im Tunnel erreichbar) mehr."""
+    global _wg_saved_default, _wg_saved_resolv
     try:
         subprocess.run(["ip", "link", "del", "dev", WG_IFACE], capture_output=True, timeout=10)
     except Exception:
@@ -4706,6 +4707,13 @@ def _wg_down():
         except Exception:
             pass
         _wg_saved_default = None
+    if _wg_saved_resolv is not None:
+        try:
+            with open("/etc/resolv.conf", "w") as rf:
+                rf.write(_wg_saved_resolv)
+        except Exception:
+            pass
+        _wg_saved_resolv = None
 
 
 def _wg_parse_conf(text: str) -> tuple:
@@ -4789,6 +4797,19 @@ def _wg_up(conf_path: str) -> dict:
             _run(["ip", "route", "add", f"{endpoint_ip}/32", "via", gw, "dev", dev], check=False)
             _run(["ip", "route", "add", "192.168.0.0/16", "via", gw, "dev", dev], check=False)
         _run(["ip", "route", "replace", "default", "dev", WG_IFACE])
+        # DNS auf Mullvad setzen (zuverlässig DURCH den Tunnel) + Quad9 als Fallback.
+        # Behebt Segment-Aussetzer durch flaky Container-DNS. Original für Teardown sichern.
+        global _wg_saved_resolv
+        try:
+            with open("/etc/resolv.conf") as rf:
+                _wg_saved_resolv = rf.read()
+        except Exception:
+            _wg_saved_resolv = None
+        try:
+            with open("/etc/resolv.conf", "w") as rf:
+                rf.write("nameserver 10.64.0.1\nnameserver 9.9.9.9\n")
+        except Exception:
+            pass   # /etc/resolv.conf read-only → bestehende DNS bleibt
     except Exception as e:
         _wg_down()
         return {"ok": False, "error": str(e)[:400]}
