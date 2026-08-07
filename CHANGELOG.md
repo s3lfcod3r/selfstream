@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.59
+
+### Alarm-Mail am VPN vorbei + WireGuard-Selbstreparatur
+- **E-Mail immer direkt (nicht durch den Tunnel):** Die Alarm-/Test-/Heartbeat-Mail wird jetzt
+  über eine stream-sichere Direktroute zum SMTP-Server (übers echte LAN-Gateway) verschickt –
+  am VPN-Tunnel vorbei. Das löst zwei Probleme: (1) Mail-Provider wie Strato blocken oft VPN-IPs
+  beim SMTP; (2) bei totem Tunnel käme die Mail sonst gar nicht raus – genau dann, wenn man den
+  Alarm braucht. Nur aktiv, wenn WireGuard läuft; ohne VPN unverändert direkt.
+- **WireGuard-Selbstreparatur (Handshake-Check):** Der Watchdog erkennt jetzt einen leise toten
+  WireGuard-Tunnel am **Handshake-Alter** (`wg show … latest-handshakes`, tot ab ~200 s ohne
+  frischen Handshake) – vorher sah `wg0` immer „oben" aus. Ehrlicher „VPN unten"-Status +
+  automatischer Neuaufbau.
+- **Ausweichen auf anderen Server jetzt auch für WireGuard:** Die Eskalation (mehrere Neustarts
+  erfolglos → anderer Server) rotiert bei WireGuard unter den `.conf`-Servern (vorher nur `.ovpn`).
+  Ein toter Mullvad-Server wird so automatisch gegen einen anderen getauscht.
+
+### Nur Anbieter-Verkehr durch den Tunnel – klargestellt
+- Anbieter (m3u/m3u8/HLS) und EPG laufen weiterhin durch den VPN-Tunnel; die einzige bewusste
+  Ausnahme ist jetzt die E-Mail (siehe oben). Admin-Zugriff aus dem LAN war schon immer direkt.
+
+
 ## v1.58
 
 ### Tages-Filter bei den Buffering-Ereignissen

@@ -4735,15 +4735,30 @@ def _vpn_list_all_configs() -> list:
 
 
 def _vpn_rotate_ovpn() -> str:
-    """Auf die nächste verfügbare .ovpn umschalten. Gibt den neuen Pfad zurück.
+    """Auf den nächsten verfügbaren Server umschalten. Gibt den neuen Pfad zurück.
 
     Ein Server, der gar nicht antwortet, wird durch Neustarts nicht besser –
     hier hilft nur ein anderer Server. Leerstring, wenn es keine Alternative gibt.
-    """
+    Bei WireGuard wird unter den .conf-Servern rotiert, sonst unter den .ovpn."""
+    current = db.get_setting("vpn_ovpn_path", "")
+    # WireGuard: unter den WireGuard-Configs rotieren (der aktive Server ist tot).
+    if _vpn_config_type(current) == "wireguard":
+        confs = [os.path.join(VPN_OVPN_DIR, f) for f in _vpn_list_all_configs()
+                 if _vpn_config_type(os.path.join(VPN_OVPN_DIR, f)) == "wireguard"]
+        if len(confs) < 2:
+            return ""
+        try:
+            idx = confs.index(current)
+        except ValueError:
+            idx = -1
+        nxt = confs[(idx + 1) % len(confs)]
+        if nxt == current:
+            return ""
+        db.set_setting("vpn_ovpn_path", nxt)
+        return nxt
     files = _vpn_list_ovpn_files()
     if len(files) < 2:
         return ""
-    current = db.get_setting("vpn_ovpn_path", "")
     try:
         idx = files.index(current)
     except ValueError:
@@ -5095,6 +5110,37 @@ def vpn_stop() -> dict:
     return {"ok": True}
 
 
+# Ab so vielen Sekunden ohne frischen WireGuard-Handshake gilt der Tunnel als tot.
+# WireGuard handshaket bei Verkehr etwa alle ~2 Min; da der Canary 24/7 Verkehr erzeugt,
+# bedeutet ein deutlich älterer Handshake: der Server antwortet nicht mehr.
+WG_HANDSHAKE_DEAD_SEC = 200
+
+
+def _wg_last_handshake_age() -> Optional[float]:
+    """Sekunden seit dem jüngsten WireGuard-Handshake (über alle Peers). None, wenn nicht
+    ermittelbar oder noch NIE ein Handshake war (frisch gestartet)."""
+    try:
+        r = subprocess.run(["wg", "show", WG_IFACE, "latest-handshakes"],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode != 0:
+            return None
+        newest = 0
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    ts = int(parts[-1])
+                except ValueError:
+                    continue
+                if ts > newest:
+                    newest = ts
+        if newest <= 0:
+            return None
+        return max(0.0, time.time() - newest)
+    except Exception:
+        return None
+
+
 def _vpn_healthy() -> tuple[bool, bool, str]:
     """Gesundheit des Tunnels prüfen. Gibt (gesund, prozess_läuft, tun_ip) zurück.
 
@@ -5107,9 +5153,14 @@ def _vpn_healthy() -> tuple[bool, bool, str]:
     "gesund" und griff bei echten Ausfällen nie ein. Blockierend (subprocess).
     """
     tun_ip = vpn_get_tun_ip()
-    # WireGuard hat KEINEN Prozess – gesund = Interface da + IP + als verbunden markiert.
+    # WireGuard hat KEINEN Prozess – Interface bleibt IMMER "oben", auch wenn der Server
+    # tot ist. Deshalb zusätzlich das Handshake-Alter prüfen: zu alt → Tunnel tot.
     if _vpn_config_type(db.get_setting("vpn_ovpn_path", "")) == "wireguard":
         up = _iface_exists(WG_IFACE) and bool(tun_ip) and _vpn_link_connected
+        if up:
+            age = _wg_last_handshake_age()
+            if age is not None and age > WG_HANDSHAKE_DEAD_SEC:
+                return (False, True, tun_ip)   # Interface + IP da, aber kein frischer Handshake
         return (up, up, tun_ip)
     proc_alive = _vpn_process is not None and _vpn_process.poll() is None
     return (proc_alive and bool(tun_ip) and _vpn_link_connected, proc_alive, tun_ip)
@@ -6418,9 +6469,50 @@ _health_good_streak = 0
 _alert_last_sent = 0.0           # time.monotonic() der letzten Problem-Mail
 
 
+def _mail_direct_routes_add(host: str) -> list:
+    """Für die Mail-Zustellung eine Direktroute zum SMTP-Server übers echte LAN-Gateway
+    setzen, damit die Mail NICHT durch den VPN-Tunnel geht, sondern über die normale
+    Leitung raus. Gründe: (1) Mail-Provider (z.B. Strato) blocken oft VPN/RZ-IPs beim
+    SMTP; (2) ist der Tunnel tot, käme die Alarm-Mail sonst gar nicht raus – genau dann,
+    wenn man sie braucht. Nur nötig/aktiv, wenn WireGuard läuft. Gibt die gesetzten IPs
+    zurück (zum Aufräumen). Gleiches stream-sicheres Verfahren wie bei der Latenz-Messung."""
+    if not _iface_exists(WG_IFACE):
+        return []   # kein Tunnel aktiv → Standardroute ist ohnehin direkt
+    gw, dev = (_wg_saved_default or _wg_default_gw())
+    if not (gw and dev):
+        return []
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(host, None, socket.AF_INET):
+            ips.add(info[4][0])
+    except Exception:
+        return []
+    added = []
+    for ip in ips:
+        try:
+            r = subprocess.run(["ip", "route", "replace", f"{ip}/32", "via", gw, "dev", dev],
+                               capture_output=True, timeout=5)
+            if r.returncode == 0:
+                added.append(ip)
+        except Exception:
+            pass
+    return added
+
+
+def _mail_direct_routes_del(ips: list):
+    for ip in ips or []:
+        try:
+            subprocess.run(["ip", "route", "del", f"{ip}/32"], capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+
 def _send_email(subject: str, body: str):
     """E-Mail über den konfigurierten SMTP-Server senden. Blockierend – via
-    to_thread rufen. Gibt (ok, fehler) zurück."""
+    to_thread rufen. Gibt (ok, fehler) zurück.
+
+    Die Mail geht bewusst AM VPN-TUNNEL VORBEI (Direktroute übers LAN-Gateway),
+    damit sie auch bei totem Tunnel rauskommt und nicht an VPN-IP-Blocks scheitert."""
     host = db.get_setting("smtp_host", "").strip()
     to = db.get_setting("alert_to", "").strip()
     if not host:
@@ -6440,6 +6532,7 @@ def _send_email(subject: str, body: str):
     msg["From"] = frm
     msg["To"] = to
     msg.set_content(body)
+    _direct_ips = _mail_direct_routes_add(host)   # Mail am Tunnel vorbei
     try:
         if sec == "ssl":
             with smtplib.SMTP_SSL(host, port, timeout=20, context=_ssl.create_default_context()) as s:
@@ -6458,6 +6551,8 @@ def _send_email(subject: str, body: str):
         return True, None
     except Exception as e:
         return False, str(e)
+    finally:
+        _mail_direct_routes_del(_direct_ips)
 
 
 def _selfcheck_status() -> dict:
