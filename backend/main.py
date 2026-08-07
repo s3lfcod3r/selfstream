@@ -6677,9 +6677,39 @@ async def vpn_dual_compare(_=Depends(check_admin)):
 # fast vollem Verbindungslimit (stiehlt keinem Zuschauer eine Verbindung).
 CANARY_CHECK = 30            # 24/7-Modus: alle 30s ein paar Segmente
 CANARY_ACT_COOLDOWN = 3600   # 'act': höchstens 1 Auto-Wechsel/Stunde
+CANARY_HISTORY_MAX = 500     # so viele Messungen im Verlauf behalten (für die Statistik)
 _canary_last_run = 0.0
 _canary_last_switch = 0.0
 _canary_status: dict = {}
+_canary_history: list = []   # Verlauf der Messungen (persistiert, überlebt Neustart)
+_canary_history_loaded = False
+
+
+def _canary_history_load():
+    """Verlauf aus den Settings laden (überlebt Container-Neustart)."""
+    global _canary_history, _canary_history_loaded
+    try:
+        raw = db.get_setting("canary_history", "")
+        _canary_history = json.loads(raw) if raw else []
+        if not isinstance(_canary_history, list):
+            _canary_history = []
+    except Exception:
+        _canary_history = []
+    _canary_history_loaded = True
+
+
+def _canary_history_add(entry: dict):
+    """Eine Messung in den Verlauf schreiben (gekappt) und persistieren."""
+    global _canary_history
+    if not _canary_history_loaded:
+        _canary_history_load()
+    _canary_history.append(entry)
+    if len(_canary_history) > CANARY_HISTORY_MAX:
+        _canary_history = _canary_history[-CANARY_HISTORY_MAX:]
+    try:
+        db.set_setting("canary_history", json.dumps(_canary_history))
+    except Exception:
+        pass
 
 
 async def _iptv_segments_with_dur(ch_url: str, n: int = 3) -> list:
@@ -6789,6 +6819,13 @@ async def _canary_watch():
             res["ts"] = int(time.time())
             res["mode"] = mode
             _canary_status = res
+            if res.get("ok"):
+                _canary_history_add({
+                    "ts": res["ts"], "reserve": res.get("reserve_ratio"),
+                    "level": res.get("smooth_level"), "got": res.get("got"),
+                    "of": res.get("of"), "mbps": res.get("mbps"),
+                    "median_s": res.get("median_s"),
+                })
             # Modus 'act': bei 0 Zuschauern + schlechter Qualität selbst auf den besten
             if (mode == "act" and _viewer_count() == 0
                     and res.get("passive_level") == "bad"
@@ -6810,7 +6847,7 @@ def get_canary(_=Depends(check_admin)):
     """Einstellungen + letzter Zustand des Selbst-Zuschauers."""
     return {
         "mode": db.get_setting("canary_mode", "off"),
-        "interval_h": _int_setting("canary_interval_h", 0, 0, 168),
+        "interval_h": _int_setting("canary_interval_h", 0, 0, 9999),
         "check_sec": CANARY_CHECK,
         "status": _canary_status or None,
     }
@@ -6824,10 +6861,55 @@ def set_canary(body: dict, _=Depends(check_admin)):
         db.set_setting("canary_mode", m if m in ("off", "observe", "act") else "off")
     if "interval_h" in body:
         try:
-            v = max(0, min(168, int(float(body["interval_h"]))))
+            v = max(0, min(9999, int(float(body["interval_h"]))))
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="Intervall 0–168 Stunden")
+            raise HTTPException(status_code=400, detail="Intervall 0–9999 Stunden")
         db.set_setting("canary_interval_h", str(v))
+    return {"ok": True}
+
+
+@admin_app.get("/api/vpn/canary/history")
+def get_canary_history(_=Depends(check_admin)):
+    """Verlauf + Statistik des Selbst-Zuschauers (für das Statistik-Popup)."""
+    if not _canary_history_loaded:
+        _canary_history_load()
+    hist = _canary_history
+    n = len(hist)
+    levels, reserves, mbps_list = {}, [], []
+    for e in hist:
+        lv = e.get("level") or "unbekannt"
+        levels[lv] = levels.get(lv, 0) + 1
+        if e.get("reserve") is not None:
+            reserves.append(e["reserve"])
+        if e.get("mbps") is not None:
+            mbps_list.append(e["mbps"])
+
+    def _avg(xs):
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    good = levels.get("fluessig", 0) + levels.get("ok", 0)
+    summary = {
+        "samples": n,
+        "levels": levels,
+        "smooth_pct": round(100 * good / n) if n else None,
+        "avg_reserve": _avg(reserves),
+        "worst_reserve": max(reserves) if reserves else None,
+        "avg_mbps": _avg(mbps_list),
+        "first_ts": hist[0]["ts"] if n else None,
+        "last_ts": hist[-1]["ts"] if n else None,
+    }
+    return {"summary": summary, "history": hist[-200:]}
+
+
+@admin_app.post("/api/vpn/canary/history/clear")
+def clear_canary_history(_=Depends(check_admin)):
+    """Verlauf zurücksetzen."""
+    global _canary_history
+    _canary_history = []
+    try:
+        db.set_setting("canary_history", "[]")
+    except Exception:
+        pass
     return {"ok": True}
 
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.42
+
+### Canary-Statistik-Popup + 24/7 leichter einstellbar
+- Neuer Knopf „📊 Statistik" beim Selbst-Zuschauer: Popup mit Verlauf der Messungen
+  (persistiert, überlebt Neustart): Zusammenfassung (% flüssig, Ø/schlechteste Reserve,
+  Ø Durchsatz, Ampel-Zählung), Balken-Verlauf und Tabelle. Endpunkte
+  `GET /api/vpn/canary/history` + `POST /api/vpn/canary/history/clear`.
+- Prüf-Intervall jetzt 0–9999 Stunden (0 = 24/7); Hinweis klarer: 0 = dauerhaft (alle 30s),
+  höhere Zahl = seltener.
+
+
 ## v1.41
 
 ### Ruckel-Frühwarner: fehlende Segmente zählen jetzt als Stocker
