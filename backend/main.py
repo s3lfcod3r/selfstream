@@ -1581,32 +1581,49 @@ def _passive_record(elapsed: float, nbytes: int, ok: bool):
 _outbound_samples: list = []   # [{"ts","elapsed","bytes"}]
 
 
-def _outbound_record(elapsed: float, nbytes: int):
+def _outbound_record(elapsed: float, nbytes: int, user: str = ""):
     """Auslieferungszeit eines Segments ans Gerät festhalten (O(1), hot path)."""
     try:
         if nbytes < 50_000:   # Mini-Chunks/Playlists ignorieren – zu verrauscht
             return
         _outbound_samples.append({"ts": time.time(), "elapsed": round(float(elapsed), 3),
-                                  "bytes": int(nbytes)})
+                                  "bytes": int(nbytes), "user": user or "?"})
         if len(_outbound_samples) > PASSIVE_MAX:
             del _outbound_samples[:len(_outbound_samples) - PASSIVE_MAX]
     except Exception:
         pass
 
 
+def _outbound_stats(samples: list) -> dict:
+    lat = [s["elapsed"] for s in samples]
+    median = _passive_pct(lat, 50)
+    tb = sum(s["bytes"] for s in samples)
+    tt = sum(s["elapsed"] for s in samples) or 0.001
+    mbps = round((tb * 8) / (tt * 1_000_000), 1)
+    return {"mbps": mbps, "median_s": round(median, 2) if median is not None else None,
+            "samples": len(samples)}
+
+
 def _outbound_health(window_sec: int = PASSIVE_WINDOW_SEC) -> dict:
-    """Ausliefer-Tempo ans Gerät (Median-Zeit + Durchsatz) der letzten window_sec."""
+    """Ausliefer-Tempo ans Gerät (Median-Zeit + Durchsatz), gesamt UND pro User.
+    Pro-User zeigt, ob die Verbindung zu EINEM Gerät (z.B. dessen 5G) der Flaschenhals
+    ist – wichtig, wenn jemand Probleme meldet: nur bei ihm oder bei allen?"""
     now = time.time()
     recent = [s for s in _outbound_samples if now - s["ts"] <= window_sec]
     if len(recent) < 3:
-        return {"mbps": None, "median_s": None, "samples": len(recent)}
-    lat = [s["elapsed"] for s in recent]
-    median = _passive_pct(lat, 50)
-    tb = sum(s["bytes"] for s in recent)
-    tt = sum(s["elapsed"] for s in recent) or 0.001
-    mbps = round((tb * 8) / (tt * 1_000_000), 1)
-    return {"mbps": mbps, "median_s": round(median, 2) if median is not None else None,
-            "samples": len(recent)}
+        return {"mbps": None, "median_s": None, "samples": len(recent), "per_user": []}
+    out = _outbound_stats(recent)
+    by_user: dict = {}
+    for s in recent:
+        by_user.setdefault(s.get("user", "?"), []).append(s)
+    per_user = []
+    for u, ss in by_user.items():
+        if len(ss) >= 2:
+            st = _outbound_stats(ss)
+            per_user.append({"user": u, "mbps": st["mbps"], "median_s": st["median_s"], "samples": st["samples"]})
+    per_user.sort(key=lambda x: (x["mbps"] if x["mbps"] is not None else 1e9))  # langsamste zuerst
+    out["per_user"] = per_user
+    return out
 
 
 def _passive_pct(values: list, pct: float):
@@ -3105,7 +3122,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                     yield data[i:i + chunk_size]
                 # Ausliefer-Zeit ans Gerät messen (→ USER-Strecke): die yield-Schleife
                 # blockt bei langsamem Client (Backpressure) → misst dessen echtes Tempo.
-                _outbound_record(time.time() - _out_t0, len(data))
+                _outbound_record(time.time() - _out_t0, len(data), user_name)
                 return
 
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])

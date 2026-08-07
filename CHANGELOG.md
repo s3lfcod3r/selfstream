@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.54
+
+### → USER-Strecke jetzt PRO USER
+- Die Auslieferung SelfStream → Gerät wird jetzt pro User gemessen. Im Buffering-Bereich
+  siehst du je User das Tempo (🔴 <15 = Geräte-Verbindung wahrscheinlich Flaschenhals,
+  z.B. dessen 5G · 🟡 <40 grenzwertig · 🟢 ok). Meldet jemand Probleme, siehst du sofort,
+  ob nur SEINE Auslieferung langsam ist (sein Netz/Gerät) oder alle (Server/Anbieter).
+- Ergänzt den bestehenden User-Filter der Buffering-Ereignisse (Anbieter-Strecke pro User).
+
+
 ## v1.53
 
 ### Canary nutzt Zuschauer-Segmente (kein doppeltes Messen)

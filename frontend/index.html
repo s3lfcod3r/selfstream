@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.53</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.54</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.53</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.54</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -4702,7 +4702,18 @@ async function loadSegmentEvents() {
   const outEl = document.getElementById('seg-outbound-val');
   if (outEl) {
     if (outbound && outbound.mbps != null) {
-      outEl.innerHTML = `<strong style="color:var(--teal);">${outbound.mbps} Mbit/s</strong> · Median ${outbound.median_s}s Auslieferung/Segment · ${outbound.samples} Proben`;
+      let html = `Gesamt: <strong style="color:var(--teal);">${outbound.mbps} Mbit/s</strong> · Median ${outbound.median_s}s · ${outbound.samples} Proben`;
+      const pu = (outbound.per_user || []);
+      if (pu.length) {
+        html += '<div style="margin-top:6px;display:flex;flex-direction:column;gap:2px;">'
+          + pu.map(u => {
+              // langsam ans Gerät (z.B. dessen 5G/Netz)? farblich markieren
+              const col = u.mbps < 15 ? '#ef4444' : (u.mbps < 40 ? '#eab308' : '#14b8a6');
+              return `<div style="font-family:var(--mono);font-size:10px;">👤 <strong>${esc(u.user)}</strong>: <span style="color:${col};">${u.mbps} Mbit/s</span> · Median ${u.median_s}s · ${u.samples} Segmente</div>`;
+            }).join('')
+          + '</div><div style="font-size:9px;color:var(--text3);margin-top:4px;">🔴 &lt;15 = Geräte-Verbindung sehr wahrscheinlich der Flaschenhals · 🟡 &lt;40 grenzwertig · 🟢 ok</div>';
+      }
+      outEl.innerHTML = html;
     } else {
       outEl.textContent = '– noch keine Auslieferung gemessen (läuft, sobald jemand schaut) –';
     }
