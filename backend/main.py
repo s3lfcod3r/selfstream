@@ -4686,46 +4686,112 @@ def _vpn_rotate_ovpn() -> str:
     return nxt
 
 
+_wg_saved_default = None   # (gateway, dev) der Original-Default-Route vor WireGuard
+
+
 def _wg_down():
-    """WireGuard-Interface abbauen (falls aktiv)."""
+    """WireGuard-Interface abbauen (löscht seine Routen/Adressen) und die Original-
+    Default-Route wiederherstellen – sonst hätte der Container nach dem Teardown
+    kein Internet mehr (wir haben default auf wg0 umgebogen)."""
+    global _wg_saved_default
     try:
-        subprocess.run(["wg-quick", "down", WG_IFACE], capture_output=True, timeout=20)
+        subprocess.run(["ip", "link", "del", "dev", WG_IFACE], capture_output=True, timeout=10)
     except Exception:
         pass
+    if _wg_saved_default:
+        gw, dev = _wg_saved_default
+        try:
+            subprocess.run(["ip", "route", "replace", "default", "via", gw, "dev", dev],
+                           capture_output=True, timeout=5)
+        except Exception:
+            pass
+        _wg_saved_default = None
+
+
+def _wg_parse_conf(text: str) -> tuple:
+    """Mullvad-.conf → (interface-dict, peer-dict)."""
+    iface, peer, sect = {}, {}, None
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        low = s.lower()
+        if low == "[interface]":
+            sect = "i"; continue
+        if low == "[peer]":
+            sect = "p"; continue
+        if "=" not in s:
+            continue
+        k, v = s.split("=", 1)
+        (iface if sect == "i" else peer)[k.strip().lower()] = v.strip()
+    return iface, peer
+
+
+def _wg_default_gw() -> tuple:
+    """(gateway, dev) der aktuellen Default-Route (für die Endpoint-/LAN-Ausnahme)."""
+    try:
+        r = subprocess.run(["ip", "route", "show", "default"],
+                           capture_output=True, text=True, timeout=2)
+        for line in r.stdout.splitlines():
+            p = line.split()
+            if "via" in p and "dev" in p:
+                return p[p.index("via") + 1], p[p.index("dev") + 1]
+    except Exception:
+        pass
+    return "", "eth0"
 
 
 def _wg_up(conf_path: str) -> dict:
-    """WireGuard über wg-quick starten. wg-quick nutzt den Dateinamen als Interface,
-    daher kopieren wir die gewählte .conf nach /etc/wireguard/wg0.conf.
-    AllowedIPs=0.0.0.0/0 in der Mullvad-Config routet automatisch alles durch wg0
-    (wie redirect-gateway), die connected LAN-Route bleibt via eth0 erhalten."""
+    """WireGuard MANUELL hochbringen (ohne wg-quick) – im schlanken Container scheitert
+    wg-quick an `sysctl src_valid_mark` (Docker sperrt das) + `resolvconf`. Wir setzen
+    stattdessen selbst: Interface + Key + Adresse, Endpoint-Route via echtem Gateway
+    (damit die verschlüsselten Pakete nicht in den Tunnel zurückschleifen), Default via
+    wg0 (redirect-gateway-Äquivalent), LAN-Ausnahme fürs Panel."""
+    try:
+        with open(conf_path, "r") as f:
+            iface, peer = _wg_parse_conf(f.read())
+    except Exception as e:
+        return {"ok": False, "error": f"Config lesen: {e}"}
+    priv = iface.get("privatekey", "")
+    addr = iface.get("address", "")
+    pub = peer.get("publickey", "")
+    endpoint = peer.get("endpoint", "")
+    if not (priv and addr and pub and endpoint):
+        return {"ok": False, "error": "Config unvollständig (PrivateKey/Address/PublicKey/Endpoint)"}
+    # IPv4-Adresse (falls IPv6 mit dabei) + Endpoint-IP
+    addr4 = next((a.strip() for a in addr.split(",") if ":" not in a), addr.split(",")[0].strip())
+    endpoint_ip = endpoint.rsplit(":", 1)[0].strip("[]")
+
+    _wg_down()  # Reste weg
     try:
         os.makedirs("/etc/wireguard", exist_ok=True)
-        dst = f"/etc/wireguard/{WG_IFACE}.conf"
-        with open(conf_path, "r") as fsrc:
-            content = fsrc.read()
-        # DNS-/Killswitch-Zeilen entfernen: wg-quick ruft für DNS 'resolvconf' auf,
-        # das im schlanken Container fehlt → Start scheitert. Container-DNS reicht
-        # fürs Proxying. PostUp/PreDown (Killswitch) würden das Admin-Panel aussperren.
-        _skip = ("dns", "postup", "predown", "postdown", "preup")
-        content = "\n".join(
-            l for l in content.splitlines()
-            if not l.strip().lower().startswith(_skip)
-        )
-        with open(dst, "w") as fdst:
-            fdst.write(content.rstrip() + "\n")
-        os.chmod(dst, 0o600)
+        keyfile = f"/etc/wireguard/{WG_IFACE}.key"
+        with open(keyfile, "w") as kf:
+            kf.write(priv + "\n")
+        os.chmod(keyfile, 0o600)
+
+        def _run(cmd, check=True):
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if check and r.returncode != 0:
+                raise RuntimeError(f"{' '.join(cmd)} → {(r.stderr or r.stdout).strip()}")
+            return r
+
+        _run(["ip", "link", "add", "dev", WG_IFACE, "type", "wireguard"])
+        _run(["wg", "set", WG_IFACE, "private-key", keyfile, "peer", pub,
+              "endpoint", endpoint, "allowed-ips", "0.0.0.0/0", "persistent-keepalive", "25"])
+        _run(["ip", "address", "add", addr4, "dev", WG_IFACE], check=False)
+        _run(["ip", "link", "set", "mtu", "1420", "up", "dev", WG_IFACE])
+        # Routing wie redirect-gateway, ohne fwmark/sysctl:
+        global _wg_saved_default
+        gw, dev = _wg_default_gw()
+        if gw:
+            _wg_saved_default = (gw, dev)   # für die Wiederherstellung beim Teardown
+            _run(["ip", "route", "add", f"{endpoint_ip}/32", "via", gw, "dev", dev], check=False)
+            _run(["ip", "route", "add", "192.168.0.0/16", "via", gw, "dev", dev], check=False)
+        _run(["ip", "route", "replace", "default", "dev", WG_IFACE])
     except Exception as e:
-        return {"ok": False, "error": f"Config schreiben fehlgeschlagen: {e}"}
-    # Erst sicher runter (falls Reste), dann hoch.
-    _wg_down()
-    try:
-        r = subprocess.run(["wg-quick", "up", WG_IFACE],
-                           capture_output=True, text=True, timeout=45)
-    except Exception as e:
-        return {"ok": False, "error": f"wg-quick up: {e}"}
-    if r.returncode != 0:
-        return {"ok": False, "error": (r.stderr or r.stdout or "wg-quick up fehlgeschlagen").strip()[:400]}
+        _wg_down()
+        return {"ok": False, "error": str(e)[:400]}
     return {"ok": True}
 
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.47
+
+### Fix: WireGuard startet jetzt (manuell statt wg-quick)
+- wg-quick scheiterte im Container an `sysctl src_valid_mark` (Docker sperrt das).
+  Jetzt bringt SelfStream WireGuard SELBST hoch: ip link + wg set + Adresse + MTU,
+  Endpoint-Route via echtem Gateway (kein Rückschleifen), Default via wg0
+  (redirect-gateway-Äquivalent), LAN-Ausnahme fürs Panel.
+- Original-Default-Route wird gesichert und beim Teardown wiederhergestellt (Internet bleibt).
+
+
 ## v1.46
 
 ### Fix: WireGuard-Start im Container (resolvconf fehlte)
