@@ -396,6 +396,7 @@ async def startup():
     # Anbieter und ruckelte laufende Streams. Ersetzt durch passives Messen im
     # _health_sampler (aus echtem Verkehr) + Alarm. Auto-Best (nachts) bleibt.
     _track_background_task(asyncio.create_task(_vpn_autobest_watch()))
+    _track_background_task(asyncio.create_task(_wg_autobest_watch()))
     _track_background_task(asyncio.create_task(_canary_watch()))
     # Auto-start VPN if it was enabled before
     if db.get_setting("vpn_enabled", "0") == "1":
@@ -4530,6 +4531,14 @@ VPN_STREAM_MBPS = 8              # angenommener Bedarf je Stream (~Full-HD) → 
 _vpn_autobest_last_run = 0.0     # time.monotonic() des letzten Vergleichs
 _vpn_autobest_status: dict = {}  # letztes Ergebnis (fastest/active/results) für UI
 
+# ── WireGuard-Auto-Best (nahtlos, auch mit Zuschauern) ───────────────────────
+# Reagiert NUR auf echtes Ruckeln (passive Messung aus Zuschauer-Segmenten) und
+# schaltet dann NAHTLOS (Peer-Tausch auf dem liven wg0) auf den schnellsten
+# erreichbaren Alternativ-Server. Cooldown verhindert Hin- und Herspringen.
+WG_AUTOBEST_CHECK = 60           # Sekunden zwischen den Prüfungen
+_wg_autobest_last_switch = 0.0   # time.monotonic() des letzten Auto-Wechsels
+_wg_autobest_status: dict = {}   # letzter Wechsel (from/to/latency/reason) für UI
+
 # Proaktiver Lebenszeichen-Check: der Log-basierte Zustand erkennt einen "verbunden,
 # aber es fliesst nichts"-Tunnel evtl. spaet. Zusaetzlich sendet der Waechter ein
 # winziges echtes Paket durch den Tunnel. Bewusst SEHR konservativ, um Fehlalarme
@@ -5468,6 +5477,141 @@ async def _vpn_autobest_watch():
             raise
         except Exception as e:
             logger.warning(f"VPN autobest watch error: {e}")
+
+
+# ── WireGuard-Auto-Best: nahtlos auf den schnellsten Server (auch mit Zuschauern) ──
+def _wg_country_of(fn: str) -> str:
+    """Ländercode aus einem Mullvad-Config-Namen (mullvad-de-fra-wg-001.conf → 'de')."""
+    base = fn[len("mullvad-"):] if fn.startswith("mullvad-") else fn
+    base = base.rsplit(".", 1)[0]
+    part = base.split("-", 1)[0]
+    return part.lower() if len(part) == 2 else ""
+
+
+def _wg_autobest_candidates(active_fn: str, country: str, cap: int = 12) -> list:
+    """Kandidaten-Server für den Auto-Wechsel wählen (WireGuard, ohne den aktiven).
+    Ohne explizites Land bleibt er beim Land des aktiven Servers (nicht ins Ausland
+    springen). Bei sehr vielen Servern wird gleichmäßig auf ``cap`` gedünnt."""
+    all_conf = [f for f in _vpn_list_all_configs()
+                if f != active_fn
+                and _vpn_config_type(os.path.join(VPN_OVPN_DIR, f)) == "wireguard"]
+    if country:
+        all_conf = [f for f in all_conf if _wg_country_of(f) == country]
+    elif active_fn:
+        ac = _wg_country_of(active_fn)
+        same = [f for f in all_conf if _wg_country_of(f) == ac]
+        if same:
+            all_conf = same
+    all_conf.sort()
+    if len(all_conf) <= cap:
+        return all_conf
+    step = len(all_conf) / cap
+    return [all_conf[int(i * step)] for i in range(cap)]
+
+
+async def _measure_server_latency(path: str, gw, dev):
+    """Stream-sichere Latenz (ms) zu EINEM VPN-Server messen: kurz eine /32-Direktroute
+    übers echte LAN-Gateway setzen (die Test-Pakete gehen NICHT durch den Tunnel), danach
+    wieder entfernen. Gibt (ip, latency_ms) zurück – latency_ms None = nicht erreichbar."""
+    host, port = _vpn_ovpn_remote(path)
+    if not host:
+        return (None, None)
+    ip = host if _is_ipv4(host) else None
+    if ip is None:
+        try:
+            infos = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET)
+            ip = infos[0][4][0] if infos else None
+        except Exception:
+            ip = None
+    target = ip or host
+    route_added = False
+    if gw and dev and ip:
+        try:
+            await asyncio.to_thread(subprocess.run,
+                                    ["ip", "route", "replace", f"{ip}/32", "via", gw, "dev", dev],
+                                    capture_output=True, timeout=5)
+            route_added = True
+        except Exception:
+            pass
+    try:
+        lat = await _probe_tcp_latency(target, 443, samples=1, timeout=1.5)
+        if lat is None and port and port != 443:
+            lat = await _probe_tcp_latency(target, port, samples=1, timeout=1.5)
+    finally:
+        if route_added:
+            try:
+                await asyncio.to_thread(subprocess.run, ["ip", "route", "del", f"{ip}/32"],
+                                        capture_output=True, timeout=5)
+            except Exception:
+                pass
+    return (ip, lat)
+
+
+async def _wg_autobest_watch():
+    """WireGuard-Auto-Best: schaltet bei anhaltend schlechter Qualität NAHTLOS auf einen
+    schnelleren Server – auch während Zuschauer schauen (kein Tunnel-Abriss). Reagiert nur
+    auf echtes Ruckeln (passive Messung aus echten Zuschauer-Segmenten) und hält einen
+    Cooldown ein, damit er nicht ständig hin- und herspringt."""
+    global _wg_autobest_last_switch, _wg_autobest_status
+    await asyncio.sleep(150)   # Startup abwarten
+    while True:
+        try:
+            await asyncio.sleep(WG_AUTOBEST_CHECK)
+            if db.get_setting("wg_autobest", "0") != "1":
+                continue
+            if db.get_setting("vpn_enabled", "0") != "1" or not _iface_exists(WG_IFACE):
+                continue
+            active_fn = os.path.basename(db.get_setting("vpn_ovpn_path", ""))
+            if _vpn_config_type(os.path.join(VPN_OVPN_DIR, active_fn)) != "wireguard":
+                continue   # nur bei aktivem WireGuard-Tunnel
+            if _vpn_sweep_active or _dual_lock.locked():
+                continue
+            cooldown = _int_setting("wg_autobest_cooldown_min", 30, 5, 720) * 60
+            if _wg_autobest_last_switch and (time.monotonic() - _wg_autobest_last_switch) < cooldown:
+                continue
+            health = _passive_health()
+            if health.get("level") is None:
+                continue   # niemand schaut → nichts zu reparieren
+            min_mbps = _int_setting("wg_autobest_min_mbps", 12, 1, 500)
+            mbps = health.get("mbps")
+            bad = (health.get("level") == "bad") or \
+                  (mbps is not None and mbps < min_mbps and health.get("samples", 0) >= 4)
+            if not bad:
+                continue
+            # Aktueller Server schwächelt → schnellsten erreichbaren Alternativ-Server finden.
+            gw, dev = (_wg_saved_default or _wg_default_gw())
+            country = db.get_setting("wg_autobest_country", "").strip().lower()
+            cands = _wg_autobest_candidates(active_fn, country)
+            if not cands:
+                continue
+            _vpn_log_add(f"🏆 Auto-Best: Server schwächelt ({health.get('level')}, {mbps} Mbit/s) – "
+                         f"prüfe {len(cands)} Alternativen…")
+            best_fn, best_lat = None, None
+            for fn in cands:
+                _ip, lat = await _measure_server_latency(os.path.join(VPN_OVPN_DIR, fn), gw, dev)
+                if lat is not None and (best_lat is None or lat < best_lat):
+                    best_fn, best_lat = fn, lat
+            if not best_fn:
+                _vpn_log_add("🏆 Auto-Best: keine Alternative erreichbar – bleibe auf aktuellem Server.")
+                continue
+            res = await asyncio.to_thread(_wg_switch_seamless, os.path.join(VPN_OVPN_DIR, best_fn))
+            if res.get("ok"):
+                db.set_setting("vpn_ovpn_path", os.path.join(VPN_OVPN_DIR, best_fn))
+                await _reset_iptv_client()
+                _wg_autobest_last_switch = time.monotonic()
+                _wg_autobest_status = {"from": active_fn, "to": best_fn, "latency_ms": best_lat,
+                                       "reason": health.get("level"), "mbps": mbps,
+                                       "checked": len(cands)}
+                _vpn_log_add(f"🏆 Auto-Best: nahtlos auf {best_fn} umgeschaltet ({best_lat} ms).")
+                diag_log("INFO", "vpn",
+                         f"WG Auto-Best: {active_fn} → {best_fn} ({best_lat} ms, "
+                         f"war {health.get('level')}/{mbps} Mbit/s)")
+            else:
+                _vpn_log_add(f"🏆 Auto-Best: Wechsel fehlgeschlagen ({res.get('error')}).")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(f"WG autobest watch error: {e}")
 
 
 # ── Mullvad: alle Server automatisch importieren ───────────────────────────────
@@ -6780,6 +6924,41 @@ async def vpn_autobest_now(_=Depends(check_admin)):
     if not res.get("ok"):
         raise HTTPException(status_code=409, detail=res.get("error"))
     return res
+
+
+@admin_app.get("/api/vpn/wg-autobest")
+def get_wg_autobest(_=Depends(check_admin)):
+    """Status + Einstellungen des nahtlosen WireGuard-Auto-Best."""
+    ago = int(time.monotonic() - _wg_autobest_last_switch) if _wg_autobest_last_switch else None
+    return {
+        "ok": True,
+        "auto": db.get_setting("wg_autobest", "0") == "1",
+        "min_mbps": _int_setting("wg_autobest_min_mbps", 12, 1, 500),
+        "cooldown_min": _int_setting("wg_autobest_cooldown_min", 30, 5, 720),
+        "country": db.get_setting("wg_autobest_country", ""),
+        "last_switch_ago_s": ago,
+        "status": _wg_autobest_status or None,
+    }
+
+
+@admin_app.post("/api/vpn/wg-autobest")
+def set_wg_autobest(body: dict, _=Depends(check_admin)):
+    """WireGuard-Auto-Best an/aus + Schwelle (Mbit/s) + Cooldown (Min) + Land speichern."""
+    if "auto" in body:
+        db.set_setting("wg_autobest", "1" if body.get("auto") else "0")
+    if "min_mbps" in body:
+        try:
+            db.set_setting("wg_autobest_min_mbps", str(max(1, min(500, int(float(body["min_mbps"]))))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Schwelle 1–500 Mbit/s")
+    if "cooldown_min" in body:
+        try:
+            db.set_setting("wg_autobest_cooldown_min", str(max(5, min(720, int(float(body["cooldown_min"]))))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Cooldown 5–720 Minuten")
+    if "country" in body:
+        db.set_setting("wg_autobest_country", str(body.get("country", "")).strip().lower()[:5])
+    return {"ok": True}
 
 
 # ── Weg 1: Server-Latenz prüfen OHNE Tunnel-Wechsel (störungsfrei) ───────────

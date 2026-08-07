@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.55</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.56</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.55</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.56</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1181,6 +1181,42 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
             <button class="btn primary" onclick="vpnServerLatency()" id="vpn-lat-btn">🔍 Server-Latenz prüfen</button>
             <div id="vpn-lat-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht geprüft –</div>
+          </div>
+
+          <div class="scard" style="grid-column:1/-1">
+            <div class="scard-title">🏆 Auto-Best (WireGuard, nahtlos)</div>
+            <div class="form-hint" style="margin-bottom:14px;">
+              Läuft die Qualität schlecht (echtes Ruckeln, aus den Zuschauer-Segmenten gemessen), sucht SelfStream automatisch den schnellsten Alternativ-Server und schaltet <strong>nahtlos</strong> dorthin um – <strong>ohne Tunnel-Abriss, auch während Zuschauer schauen</strong>. Ein Cooldown verhindert ständiges Hin- und Herspringen.
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+              <div style="flex:1;min-width:220px;">
+                <label class="form-label">Modus</label>
+                <select class="form-select" id="wgab-auto">
+                  <option value="0">Aus</option>
+                  <option value="1">An – bei Ruckeln automatisch auf schnellsten Server</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="form-label">Schwelle (Mbit/s)</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="wgab-mbps" min="1" max="500" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">darunter gilt als zu langsam</span>
+                </div>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="form-label">Cooldown (Min)</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="wgab-cooldown" min="5" max="720" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">Mindest-Pause zwischen Wechseln</span>
+                </div>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="form-label">Land</label>
+                <input class="form-input" type="text" id="wgab-country" maxlength="2" placeholder="z.B. de – leer = wie aktiv" style="width:100%;">
+              </div>
+            </div>
+            <button class="btn primary" onclick="wgAutobestSave()" id="wgab-save-btn">💾 Speichern</button>
+            <div id="wgab-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– Lädt… –</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -4053,6 +4089,7 @@ async function loadVpnSettings() {
   mullvadFillSources(s.ovpn_files || []);
   vpnRefreshStatus();
   canaryLoad();
+  wgAutobestLoad();
   // Auto-poll log every 3s when on VPN page
   if (_vpnStatusInterval) clearInterval(_vpnStatusInterval);
   _vpnStatusInterval = setInterval(vpnRefreshStatus, 3000);
@@ -4075,6 +4112,52 @@ function renderOvpnList(files, activePath) {
       <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn('${_esc(f)}')">🗑</button>
     </div>`;
   }).join('');
+}
+
+async function wgAutobestLoad() {
+  const el = document.getElementById('wgab-status');
+  let r;
+  try { r = await api('GET', '/api/vpn/wg-autobest'); } catch(e) { if (el) el.textContent = '– nicht verfügbar –'; return; }
+  if (!r || !r.ok) { if (el) el.textContent = '– nicht verfügbar –'; return; }
+  const sa = document.getElementById('wgab-auto'); if (sa) sa.value = r.auto ? '1' : '0';
+  const sm = document.getElementById('wgab-mbps'); if (sm) sm.value = r.min_mbps;
+  const sc = document.getElementById('wgab-cooldown'); if (sc) sc.value = r.cooldown_min;
+  const co = document.getElementById('wgab-country'); if (co) co.value = r.country || '';
+  if (!el) return;
+  let txt = r.auto ? '🟢 Auto-Best aktiv' : '⚪ Auto-Best aus';
+  if (r.status && r.status.to) {
+    const ago = r.last_switch_ago_s != null ? _agoText(r.last_switch_ago_s) : '';
+    txt += `\nLetzter Wechsel${ago ? ' (' + ago + ')' : ''}: ${_esc(r.status.from || '?')} → ${_esc(r.status.to)}`
+         + ` · ${r.status.latency_ms} ms · Grund: ${r.status.reason === 'bad' ? 'ruckelte' : r.status.reason}`
+         + (r.status.mbps != null ? ` (war ${r.status.mbps} Mbit/s)` : '');
+  } else {
+    txt += '\nNoch kein automatischer Wechsel passiert.';
+  }
+  el.textContent = txt;
+}
+
+function _agoText(s) {
+  s = Math.max(0, parseInt(s, 10) || 0);
+  if (s < 90) return 'vor ' + s + ' s';
+  if (s < 5400) return 'vor ' + Math.round(s / 60) + ' min';
+  return 'vor ' + Math.round(s / 3600) + ' h';
+}
+
+async function wgAutobestSave() {
+  const btn = document.getElementById('wgab-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '💾 Speichern…'; }
+  const body = {
+    auto: document.getElementById('wgab-auto').value === '1',
+    min_mbps: parseInt(document.getElementById('wgab-mbps').value, 10) || 12,
+    cooldown_min: parseInt(document.getElementById('wgab-cooldown').value, 10) || 30,
+    country: (document.getElementById('wgab-country').value || '').trim().toLowerCase(),
+  };
+  try {
+    const r = await api('POST', '/api/vpn/wg-autobest', body);
+    if (r && r.ok) showToast('✅ Auto-Best gespeichert'); else showToast('❌ Fehlgeschlagen');
+  } catch(e) { showToast('❌ ' + (e.message || e)); }
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Speichern'; }
+  wgAutobestLoad();
 }
 
 // ── Mullvad: alle Server importieren ──────────────────────────────────────────

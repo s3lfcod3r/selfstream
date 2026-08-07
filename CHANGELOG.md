@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.56
+
+### Auto-Best für WireGuard (nahtlos, auch mit Zuschauern)
+- Neuer Hintergrund-Wächter: läuft die Qualität schlecht (echtes Ruckeln, aus den
+  Zuschauer-Segmenten gemessen – `_passive_health`), sucht SelfStream automatisch den
+  schnellsten erreichbaren Alternativ-Server und schaltet **nahtlos** dorthin (Peer-Tausch
+  auf dem liven wg0, kein Tunnel-Abriss – auch während Zuschauer schauen).
+- Server-Auswahl per **stream-sicherer Latenz-Messung** (kurze /32-Direktroute übers echte
+  LAN-Gateway, geht nicht durch den Tunnel). Ohne Land-Vorgabe bleibt er beim Land des
+  aktiven Servers; sehr große Serverlisten werden gleichmäßig auf 12 Kandidaten gedünnt.
+- **Cooldown** (Standard 30 Min) verhindert ständiges Hin- und Herspringen. Reagiert nur auf
+  echtes Ruckeln bzw. Durchsatz unter der einstellbaren **Schwelle** (Standard 12 Mbit/s).
+- Neue UI-Karte „🏆 Auto-Best (WireGuard, nahtlos)" im VPN-Bereich: An/Aus, Schwelle,
+  Cooldown, Land + Anzeige des letzten automatischen Wechsels.
+- Endpoints: `GET/POST /api/vpn/wg-autobest`.
+
+
 ## v1.55
 
 ### Nahtloser WireGuard-Server-Wechsel (kein Abbruch)
