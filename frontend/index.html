@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.28</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.29</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.28</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.29</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1204,6 +1204,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <button class="btn" onclick="vpnAutobestNow()" id="vpn-ab-now-btn" style="margin-left:8px;">🔍 Jetzt besten suchen &amp; draufschalten</button>
             <div id="vpn-ab-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch kein Vergleich –</div>
             <div class="form-hint" style="margin-top:10px;">⚠️ „Jetzt suchen" verbindet jeden Server nacheinander (~2&nbsp;Min ALLE Streams unterbrochen) und bleibt danach auf dem besten. Am besten laufen lassen, wenn keiner schaut.</div>
+
+            <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);">
+              <button class="btn" onclick="vpnServerLatency()" id="vpn-lat-btn">🔍 Server-Latenz prüfen (stört nichts)</button>
+              <div id="vpn-lat-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht geprüft –</div>
+              <div class="form-hint" style="margin-top:10px;">✅ <strong>Störungsfrei:</strong> misst nur die Antwortzeit zu jedem VPN-Server, <strong>ohne</strong> den Tunnel zu wechseln und <strong>ohne</strong> einen Stream zu unterbrechen. Zeigt, welcher Server am schnellsten erreichbar ist – zum bewussten manuellen Umschalten.</div>
+            </div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -4400,6 +4406,34 @@ async function vpnAutobestNow() {
     if (box) box.textContent = '❌ ' + (e.message || e);
   }
   if (btn) { btn.disabled = false; btn.textContent = '🔍 Jetzt besten suchen & draufschalten'; }
+}
+
+async function vpnServerLatency() {
+  const btn = document.getElementById('vpn-lat-btn');
+  const box = document.getElementById('vpn-lat-status');
+  if (btn) { btn.disabled = true; btn.textContent = '🔍 Messe…'; }
+  if (box) box.textContent = '⏳ Klopfe an jedem Server an (störungsfrei)…';
+  try {
+    const r = await api('GET', '/api/vpn/server-latency');
+    if (!r || r.ok === false) {
+      if (box) box.textContent = '❌ ' + ((r && r.error) || 'Fehlgeschlagen');
+    } else {
+      const short = s => (s || '').replace('my_expressvpn_', '').replace('_udp.ovpn', '');
+      const lines = (r.results || []).slice().sort((a, b) => {
+        if (!a.reachable) return 1; if (!b.reachable) return -1;
+        return a.latency_ms - b.latency_ms;
+      }).map(x => {
+        const star = (x.ovpn === r.fastest) ? '  🏆 schnellster' : '';
+        const act = (x.ovpn === r.active) ? '  (aktiv)' : '';
+        return x.reachable ? `${short(x.ovpn)}: ${x.latency_ms} ms${star}${act}`
+                           : `${short(x.ovpn)}: ❌ nicht erreichbar${act}`;
+      });
+      if (box) box.textContent = lines.join('\n') || 'keine Server';
+    }
+  } catch(e) {
+    if (box) box.textContent = '❌ ' + (e.message || e);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔍 Server-Latenz prüfen (stört nichts)'; }
 }
 
 function vpnAutobestRender(s) {

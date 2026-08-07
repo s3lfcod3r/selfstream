@@ -1,6 +1,18 @@
 # Changelog
 
+## v1.29
+
+### Neu: Server-Latenz prüfen OHNE Stream-Unterbrechung (Weg 1)
+- Neuer Knopf „🔍 Server-Latenz prüfen (stört nichts)" im VPN-Bereich: misst die
+  Antwortzeit (TCP) zu jedem hochgeladenen VPN-Server – OHNE den Tunnel zu wechseln,
+  OHNE Anbieter-Verbindung, OHNE einen einzigen Stream zu unterbrechen. Zeigt eine
+  Rangliste (schnellster Server markiert), damit man bewusst manuell wechseln kann.
+- Technisch stream-sicher: pro Server-IP kurz eine /32-Direktroute übers LAN-Gateway,
+  danach wieder entfernt – betrifft nur die Test-Pakete zu VPN-Server-Adressen, nie
+  das Standard-Routing oder laufende Streams. Endpunkt `GET /api/vpn/server-latency`.
+
 ## v1.28
+
 
 ### Kern-Fix: flüssiges Streaming (persistente Verbindung)
 - **SelfStream öffnete für JEDES Segment eine neue Verbindung** (neuer TLS-Handshake).

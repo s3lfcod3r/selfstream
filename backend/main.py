@@ -6329,3 +6329,110 @@ async def vpn_autobest_now(_=Depends(check_admin)):
     if not res.get("ok"):
         raise HTTPException(status_code=409, detail=res.get("error"))
     return res
+
+
+# ── Weg 1: Server-Latenz prüfen OHNE Tunnel-Wechsel (störungsfrei) ───────────
+def _vpn_ovpn_remote(path: str):
+    """Liest die erste 'remote <ip/host> <port>'-Zeile aus einer .ovpn."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("remote ") and not line.startswith("remote-"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        port = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else 1194
+                        return parts[1], port
+    except Exception:
+        pass
+    return None, None
+
+
+def _default_gateway():
+    """(<gateway>, <dev>) des echten LAN-Wegs. Bei aktivem VPN bleibt der originale
+    'default via <LAN>' in der Tabelle (redirect-gateway nutzt nur 0.0.0.0/1 +
+    128.0.0.0/1), daher liefert das weiterhin das echte Gateway – nicht den Tunnel."""
+    try:
+        out = subprocess.run(["ip", "route", "show", "default"],
+                             capture_output=True, text=True, timeout=5).stdout.split()
+        if "via" in out and "dev" in out:
+            return out[out.index("via") + 1], out[out.index("dev") + 1]
+    except Exception:
+        pass
+    return None, None
+
+
+async def _probe_tcp_latency(host: str, port: int, samples: int = 3, timeout: float = 3.0):
+    """Median-Antwortzeit (ms) eines TCP-Verbindungsaufbaus zu host:port. None = nicht erreichbar."""
+    lat = []
+    for _ in range(samples):
+        t0 = time.monotonic()
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+            lat.append((time.monotonic() - t0) * 1000)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+        except Exception:
+            continue
+    if not lat:
+        return None
+    lat.sort()
+    return round(lat[len(lat) // 2], 1)
+
+
+def _is_ipv4(s: str) -> bool:
+    try:
+        return isinstance(ipaddress.ip_address(s), ipaddress.IPv4Address)
+    except Exception:
+        return False
+
+
+@admin_app.get("/api/vpn/server-latency")
+async def vpn_server_latency(_=Depends(check_admin)):
+    """STÖRUNGSFREI: misst die Antwortzeit (TCP) zu jedem hochgeladenen VPN-Server –
+    OHNE den Tunnel zu wechseln, OHNE eine Anbieter-Verbindung. Damit man 'welcher
+    Server ist am besten' sieht, ohne einen einzigen Stream zu unterbrechen.
+
+    Damit die Messung wirklich vom Box aus geht (nicht durch den aktuellen Tunnel),
+    wird pro Server-IP kurz eine /32-Direktroute übers LAN-Gateway gesetzt und danach
+    wieder entfernt. Das betrifft NUR die winzigen Test-Pakete zu VPN-Server-Adressen
+    und NIEMALS das Standard-Routing / laufende Streams."""
+    files = _vpn_list_ovpn_files()
+    if not files:
+        return {"ok": False, "error": "Keine .ovpn hochgeladen"}
+    gw, dev = _default_gateway() if vpn_is_running() else (None, None)
+    results = []
+    for path in files:
+        name = os.path.basename(path)
+        host, port = _vpn_ovpn_remote(path)
+        if not host:
+            results.append({"ovpn": name, "reachable": False, "error": "keine remote-Adresse"})
+            continue
+        route_added = False
+        if gw and dev and _is_ipv4(host):
+            try:
+                await asyncio.to_thread(subprocess.run,
+                                        ["ip", "route", "replace", f"{host}/32", "via", gw, "dev", dev],
+                                        capture_output=True, timeout=5)
+                route_added = True
+            except Exception:
+                pass
+        try:
+            lat = await _probe_tcp_latency(host, 443)
+            if lat is None and port != 443:
+                lat = await _probe_tcp_latency(host, port)
+        finally:
+            if route_added:
+                try:
+                    await asyncio.to_thread(subprocess.run, ["ip", "route", "del", f"{host}/32"],
+                                            capture_output=True, timeout=5)
+                except Exception:
+                    pass
+        results.append({"ovpn": name, "host": host, "reachable": lat is not None, "latency_ms": lat})
+    ranked = sorted([r for r in results if r.get("reachable")], key=lambda x: x["latency_ms"])
+    active = os.path.basename(db.get_setting("vpn_ovpn_path", ""))
+    return {"ok": True, "fastest": ranked[0]["ovpn"] if ranked else None,
+            "active": active, "results": results}
