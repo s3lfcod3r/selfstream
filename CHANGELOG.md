@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.49
+
+### Neu: „→ USER"-Messung (SelfStream → Player)
+- Zeigt jetzt beide Strecken: bisher nur Anbieter→SelfStream (grün), jetzt auch wie schnell
+  SelfStream die Segmente ans Gerät ausliefert. Niedrig bei schnellem Anbieter → Flaschenhals
+  ist die Geräte-Verbindung (z.B. 5G/mobil), nicht SelfStream/VPN.
+- Gemessen an der Ausliefer-Schleife (Backpressure = echtes Client-Tempo). Anzeige im
+  Buffering-Bereich; Endpunkt `GET /api/segment-events/outbound`.
+
+
 ## v1.48
 
 ### Fix: WireGuard-DNS (behebt Segment-Aussetzer)

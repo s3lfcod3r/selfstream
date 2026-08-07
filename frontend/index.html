@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.48</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.49</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.48</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.49</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1492,6 +1492,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
             💡 Buffering-Ereignisse werden auf <strong>selfstream-Seite</strong> gemessen — d.h. sie zeigen wie schnell der IPTV-Anbieter die Segmente liefert, nicht ob der Benutzer puffert. Langsame Segmente = Anbieter-Problem.
             <span id="seg-total-count" style="margin-left:8px;color:var(--teal);font-family:var(--mono);font-size:10px;"></span>
           </div>
+          <div id="seg-outbound" style="margin-bottom:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text2);">📡 <strong>→ USER-Strecke (SelfStream → Gerät):</strong> <span id="seg-outbound-val">– messe… (läuft, sobald jemand schaut) –</span><br><span style="font-size:10px;color:var(--text3);">Niedrig, obwohl der Anbieter schnell liefert → Flaschenhals ist die Verbindung zum Gerät (z.B. 5G/mobil), nicht SelfStream.</span></div>
           <div id="tr-seg-events" style="font-family:var(--mono);font-size:11px;">
             <div class="empty-state">Noch keine Ereignisse – tritt auf wenn ein Segment &gt;1s braucht</div>
           </div>
@@ -4737,12 +4738,22 @@ async function loadSegmentEvents() {
   const debugOn = document.getElementById('tr-debug-mode')?.checked ? 1 : 0;
   // Load ALL events for the time range - pagination is client-side
   const serverLimit = 10000;
-  const [events, stats, channels, providers] = await Promise.all([
+  const [events, stats, channels, providers, outbound] = await Promise.all([
     api('GET', `/api/segment-events?days=${days}&limit=${serverLimit}&debug=${debugOn}`),
     api('GET', `/api/segment-events/stats?days=${days}`),
     api('GET', '/api/channels').catch(()=>[]),
     api('GET', '/api/providers').catch(()=>[]),
+    api('GET', '/api/segment-events/outbound').catch(()=>null),
   ]);
+  // → USER-Strecke (SelfStream → Gerät) anzeigen
+  const outEl = document.getElementById('seg-outbound-val');
+  if (outEl) {
+    if (outbound && outbound.mbps != null) {
+      outEl.innerHTML = `<strong style="color:var(--teal);">${outbound.mbps} Mbit/s</strong> · Median ${outbound.median_s}s Auslieferung/Segment · ${outbound.samples} Proben`;
+    } else {
+      outEl.textContent = '– noch keine Auslieferung gemessen (läuft, sobald jemand schaut) –';
+    }
+  }
   // Build channel name → provider name map
   const provNameMap = {};
   (providers||[]).forEach(p => provNameMap[p.id] = p.name);

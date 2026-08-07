@@ -1574,6 +1574,41 @@ def _passive_record(elapsed: float, nbytes: int, ok: bool):
         pass
 
 
+# ── Ausliefer-Messung (SelfStream → Player, die "→ USER"-Strecke) ──────────────
+# Misst, wie schnell ein fertiges Segment an den Player rausgeht (yield-Schleife).
+# Niedrig, während der Anbieter schnell liefert → Flaschenhals ist die Verbindung
+# zum Gerät (z.B. 5G/mobil), NICHT SelfStream/VPN.
+_outbound_samples: list = []   # [{"ts","elapsed","bytes"}]
+
+
+def _outbound_record(elapsed: float, nbytes: int):
+    """Auslieferungszeit eines Segments ans Gerät festhalten (O(1), hot path)."""
+    try:
+        if nbytes < 50_000:   # Mini-Chunks/Playlists ignorieren – zu verrauscht
+            return
+        _outbound_samples.append({"ts": time.time(), "elapsed": round(float(elapsed), 3),
+                                  "bytes": int(nbytes)})
+        if len(_outbound_samples) > PASSIVE_MAX:
+            del _outbound_samples[:len(_outbound_samples) - PASSIVE_MAX]
+    except Exception:
+        pass
+
+
+def _outbound_health(window_sec: int = PASSIVE_WINDOW_SEC) -> dict:
+    """Ausliefer-Tempo ans Gerät (Median-Zeit + Durchsatz) der letzten window_sec."""
+    now = time.time()
+    recent = [s for s in _outbound_samples if now - s["ts"] <= window_sec]
+    if len(recent) < 3:
+        return {"mbps": None, "median_s": None, "samples": len(recent)}
+    lat = [s["elapsed"] for s in recent]
+    median = _passive_pct(lat, 50)
+    tb = sum(s["bytes"] for s in recent)
+    tt = sum(s["elapsed"] for s in recent) or 0.001
+    mbps = round((tb * 8) / (tt * 1_000_000), 1)
+    return {"mbps": mbps, "median_s": round(median, 2) if median is not None else None,
+            "samples": len(recent)}
+
+
 def _passive_pct(values: list, pct: float):
     if not values:
         return None
@@ -3065,8 +3100,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 if len(_segment_events) > 500: _segment_events.pop(0)
 
                 chunk_size = 524288
+                _out_t0 = time.time()
                 for i in range(0, len(data), chunk_size):
                     yield data[i:i + chunk_size]
+                # Ausliefer-Zeit ans Gerät messen (→ USER-Strecke): die yield-Schleife
+                # blockt bei langsamem Client (Backpressure) → misst dessen echtes Tempo.
+                _outbound_record(time.time() - _out_t0, len(data))
                 return
 
             timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
@@ -5674,6 +5713,11 @@ def get_segment_events(days: int = 30, limit: int = 500, debug: int = 0, _=Depen
         if not include_ok:
             evs = [e for e in evs if e.get("type") != "ok"]
         return evs
+
+@admin_app.get("/api/segment-events/outbound")
+def get_outbound_health(_=Depends(check_admin)):
+    """Ausliefer-Tempo SelfStream → Player (die „→ USER"-Strecke), aus echtem Verkehr."""
+    return _outbound_health()
 
 @admin_app.get("/api/segment-events/users")
 def get_segment_event_users(days: int = 30, _=Depends(check_admin)):
