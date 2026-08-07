@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.52
+
+### Canary schont die Lines noch besser (sequenziell + pro Segment prüfen)
+- Der Selbst-Zuschauer prüft jetzt VOR JEDEM Segment neu, ob eine Line frei ist. Kommt
+  mitten in der Messung ein Zuschauer, hört er sofort auf und lässt ihm die Line
+  (nie mehr als eine Line gleichzeitig belegt).
+- „Für Zuschauer aufgehört" zählt NICHT als Ruckeln mehr: eigener Status „⏸️ pausiert",
+  reine Pausier-Zyklen landen nicht im Verlauf/der Statistik (keine falschen „ruckelt").
+- (Zusammen mit korrektem line_capacity=4 klaut der Canary nie eine Zuschauer-Line.)
+
+
 ## v1.51
 
 ### Speedtest ehrlich dargestellt (WireGuard)

@@ -7153,8 +7153,14 @@ async def _canary_fetch_once() -> dict:
     segs = await _iptv_segments_with_dur(ch, 3)
     if not segs:
         return {"ok": False, "error": "keine Segmente"}
-    got, ratios = 0, []
+    got, ratios, yielded = 0, [], False
     for url, dur in segs:
+        # Vor JEDEM Segment neu prüfen: ist noch eine Line frei? Kommt mitten in der
+        # Messung ein Zuschauer, sofort aufhören und ihm die Line lassen. Sequenziell,
+        # damit nie mehr als eine Line gleichzeitig belegt wird.
+        if _near_capacity():
+            yielded = True
+            break
         try:
             data, elapsed, cached = await _get_segment(url, hls)
             if len(data) > 100:
@@ -7166,8 +7172,14 @@ async def _canary_fetch_once() -> dict:
     reserve = round(sum(ratios) / len(ratios), 2) if ratios else None
     ph = _passive_health()
     host = ch.split("/")[2] if "://" in ch else ch
-    return {"ok": got > 0, "channel": host, "got": got, "of": len(segs),
-            "reserve_ratio": reserve, "smooth_level": _reserve_level(reserve, got, len(segs)),
+    # Für-den-Zuschauer-aufgehört ist KEIN Ruckeln – nicht die fehlenden Segmente werten.
+    if yielded:
+        smooth = "pausiert" if got == 0 else _reserve_level(reserve)
+    else:
+        smooth = _reserve_level(reserve, got, len(segs))
+    return {"ok": got > 0 or yielded, "channel": host, "got": got, "of": len(segs),
+            "yielded": yielded,
+            "reserve_ratio": reserve, "smooth_level": smooth,
             "passive_level": ph.get("level"), "mbps": ph.get("mbps"),
             "median_s": ph.get("median_s")}
 
@@ -7197,7 +7209,7 @@ async def _canary_watch():
             res["ts"] = int(time.time())
             res["mode"] = mode
             _canary_status = res
-            if res.get("ok"):
+            if res.get("got", 0) > 0:   # nur echte Messungen (nicht reine „pausiert"-Zyklen)
                 _canary_history_add({
                     "ts": res["ts"], "reserve": res.get("reserve_ratio"),
                     "level": res.get("smooth_level"), "got": res.get("got"),
