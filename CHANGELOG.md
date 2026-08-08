@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.63 — Speedtest neu: Flaschenhals VPN vs. HLS + Server-Durchsatz-Vergleich
+
+### ① Flaschenhals-Analyse (zuschauer-sicher UND genau)
+- Der Speedtest sagt jetzt klar, **wo der Flaschenhals liegt**: 🔒 **VPN-Tunnel** oder 📡 **HLS-Anbieter**
+  (Signalquelle) – mit farbigem Urteil.
+- **Schauen gerade Leute:** der Anbieter-Weg wird aus ihren **echten Segmenten** gemessen (exakt, stört
+  niemanden), der VPN-Weg nur per **Latenz** (keine Bandbreite). **Niemand da:** beide Wege voll gemessen.
+- Kein 100-MB-Download mehr, während Zuschauer schauen → kein Ruckeln durch den Test.
+- Klarere zwei Spalten (VPN-Tunnel / HLS-Anbieter) + Klartext-Urteil.
+
+### ② Server-Durchsatz-Vergleich (welcher Mullvad-Server ist am schnellsten)
+- Neuer Knopf „🏁 Server-Durchsatz vergleichen" (+ optionaler Land-Filter): rankt Server nach **echtem
+  Durchsatz**, nicht nur Latenz.
+- **Zuschauer-sicher:** schaut jemand → nur Latenz-Rangliste (störungsfrei). Niemand da → jeder Server
+  wird kurz durchgemessen (nahtloser Peer-Wechsel) und danach **immer der ursprüngliche Server
+  wiederhergestellt** (auch bei Fehler, via `finally`).
+- Endpoint `GET /api/vpn/throughput-compare?country=`.
+
+
 ## v1.62 — Diagnose-Tools zuschauer-/tunnelsicher gemacht
 
 Audit aller Hintergrund-/Diagnose-Funktionen, damit KEINE davon Ausfälle verursacht:

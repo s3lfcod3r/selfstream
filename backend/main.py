@@ -6253,118 +6253,160 @@ def _speedtest_streams_estimate(mbps: float) -> dict:
     }
 
 
+_NEUTRAL_LATENCY_URLS = ["https://1.1.1.1/cdn-cgi/trace", "https://www.google.com/generate_204"]
+
+
+async def _tunnel_neutral_latency(samples: int = 4) -> Optional[float]:
+    """Median-Latenz (ms) durch den AKTUELLEN Tunnel zu einem neutralen Ziel – winzige
+    Antwort, praktisch keine Bandbreite. So messen wir den VPN-Weg, ohne Zuschauer zu stören."""
+    for url in _NEUTRAL_LATENCY_URLS:
+        lat = []
+        for _ in range(samples):
+            try:
+                _t0 = time.monotonic()
+                async with make_iptv_client(timeout=httpx.Timeout(4, read=4), follow_redirects=True) as client:
+                    r = await client.get(url)
+                    if r.status_code >= 500:
+                        continue
+                lat.append((time.monotonic() - _t0) * 1000)
+            except Exception:
+                continue
+        if lat:
+            lat.sort()
+            return round(lat[len(lat) // 2], 1)
+    return None
+
+
 @admin_app.get("/api/vpn/speedtest")
 async def vpn_speedtest(_=Depends(check_admin)):
-    """Run dual speedtest: internet speed + IPTV provider speed."""
+    """Flaschenhals-Analyse: liegt es am VPN-Tunnel oder am HLS-Anbieter?
+
+    ZUSCHAUER-SICHER + GENAU: Schauen gerade Leute, wird der HLS-Weg aus ihren ECHTEN
+    Segmenten gemessen (exakt, kostet nichts) und der VPN-Weg nur per Latenz geprüft
+    (keine Bandbreite). Ist niemand da, wird beides voll ausgemessen."""
     import time
-    measure_url = _speedtest_measure_url
     streams_estimate = _speedtest_streams_estimate
 
-    # ── Test 1: Internet/VPN Speed ─────────────────────────────────────────
-    internet_result = await _speedtest_measure_internet()
-
-    # ── Test 2: IPTV-Anbieter (nachhaltig, parallel, + Latenz/Jitter) ─────
-    # Simuliert SPEEDTEST_CONCURRENT_STREAMS gleichzeitige Streams, misst pro Stream
-    # ueber mehrere Segmente (stabiler Wert) und zusaetzlich Latenz + Jitter.
-    # ZUSCHAUER-SCHUTZ: Der Anbieter-Test öffnet mehrere Verbindungen (= Lines). Liefe er,
-    # während Zuschauer schauen, würde er ihnen Lines wegnehmen → „max streams". Darum die
-    # Test-Stream-Zahl auf die FREIEN Lines begrenzen (eine als Puffer frei lassen) und ganz
-    # aussetzen, wenn keine frei ist.
     try:
         _cleanup_sessions()
-        _active = len(_sessions)
+        viewers = len(_sessions)
     except Exception:
-        _active = 0
+        viewers = 0
     try:
-        _cap = max([int(p.get("line_capacity") or 0) for p in db.get_m3u_providers()], default=0)
+        cap = max([int(p.get("line_capacity") or 0) for p in db.get_m3u_providers()], default=0)
     except Exception:
-        _cap = 0
-    if _cap:
-        _usable = _cap - _active - 1          # eine Line als Puffer frei lassen
-        if _usable < 1:
-            iptv_result = {"ok": False, "error": (
-                f"Zuschauer aktiv ({_active}/{_cap} Lines belegt) – Anbieter-Test ausgesetzt, "
-                "um niemanden zu verdrängen. Später ohne Zuschauer erneut testen.")}
+        cap = 0
+
+    # ── Leg A: HLS-Anbieter (Signalquelle) ─────────────────────────────────
+    if viewers >= 1:
+        ph = _passive_health()
+        _pm = ph.get("mbps")
+        if ph.get("level") is not None and _pm is not None:
+            iptv_result = {
+                "ok": True, "source": "live", "mbps": _pm, "mbps_parallel_total": _pm,
+                "parallel": viewers, "target": viewers, "failed": 0,
+                "latency_ms": round((ph.get("median_s") or 0) * 1000, 1) if ph.get("median_s") is not None else None,
+                "jitter_ms": None, "level": ph.get("level"),
+                "note": "aus laufenden Zuschauer-Segmenten gemessen – stört niemanden",
+            }
         else:
-            _n = min(SPEEDTEST_CONCURRENT_STREAMS, _usable)
-            iptv_result = await _iptv_measure_provider(streams=_n, per_stream_segments=3)
-            if iptv_result.get("ok"):
-                iptv_result["target"] = _n
-            else:
-                iptv_result.setdefault("error", "Kein IPTV-Kanal verfügbar")
+            iptv_result = {"ok": False, "source": "live",
+                           "error": "Zuschauer aktiv, aber noch keine Live-Messwerte – ein paar Sekunden warten."}
     else:
-        iptv_result = await _iptv_measure_provider(streams=SPEEDTEST_CONCURRENT_STREAMS, per_stream_segments=3)
+        _n = min(SPEEDTEST_CONCURRENT_STREAMS, max(1, cap - 1)) if cap else SPEEDTEST_CONCURRENT_STREAMS
+        iptv_result = await _iptv_measure_provider(streams=_n, per_stream_segments=3)
         if iptv_result.get("ok"):
-            iptv_result["target"] = SPEEDTEST_CONCURRENT_STREAMS
+            iptv_result["target"] = _n
+            iptv_result["source"] = "aktiv"
         else:
             iptv_result.setdefault("error", "Kein IPTV-Kanal verfügbar")
 
-    # ── Flaschenhals-Bewertung ─────────────────────────────────────────────
-    # WICHTIG: nicht als Verhaeltnis zu Cloudflare bewerten. Ein reiner Ratio-
-    # Vergleich meldet "Flaschenhals", sobald der Anbieter langsamer als der
-    # Speedtest-Server ist – auch bei z.B. 97 Mbit/s, die fuer jeden Stream
-    # dicke reichen (4K ~25). Das verleitet zu unnoetigem Server-Wechseln.
-    # Deshalb: absolute Bewertung anhand dessen, was Streaming wirklich braucht.
-    UHD_MBPS = 25   # grober Bedarf 4K
-    FHD_MBPS = 8    # grober Bedarf Full-HD
-    HD_MBPS  = 4    # grober Bedarf 720p
-    bottleneck = None
-    if iptv_result.get("ok"):
-        server   = iptv_result.get("server", "")
-        tested   = iptv_result.get("parallel", 0)               # tatsaechlich gemessene gleichzeitige Streams
-        target   = iptv_result.get("target", tested)
-        failed   = iptv_result.get("failed", 0)
-        agg      = iptv_result.get("mbps_parallel_total") or 0   # Gesamt-Durchsatz bei 'tested' parallel
-        per_load = round(agg / tested, 1) if tested else 0       # was jeder Stream unter Volllast bekommt
+    # ── Leg B: VPN-Tunnel (Mullvad) ────────────────────────────────────────
+    if viewers >= 1:
+        _vlat = await _tunnel_neutral_latency()
+        internet_result = {
+            "ok": _vlat is not None, "measured": False, "mbps": None,
+            "latency_ms": _vlat, "server": "neutral",
+            "note": "voller VPN-Durchsatz nur ohne Zuschauer messbar – hier nur Latenz (schont deine Zuschauer)",
+        }
+    else:
+        internet_result = await _speedtest_measure_internet()
+        internet_result["measured"] = bool(internet_result.get("ok"))
+        # Ehrlichkeit: Internet-Messung durchs VPN wird oft gedrosselt/geblockt → als
+        # unzuverlässig markieren, wenn sie unplausibel weit unter dem echten Tunnel-
+        # Durchsatz (IPTV parallel) liegt. Dann zählt der IPTV-Wert.
+        if internet_result.get("ok") and iptv_result.get("ok"):
+            _icap = iptv_result.get("mbps_parallel_total") or iptv_result.get("mbps", 0)
+            if _icap and internet_result["mbps"] < _icap / 3 and internet_result["mbps"] < 40:
+                internet_result["unreliable"] = True
+                internet_result["measured"] = False
+                internet_result["note"] = (
+                    "Messung durchs VPN unzuverlässig – öffentliche Speedtest-Server drosseln/"
+                    f"blockieren VPN-IPs. Echter Tunnel-Durchsatz ≈ {_icap} Mbit/s (IPTV, parallel).")
 
-        # Klartext-Ampel: reicht es fuer so viele GLEICHZEITIGE Streams?
-        if per_load >= UHD_MBPS:
-            cap = f"✅ {tested} gleichzeitige Streams kein Problem – reicht sogar für {tested}× 4K"
-        elif per_load >= FHD_MBPS:
-            cap = f"✅ {tested} gleichzeitige Streams kein Problem – reicht für {tested}× Full-HD (4K an alle wäre knapp)"
-        elif per_load >= HD_MBPS:
-            cap = f"⚠️ {tested} gleichzeitige Streams nur in HD – für Full-HD an alle {tested} etwas zu wenig"
-        else:
-            cap = f"⚠️ Zu langsam für {tested} gleichzeitige Streams (nur {per_load} Mbit/s pro Stream unter Last)"
+    # ── Flaschenhals-Urteil: VPN-Tunnel oder HLS-Anbieter? ─────────────────
+    FHD_MBPS = 8    # grober Bedarf Full-HD pro Stream
+    prov_ok    = iptv_result.get("ok")
+    prov_total = iptv_result.get("mbps_parallel_total") or iptv_result.get("mbps") or 0
+    prov_n     = iptv_result.get("parallel", 0) or 1
+    prov_per   = round(prov_total / prov_n, 1) if prov_n else prov_total
+    vpn_mbps   = internet_result.get("mbps")
+    vpn_meas   = internet_result.get("measured")
+    vpn_lat    = internet_result.get("latency_ms")
 
-        parts = [cap, f"Gesamt {agg} Mbit/s bei {tested} parallel (Ø {per_load}/Stream, einzeln bis {iptv_result.get('mbps_best', 0)})"]
-        # Latenz/Jitter: erklaert Ruckeln, das NICHT von Bandbreite kommt.
-        lat_ms = iptv_result.get("latency_ms")
-        jit_ms = iptv_result.get("jitter_ms")
-        if lat_ms is not None:
-            if jit_ms is not None and jit_ms > 150:
-                parts.append(f"⚠️ unruhige Verbindung (Latenz {lat_ms} ms, Schwankung {jit_ms} ms) – kann trotz genug Speed ruckeln")
-            elif lat_ms > 250:
-                parts.append(f"⚠️ hohe Latenz zum Anbieter ({lat_ms} ms) – längere Umschaltzeiten")
+    where = "unknown"   # none | vpn | provider | unknown
+    parts = []
+    if viewers >= 1:
+        lvl = iptv_result.get("level")
+        if prov_ok and lvl == "ok":
+            where = "none"
+            parts.append(f"✅ Kein Flaschenhals – läuft gerade sauber ({prov_total} Mbit/s live durch den Tunnel).")
+        elif prov_ok and lvl in ("slow", "bad"):
+            if vpn_lat is not None and vpn_lat > 250:
+                where = "vpn"
+                parts.append(f"⚠️ Streams schwächeln UND hohe VPN-Latenz ({vpn_lat} ms) → Flaschenhals eher beim VPN (anderen Server probieren).")
             else:
-                parts.append(f"Latenz {lat_ms} ms, stabil (Jitter {jit_ms} ms)")
-        if failed:
-            parts.append(f"⚠️ {failed} von {failed + tested} Test-Kanälen nicht erreichbar – Anbieter evtl. instabil")
-        if tested < target:
-            parts.append(f"nur {tested} von {target} Sendern testbar")
-        bottleneck = " · ".join(parts)
-    elif internet_result.get("ok"):
-        bottleneck = f"IPTV-Messung nicht möglich (kein Kanal erreichbar). VPN-Internet: {internet_result['mbps']} Mbit/s."
+                where = "provider"
+                parts.append(f"⚠️ Streams schwächeln, VPN-Latenz aber ok ({vpn_lat if vpn_lat is not None else '?'} ms) → Flaschenhals eher beim HLS-Anbieter.")
+        else:
+            parts.append("Noch keine belastbaren Live-Werte – ein paar Sekunden warten und erneut.")
+        parts.append("ℹ️ Für den vollen VPN-Durchsatz später ohne Zuschauer testen (dann messe ich beide Wege voll aus).")
+    else:
+        if not prov_ok:
+            where = "provider"
+            parts.append(f"⚠️ HLS-Anbieter nicht messbar ({iptv_result.get('error','')}).")
+        else:
+            if prov_per >= FHD_MBPS:
+                parts.append(f"HLS-Anbieter: {prov_total} Mbit/s bei {prov_n} parallel (Ø {prov_per}/Stream) – reicht.")
+            else:
+                parts.append(f"⚠️ HLS-Anbieter langsam: nur {prov_per} Mbit/s pro Stream bei {prov_n} parallel.")
+            lat_ms, jit_ms = iptv_result.get("latency_ms"), iptv_result.get("jitter_ms")
+            if lat_ms is not None and jit_ms is not None and jit_ms > 150:
+                parts.append(f"⚠️ unruhige Verbindung zum Anbieter (Latenz {lat_ms} ms, Jitter {jit_ms} ms) – kann trotz Speed ruckeln.")
+            if vpn_meas and vpn_mbps:
+                if vpn_mbps < prov_total and vpn_mbps < FHD_MBPS * 2:
+                    where = "vpn"
+                    parts.append(f"⚠️ VPN-Tunnel selbst niedrig ({vpn_mbps} Mbit/s) → Flaschenhals = VPN (anderen Mullvad-Server probieren).")
+                elif prov_per < FHD_MBPS and vpn_mbps >= prov_total:
+                    where = "provider"
+                    parts.append(f"→ VPN liefert {vpn_mbps} Mbit/s, Anbieter bleibt drunter → Flaschenhals = HLS-Anbieter.")
+                else:
+                    where = "none"
+                    parts.append(f"✅ Beide Wege gut (VPN {vpn_mbps} · Anbieter {prov_total} Mbit/s) – kein Flaschenhals.")
+            else:
+                if internet_result.get("unreliable"):
+                    parts.append("(VPN-Internet-Messung durch Server-Block unzuverlässig – Anbieterwert zählt.)")
+                where = "provider" if prov_per < FHD_MBPS else "none"
 
-    # Ehrlichkeits-Check: Internet-Messung durchs VPN ist oft unzuverlaessig, weil
-    # oeffentliche Speedtest-Server VPN-IPs drosseln/blocken. Liegt der Internet-
-    # Wert unplausibel weit unter dem ECHTEN Tunnel-Durchsatz (IPTV parallel), wird
-    # er als unzuverlaessig markiert – statt eine irrefuehrend niedrige Zahl gross
-    # anzuzeigen. Der IPTV-Parallel-Wert ist dann die belastbare Aussage.
-    if internet_result.get("ok") and iptv_result.get("ok"):
-        iptv_cap = iptv_result.get("mbps_parallel_total") or iptv_result.get("mbps", 0)
-        if iptv_cap and internet_result["mbps"] < iptv_cap / 3 and internet_result["mbps"] < 40:
-            internet_result["unreliable"] = True
-            internet_result["note"] = (
-                "Messung durchs VPN unzuverlässig – öffentliche Speedtest-Server drosseln/"
-                f"blockieren VPN-IPs. Echter Tunnel-Durchsatz ≈ {iptv_cap} Mbit/s (IPTV, parallel)."
-            )
+    bottleneck = " · ".join(parts)
 
     return {
         "ok": True,
         "via_vpn": vpn_is_running(),
-        "internet": {**internet_result, "streams": streams_estimate(internet_result.get("mbps", 0)) if internet_result.get("ok") else {}},
-        "iptv":     {**iptv_result,     "streams": streams_estimate(iptv_result.get("mbps", 0))     if iptv_result.get("ok") else {}},
+        "viewers": viewers,
+        "verdict_where": where,
+        "internet": {**internet_result, "streams": streams_estimate(internet_result.get("mbps") or 0) if internet_result.get("measured") else {}},
+        "iptv":     {**iptv_result,     "streams": streams_estimate(iptv_result.get("mbps") or 0)     if iptv_result.get("ok") else {}},
         "bottleneck": bottleneck,
     }
 
@@ -7266,6 +7308,86 @@ async def vpn_server_latency(_=Depends(check_admin)):
     active = os.path.basename(db.get_setting("vpn_ovpn_path", ""))
     return {"ok": True, "fastest": ranked[0]["ovpn"] if ranked else None,
             "active": active, "results": results}
+
+
+async def _quick_tunnel_throughput(timeout_sec: float = 4.0) -> Optional[float]:
+    """Schneller Durchsatz (Mbit/s) durch den AKTUELLEN Tunnel (erster erreichbare Server)."""
+    for url in _VPN_SPEEDTEST_URLS:
+        try:
+            r = await _speedtest_measure_url(url, timeout_sec=timeout_sec)
+            if r.get("ok") and r.get("mbps"):
+                return round(r["mbps"], 1)
+        except Exception:
+            continue
+    return None
+
+
+@admin_app.get("/api/vpn/throughput-compare")
+async def vpn_throughput_compare(country: str = "", _=Depends(check_admin)):
+    """Vergleicht Mullvad-Server nach ECHTEM DURCHSATZ (nicht nur Latenz), um den
+    schnellsten zu finden.
+
+    ZUSCHAUER-SCHUTZ: Ein echter Durchsatz-Test pro Server geht nur, indem der Tunnel
+    kurz auf den Server geschaltet wird – das würde bei Zuschauern deren Exit ändern.
+    Darum: laufen Zuschauer → nur LATENZ-Rangliste (störungsfrei). Ist niemand da →
+    voller Durchsatz-Vergleich; am Ende wird IMMER der ursprüngliche Server wiederhergestellt."""
+    global _vpn_sweep_active
+    active_path = db.get_setting("vpn_ovpn_path", "")
+    if _vpn_config_type(active_path) != "wireguard" or not _iface_exists(WG_IFACE):
+        return {"ok": False, "error": "Nur mit aktivem WireGuard-Tunnel möglich."}
+    if _vpn_sweep_active or _dual_lock.locked():
+        return {"ok": False, "error": "Ein anderer VPN-Test läuft gerade – bitte kurz warten."}
+    active_fn = os.path.basename(active_path)
+    cands = _wg_autobest_candidates(active_fn, country.strip().lower(), cap=8)
+    try:
+        _cleanup_sessions()
+        viewers = len(_sessions)
+    except Exception:
+        viewers = 0
+
+    # ── Zuschauer aktiv → nur Latenz (störungsfrei) ───────────────────────
+    if viewers >= 1:
+        gw, dev = (_wg_saved_default or _wg_default_gw())
+        active_ip = await _active_endpoint_ip()
+        results = []
+        # aktiven Server mitmessen (ohne seine Route anzufassen)
+        _aip, alat = await _measure_server_latency(active_path, gw, dev, active_ip)
+        results.append({"ovpn": active_fn, "latency_ms": alat, "active": True})
+        for fn in cands:
+            _ip, lat = await _measure_server_latency(os.path.join(VPN_OVPN_DIR, fn), gw, dev, active_ip)
+            results.append({"ovpn": fn, "latency_ms": lat})
+        ranked = sorted([r for r in results if r.get("latency_ms") is not None], key=lambda x: x["latency_ms"])
+        return {"ok": True, "mode": "latency", "viewers": viewers, "active": active_fn,
+                "fastest": ranked[0]["ovpn"] if ranked else None, "results": results,
+                "note": "Zuschauer aktiv → nur Latenz-Rangliste (ein echter Durchsatz-Test würde alle "
+                        "über die Test-Server leiten). Für Durchsatz später ohne Zuschauer testen."}
+
+    # ── Niemand schaut → echter Durchsatz-Vergleich (Tunnel wird durchgeschaltet) ──
+    _vpn_sweep_active = True   # Wächter pausieren, damit sie nicht dazwischenfunken
+    results = []
+    try:
+        tp = await _quick_tunnel_throughput()
+        results.append({"ovpn": active_fn, "mbps": tp, "active": True})
+        for fn in cands:
+            r = await asyncio.to_thread(_wg_switch_seamless, os.path.join(VPN_OVPN_DIR, fn))
+            if not r.get("ok"):
+                results.append({"ovpn": fn, "mbps": None, "error": r.get("error")})
+                continue
+            await _reset_iptv_client()
+            await asyncio.sleep(1.0)   # Handshake kurz setzen lassen
+            results.append({"ovpn": fn, "mbps": await _quick_tunnel_throughput()})
+    finally:
+        # IMMER den ursprünglichen Server wiederherstellen
+        try:
+            await asyncio.to_thread(_wg_switch_seamless, active_path)
+            db.set_setting("vpn_ovpn_path", active_path)
+            await _reset_iptv_client()
+        except Exception:
+            pass
+        _vpn_sweep_active = False
+    ranked = sorted([r for r in results if r.get("mbps")], key=lambda x: -x["mbps"])
+    return {"ok": True, "mode": "throughput", "viewers": 0, "active": active_fn,
+            "fastest": ranked[0]["ovpn"] if ranked else None, "results": results}
 
 
 # ── Weg 2: Zweiter Tunnel (tun1) – echter Durchsatz OHNE Stream-Stopp ────────

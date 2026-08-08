@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.62</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.63</div>
       </div>
     </div>
 
@@ -1105,7 +1105,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.62</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.63</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1250,15 +1250,23 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="scard" style="grid-column:1/-1">
             <div class="scard-title">🚀 Speedtest – Flaschenhals-Analyse</div>
             <div class="form-hint" style="margin-bottom:14px;">
-              Misst <strong>Internet/VPN</strong> und den <strong>IPTV-Anbieter</strong> mit mehreren gleichzeitigen Streams – zeigt mit einer Ampel, ob dein Setup viele Zuschauer packt.<br>
-              ⚠️ <strong>Hinweis:</strong> Der <strong>Internet/VPN</strong>-Teil misst über öffentliche Speedtest-Server, die VPN-Traffic <strong>drosseln/blocken</strong> („nicht erreichbar" = deren Problem, nicht deins). Dein <strong>verlässlicher Durchsatz-Wert ist der Canary</strong> (misst echte IPTV-Segmente durch den aktiven Tunnel). Der <strong>Anbieter-Kapazitäts-Test</strong> unten ist aussagekräftig.
+              Zeigt, <strong>wo der Flaschenhals liegt</strong> – am <strong>🔒 VPN-Tunnel</strong> oder am <strong>📡 HLS-Anbieter</strong> (Signalquelle).<br>
+              <strong>Zuschauer-sicher &amp; genau:</strong> Schauen gerade Leute, wird der Anbieter-Weg aus ihren <strong>echten Segmenten</strong> gemessen (exakt, stört niemanden) und der VPN-Weg nur per <strong>Latenz</strong> geprüft (keine Bandbreite). Ist niemand da, wird <strong>beides voll</strong> ausgemessen.
             </div>
             <button class="btn primary" id="speedtest-btn" onclick="runSpeedtest()">▶ Speedtest starten</button>
 
-            <!-- VPN-Server-Vergleich Ergebnis -->
-            <div id="speedtest-all-result" style="display:none;margin-top:16px;">
-              <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🏁 VPN-SERVER-VERGLEICH</div>
-              <div id="speedtest-all-table"></div>
+            <!-- Server-Durchsatz-Vergleich -->
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <button class="btn" id="speedtest-all-btn" onclick="runServerThroughput()">🏁 Server-Durchsatz vergleichen</button>
+                <label style="font-size:12px;color:var(--text2);">Land</label>
+                <input class="form-input" type="text" id="tp-country" maxlength="2" placeholder="z.B. de – leer = wie aktiv" style="width:150px;">
+              </div>
+              <div class="form-hint" style="margin-top:8px;">Findet den <strong>schnellsten Mullvad-Server nach echtem Durchsatz</strong> (nicht nur Latenz). <strong>Zuschauer-sicher:</strong> schaut gerade jemand, gibt's nur die Latenz-Rangliste (störungsfrei); ist niemand da, wird jeder Server kurz durchgemessen und danach <strong>automatisch der ursprüngliche wiederhergestellt</strong>.</div>
+              <div id="speedtest-all-result" style="display:none;margin-top:14px;">
+                <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🏁 SERVER-VERGLEICH</div>
+                <div id="speedtest-all-table"></div>
+              </div>
             </div>
 
             <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
@@ -1296,7 +1304,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
                 <!-- Internet/VPN -->
                 <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;">
-                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🌐 INTERNET / VPN</div>
+                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">🔒 VPN-TUNNEL (Mullvad)</div>
                   <div style="display:flex;align-items:flex-end;gap:4px;margin-bottom:4px;">
                     <span id="st-inet-mbps" style="font-size:42px;font-family:var(--mono);color:var(--teal);line-height:1;">–</span>
                     <span style="font-size:13px;color:var(--text2);margin-bottom:6px;">Mbit/s</span>
@@ -1320,7 +1328,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
                 <!-- IPTV Provider -->
                 <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;">
-                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📺 IPTV-ANBIETER</div>
+                  <div style="font-size:10px;color:var(--text2);letter-spacing:.15em;margin-bottom:8px;">📡 HLS-ANBIETER (Signalquelle)</div>
                   <div style="display:flex;align-items:flex-end;gap:4px;margin-bottom:4px;">
                     <span id="st-iptv-mbps" style="font-size:42px;font-family:var(--mono);color:var(--teal);line-height:1;">–</span>
                     <span style="font-size:13px;color:var(--text2);margin-bottom:6px;">Mbit/s</span>
@@ -4301,44 +4309,45 @@ async function runSpeedtest() {
 
   try {
     const data = await api('GET', '/api/vpn/speedtest');
+    const liveMode = (data.viewers || 0) >= 1;
 
-    // Internet result
+    // ── VPN-Tunnel-Leg ──
     const inet = data.internet;
     const inetMbpsEl = document.getElementById('st-inet-mbps');
     const inetDetailEl = document.getElementById('st-inet-detail');
-    if (inet && inet.ok && inet.unreliable) {
-      // Messung durchs VPN unzuverlaessig – ehrlich kennzeichnen statt irrefuehren
-      inetMbpsEl.textContent = '≈' + inet.mbps;
+    const inetHd = document.getElementById('st-inet-hd'), inetFhd = document.getElementById('st-inet-fhd'), inet4k = document.getElementById('st-inet-4k');
+    if (inet && inet.ok && inet.measured === false) {
+      // Nur Latenz gemessen (Zuschauer aktiv) ODER unzuverlässig
+      inetMbpsEl.textContent = inet.latency_ms != null ? inet.latency_ms : '≈' + (inet.mbps ?? '?');
       inetMbpsEl.style.color = 'var(--text2)';
-      inetDetailEl.innerHTML = `<span style="color:#f0b400;">⚠️ ${inet.note || 'Messung durchs VPN unzuverlässig'}</span>`;
-      document.getElementById('st-inet-hd').textContent  = '–';
-      document.getElementById('st-inet-fhd').textContent = '–';
-      document.getElementById('st-inet-4k').textContent  = '–';
+      inetMbpsEl.nextElementSibling.textContent = inet.latency_ms != null ? 'ms Latenz' : 'Mbit/s';
+      inetDetailEl.innerHTML = `<span style="color:#f0b400;">ℹ️ ${inet.note || 'Durchsatz nur ohne Zuschauer messbar'}</span>`;
+      inetHd.textContent = '–'; inetFhd.textContent = '–'; inet4k.textContent = '–';
     } else if (inet && inet.ok) {
       inetMbpsEl.textContent = inet.mbps;
       inetMbpsEl.style.color = 'var(--teal)';
+      inetMbpsEl.nextElementSibling.textContent = 'Mbit/s';
       const par = inet.parallel && inet.parallel > 1 ? ` • ${inet.parallel}× parallel` : '';
-      const single = inet.single && inet.single !== inet.mbps ? ` (einzeln ${inet.single})` : '';
-      inetDetailEl.textContent =
-        `${inet.server || ''}${par}${single} • ${data.via_vpn ? '🔒 VPN' : '🌐 direkt'}`;
-      document.getElementById('st-inet-hd').textContent  = (inet.streams?.hd_720p  || 0) + 'x';
-      document.getElementById('st-inet-fhd').textContent = (inet.streams?.fhd_1080p|| 0) + 'x';
-      document.getElementById('st-inet-4k').textContent  = (inet.streams?.uhd_4k   || 0) + 'x';
+      inetDetailEl.textContent = `${inet.server || ''}${par} • ${data.via_vpn ? '🔒 VPN' : '🌐 direkt'}`;
+      inetHd.textContent  = (inet.streams?.hd_720p  || 0) + 'x';
+      inetFhd.textContent = (inet.streams?.fhd_1080p|| 0) + 'x';
+      inet4k.textContent  = (inet.streams?.uhd_4k   || 0) + 'x';
     } else {
       inetMbpsEl.textContent = '!';
-      inetMbpsEl.style.color = 'var(--teal)';
+      inetMbpsEl.style.color = 'var(--text2)';
       inetDetailEl.textContent = inet?.error || 'Fehler';
     }
 
-    // IPTV result
+    // ── HLS-Anbieter-Leg ──
     const iptv = data.iptv;
     if (iptv && iptv.ok) {
       document.getElementById('st-iptv-mbps').textContent = iptv.mbps;
-      const tgt = iptv.target || iptv.parallel;
       const fail = iptv.failed ? ` • ${iptv.failed} ✗` : '';
-      const lat = iptv.latency_ms != null ? ` • Latenz ${iptv.latency_ms} ms (Jitter ${iptv.jitter_ms ?? '?'})` : '';
-      document.getElementById('st-iptv-detail').textContent =
-        `${iptv.parallel}/${tgt} Streams gleichzeitig • gesamt ${iptv.mbps_parallel_total || '?'} Mbit/s${fail}${lat}`;
+      const lat = iptv.latency_ms != null ? ` • Latenz ${iptv.latency_ms} ms` : '';
+      const src = iptv.source === 'live'
+        ? `📡 live aus ${iptv.parallel} Zuschauer-Stream(s) – ${iptv.mbps} Mbit/s${lat}`
+        : `${iptv.parallel}/${iptv.target || iptv.parallel} Streams gleichzeitig • gesamt ${iptv.mbps_parallel_total || '?'} Mbit/s${fail}${lat}`;
+      document.getElementById('st-iptv-detail').textContent = src;
       document.getElementById('st-iptv-hd').textContent  = (iptv.streams?.hd_720p  || 0) + 'x';
       document.getElementById('st-iptv-fhd').textContent = (iptv.streams?.fhd_1080p|| 0) + 'x';
       document.getElementById('st-iptv-4k').textContent  = (iptv.streams?.uhd_4k   || 0) + 'x';
@@ -4347,16 +4356,19 @@ async function runSpeedtest() {
       document.getElementById('st-iptv-detail').textContent = iptv?.error || 'Kein IPTV-Kanal zum Testen';
     }
 
-    // Ampel-Banner: rot bei Warnung (⚠️), sonst grün
+    // ── Flaschenhals-Urteil: farbiges Banner + Klartext ──
     const bn = document.getElementById('speedtest-bottleneck');
-    if (data.bottleneck) {
-      const warn = data.bottleneck.includes('⚠️');
-      bn.style.borderColor = warn ? '#ef4444' : '#00e5c8';
-      bn.style.color = warn ? '#ef4444' : 'var(--teal)';
-      bn.textContent = data.bottleneck;
-    } else {
-      bn.textContent = '';
-    }
+    const where = data.verdict_where;
+    let head = '';
+    if (where === 'vpn') head = '🔒 Flaschenhals: VPN-Tunnel';
+    else if (where === 'provider') head = '📡 Flaschenhals: HLS-Anbieter';
+    else if (where === 'none') head = '✅ Kein Flaschenhals';
+    const warn = (where === 'vpn' || where === 'provider' || (data.bottleneck || '').includes('⚠️'));
+    bn.style.borderColor = warn ? '#ef4444' : '#00e5c8';
+    bn.style.color = warn ? '#ef4444' : 'var(--teal)';
+    bn.innerHTML = (head ? `<strong>${head}</strong>` : '')
+      + (liveMode ? ' <span style="color:var(--text3);">· Zuschauer aktiv → schonend gemessen</span>' : '')
+      + (data.bottleneck ? `<br><span style="color:var(--text2);">${data.bottleneck}</span>` : '');
 
   } catch(e) {
     document.getElementById('speedtest-bottleneck').textContent = 'Fehler: ' + e;
@@ -4366,49 +4378,49 @@ async function runSpeedtest() {
   btn.textContent = '▶ Speedtest starten';
 }
 
-async function runSpeedtestAll() {
-  if (!confirm('Alle VPN-Server nacheinander messen?\n\n⚠️ Während des Vergleichs (~2 Min) sind ALLE Streams unterbrochen, weil es nur einen Tunnel gibt. Danach wird der vorherige Server automatisch wiederhergestellt.\n\nJetzt starten?')) return;
+async function runServerThroughput() {
   const btn = document.getElementById('speedtest-all-btn');
   const box = document.getElementById('speedtest-all-result');
   const tbl = document.getElementById('speedtest-all-table');
+  const country = (document.getElementById('tp-country')?.value || '').trim().toLowerCase();
   btn.disabled = true;
-  btn.textContent = '⏳ Vergleiche… (Streams unterbrochen)';
+  btn.textContent = '⏳ Vergleiche Server…';
   box.style.display = 'block';
-  tbl.innerHTML = '<div style="font-family:var(--mono);font-size:12px;color:var(--text2);">⏳ Verbinde jeden Server nacheinander und messe… das dauert 1–2 Minuten.</div>';
+  tbl.innerHTML = '<div style="font-family:var(--mono);font-size:12px;color:var(--text2);">⏳ Messe… (bei Zuschauern nur Latenz; sonst echter Durchsatz mit automatischer Wiederherstellung)</div>';
+  const nice = f => (f||'').replace(/^mullvad-/,'').replace(/\.conf$/,'').replace(/\.ovpn$/,'');
   try {
-    const data = await api('GET', '/api/vpn/speedtest-all');
-    const rows = (data.results || []).slice().sort((a,b)=>(b.mbps_parallel_total||0)-(a.mbps_parallel_total||0));
-    const nice = f => (f||'').replace(/^my_expressvpn_/,'').replace(/_udp\.ovpn$/,'').replace(/\.ovpn$/,'').replace(/_/g,' ');
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-    html += '<tr style="color:var(--text2);text-align:left;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Server</th><th style="padding:6px 8px;text-align:right;">Anbieter Mbit/s</th><th style="padding:6px 8px;text-align:right;">Latenz</th></tr>';
+    const data = await api('GET', '/api/vpn/throughput-compare' + (country ? ('?country=' + encodeURIComponent(country)) : ''));
+    if (!data.ok) { tbl.innerHTML = `<div style="color:#ef4444;font-size:12px;">${data.error || 'Fehler'}</div>`; btn.disabled=false; btn.textContent='🏁 Server-Durchsatz vergleichen'; return; }
+    const isTp = data.mode === 'throughput';
+    const key = isTp ? 'mbps' : 'latency_ms';
+    const rows = (data.results || []).slice().sort((a,b) => {
+      const av = a[key], bv = b[key];
+      if (av == null) return 1; if (bv == null) return -1;
+      return isTp ? (bv - av) : (av - bv);   // Durchsatz: hoch=gut · Latenz: niedrig=gut
+    });
+    const col = isTp ? 'Durchsatz Mbit/s' : 'Latenz ms';
+    let html = `<div style="font-size:11px;color:var(--text2);margin-bottom:8px;">${isTp ? '🚀 Echter Durchsatz-Vergleich (niemand schaut)' : '🟡 Nur Latenz – ' + (data.note || 'Zuschauer aktiv')}</div>`;
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html += `<tr style="color:var(--text2);text-align:left;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Server</th><th style="padding:6px 8px;text-align:right;">${col}</th></tr>`;
     rows.forEach((r, i) => {
-      const isFastest = r.ok && nice(r.ovpn) === nice(data.fastest);
-      const label = nice(r.ovpn);
-      if (r.ok) {
-        const lat = r.latency_ms != null ? `${r.latency_ms} ms` : '–';
-        html += `<tr style="border-top:1px solid var(--border);${isFastest?'background:rgba(0,229,200,.08);':''}">`
-          + `<td style="padding:6px 8px;">${isFastest?'🏆':(i+1)}</td>`
-          + `<td style="padding:6px 8px;color:${isFastest?'var(--teal)':'inherit'};font-weight:${isFastest?'600':'400'};">${label}</td>`
-          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--teal);">${r.mbps_parallel_total ?? '?'}</td>`
-          + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:var(--text2);">${lat}</td></tr>`;
-      } else {
-        html += `<tr style="border-top:1px solid var(--border);color:var(--text2);">`
-          + `<td style="padding:6px 8px;">✗</td>`
-          + `<td style="padding:6px 8px;">${label}</td>`
-          + `<td colspan="2" style="padding:6px 8px;text-align:right;font-family:var(--mono);">${r.error||'Fehler'}</td></tr>`;
-      }
+      const val = r[key];
+      const isFastest = data.fastest && r.ovpn === data.fastest && val != null;
+      const isActive = r.active;
+      const disp = val != null ? val : (r.error ? '✗' : '–');
+      html += `<tr style="border-top:1px solid var(--border);${isFastest?'background:rgba(0,229,200,.08);':''}">`
+        + `<td style="padding:6px 8px;">${isFastest?'🏆':(i+1)}</td>`
+        + `<td style="padding:6px 8px;color:${isFastest?'var(--teal)':'inherit'};font-weight:${isFastest?'600':'400'};">${nice(r.ovpn)}${isActive?' <span style="font-size:9px;color:var(--text3);">(aktiv)</span>':''}</td>`
+        + `<td style="padding:6px 8px;text-align:right;font-family:var(--mono);color:${val!=null?'var(--teal)':'var(--text3)'};">${disp}</td></tr>`;
     });
     html += '</table>';
-    html += `<div style="margin-top:10px;font-size:11px;color:var(--text2);font-family:var(--mono);">`
-      + (data.fastest ? `🏆 Schnellster: <span style="color:var(--teal);">${nice(data.fastest)}</span> · ` : '')
-      + `Wiederhergestellt: ${nice(data.restored)}</div>`;
+    if (data.fastest) html += `<div style="margin-top:10px;font-size:11px;color:var(--text2);font-family:var(--mono);">🏆 Bester: <span style="color:var(--teal);">${nice(data.fastest)}</span>${isTp ? ' – über die Server-Liste per „Wechseln" aktivierbar' : ''}</div>`;
     tbl.innerHTML = html;
-    if (typeof showToast === 'function') showToast(data.fastest ? `Schnellster VPN: ${nice(data.fastest)}` : 'Vergleich fertig');
+    if (typeof showToast === 'function') showToast(data.fastest ? `Bester Server: ${nice(data.fastest)}` : 'Vergleich fertig');
   } catch(e) {
-    tbl.innerHTML = `<div style="color:#ef4444;font-size:12px;">Fehler: ${e}<br><span style="color:var(--text2);">Prüfe das VPN-Log – die Einzelergebnisse stehen auch dort, und der Server wurde wiederhergestellt.</span></div>`;
+    tbl.innerHTML = `<div style="color:#ef4444;font-size:12px;">Fehler: ${e}</div>`;
   }
   btn.disabled = false;
-  btn.textContent = '🏁 Alle VPN-Server vergleichen';
+  btn.textContent = '🏁 Server-Durchsatz vergleichen';
   if (typeof vpnRefreshStatus === 'function') vpnRefreshStatus();
 }
 
