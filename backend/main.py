@@ -7164,6 +7164,25 @@ async def vpn_server_latency(_=Depends(check_admin)):
     # gesicherten Original nehmen (für die stream-sichere /32-Direktroute).
     if (not gw or not dev) and _wg_saved_default:
         gw, dev = _wg_saved_default
+
+    # KRITISCH: Die /32-Route zum AKTIVEN Mullvad-Server niemals anfassen/löschen!
+    # WireGuard erreicht seinen Server genau über diese Route (via LAN-Gateway). Würde der
+    # Latenz-Check sie löschen, liefe der Verkehr zum Server in den Tunnel selbst (Schleife)
+    # → Tunnel tot → ALLE Streams brechen ab. Darum den aktiven Endpoint hier auslassen.
+    active_path = db.get_setting("vpn_ovpn_path", "")
+    active_ip = None
+    if active_path:
+        _ah, _ = _vpn_ovpn_remote(active_path)
+        if _ah:
+            if _is_ipv4(_ah):
+                active_ip = _ah
+            else:
+                try:
+                    _infos = await asyncio.to_thread(socket.getaddrinfo, _ah, None, socket.AF_INET)
+                    active_ip = _infos[0][4][0] if _infos else None
+                except Exception:
+                    active_ip = None
+
     results = []
     for path in files:
         name = os.path.basename(path)
@@ -7181,8 +7200,11 @@ async def vpn_server_latency(_=Depends(check_admin)):
             except Exception:
                 ip = None
         target = ip or host
+        is_active = (ip is not None and ip == active_ip)
         route_added = False
-        if gw and dev and ip:
+        # Für den AKTIVEN Server KEINE Route setzen/löschen (sonst reißt der Tunnel ab).
+        # Er ist über seine bestehende Endpoint-Route ohnehin direkt erreichbar.
+        if gw and dev and ip and not is_active:
             try:
                 await asyncio.to_thread(subprocess.run,
                                         ["ip", "route", "replace", f"{ip}/32", "via", gw, "dev", dev],

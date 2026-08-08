@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.61 — HOTFIX: Server-Latenz-Check riss den Tunnel ab
+
+- **Behoben: „Server-Latenz prüfen" ließ alle Streams abbrechen.** Der Check setzt pro Server kurz
+  eine /32-Direktroute und löscht sie danach. Für den **aktuell aktiven** Mullvad-Server wurde damit
+  auch dessen Endpoint-Route gelöscht – genau die Route, über die WireGuard seinen Server erreicht.
+  Ohne sie läuft der Verkehr zum Server in den Tunnel selbst (Routing-Schleife) → Tunnel tot → alle
+  Streams weg. Der Latenz-Check lässt den aktiven Server jetzt **komplett aus** (fasst dessen Route
+  nie an; er ist über die bestehende Endpoint-Route ohnehin direkt messbar).
+- (Auto-Best war nie betroffen – der misst den aktiven Server ohnehin nicht mit.)
+
+
 ## v1.60 — HOTFIX: Streams brachen ab (Cross-Event-Loop)
 
 - **Behoben: Streams brachen mit `RuntimeError: bound to a different event loop` ab** (VLC/Player
