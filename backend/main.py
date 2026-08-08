@@ -546,11 +546,12 @@ def make_iptv_client(ssrf_guard: bool = False, **kwargs) -> httpx.AsyncClient:
 # gateway) schickt auch diesen Client automatisch durch den VPN-Tunnel.
 _iptv_client: Optional[httpx.AsyncClient] = None
 _iptv_client_lock = asyncio.Lock()
+_iptv_client_loop = None   # Event-Loop, in dem der geteilte Client erstellt wurde
 
 
 async def _get_iptv_client() -> httpx.AsyncClient:
     """Geteilter httpx-Client mit Keep-Alive-Verbindungspool für Segment-Abrufe."""
-    global _iptv_client
+    global _iptv_client, _iptv_client_loop
     c = _iptv_client
     if c is not None and not c.is_closed:
         return c
@@ -563,19 +564,39 @@ async def _get_iptv_client() -> httpx.AsyncClient:
                 limits=httpx.Limits(max_keepalive_connections=40, max_connections=100,
                                     keepalive_expiry=60.0),
             )
+            try:
+                _iptv_client_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                _iptv_client_loop = None
     return _iptv_client
 
 
 async def _reset_iptv_client() -> None:
-    """Client verwerfen (z.B. wenn Pool-Verbindungen nach VPN-Neustart tot sind)."""
-    global _iptv_client
+    """Geteilten Client verwerfen (z.B. wenn Pool-Verbindungen nach VPN-Wechsel tot sind).
+
+    WICHTIG: Der Client gehört dem Proxy-Loop (dort werden Segmente geladen). Wird diese
+    Funktion aus einem FREMDEN Loop aufgerufen (Auto-Best-Wächter, vpn_switch im Admin-Loop),
+    darf ``aclose()`` NICHT awaited werden – das würde laufende Proxy-Requests mit
+    'bound to a different event loop' abwürgen (→ Streams brechen ab). In dem Fall lassen wir
+    die Referenz nur los; der nächste Proxy-Request erstellt einen frischen Client, die alten
+    Verbindungen laufen über keepalive_expiry aus / werden vom GC geschlossen."""
+    global _iptv_client, _iptv_client_loop
     c = _iptv_client
+    owner_loop = _iptv_client_loop
     _iptv_client = None
-    if c is not None:
+    _iptv_client_loop = None
+    if c is None:
+        return
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is not None and running is owner_loop:
         try:
-            await c.aclose()
+            await c.aclose()          # eigener Loop → sicher schließen
         except Exception:
             pass
+    # sonst: fremder Loop → NICHT schließen (Referenz loslassen genügt)
 
 
 def _start_socks_proxy(tun_ip: str):
@@ -7476,21 +7497,33 @@ async def _canary_fetch_once() -> dict:
     if not segs:
         return {"ok": False, "error": "keine Segmente"}
     got, ratios, yielded = 0, [], False
-    for url, dur in segs:
-        # Vor JEDEM Segment neu prüfen: ist noch eine Line frei? Kommt mitten in der
-        # Messung ein Zuschauer, sofort aufhören und ihm die Line lassen. Sequenziell,
-        # damit nie mehr als eine Line gleichzeitig belegt wird.
-        if _near_capacity():
-            yielded = True
-            break
-        try:
-            data, elapsed, cached = await _get_segment(url, hls)
-            if len(data) > 100:
-                got += 1
-                if dur and dur > 0 and not cached:
-                    ratios.append(elapsed / dur)
-        except Exception:
-            pass
+    # WICHTIG: EIGENER (frischer) Client – NICHT der geteilte Proxy-Client via _get_segment.
+    # Der Canary läuft im Hintergrund-Loop; der geteilte Client gehört dem Proxy-Loop. Ihn hier
+    # zu benutzen würde ihn an den falschen Event-Loop binden → laufende Zuschauer-Streams
+    # brächen mit 'bound to a different event loop' ab (VLC „kann nicht öffnen").
+    async with make_iptv_client(ssrf_guard=True, follow_redirects=True,
+                                timeout=httpx.Timeout(20.0, read=30.0),
+                                headers=make_headers(hls)) as client:
+        for url, dur in segs:
+            # Vor JEDEM Segment neu prüfen: ist noch eine Line frei? Kommt mitten in der
+            # Messung ein Zuschauer, sofort aufhören und ihm die Line lassen. Sequenziell,
+            # damit nie mehr als eine Line gleichzeitig belegt wird.
+            if _near_capacity():
+                yielded = True
+                break
+            try:
+                _t0 = time.time()
+                r = await client.get(url)
+                data = r.content
+                elapsed = time.time() - _t0
+                ok = r.status_code < 400 and len(data) > 100
+                _passive_record(elapsed, len(data), ok)   # Passiv-Proben weiter füttern
+                if ok:
+                    got += 1
+                    if dur and dur > 0:
+                        ratios.append(elapsed / dur)
+            except Exception:
+                _passive_record(0.0, 0, False)
     reserve = round(sum(ratios) / len(ratios), 2) if ratios else None
     ph = _passive_health()
     host = ch.split("/")[2] if "://" in ch else ch

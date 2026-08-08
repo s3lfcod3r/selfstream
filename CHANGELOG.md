@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.60 — HOTFIX: Streams brachen ab (Cross-Event-Loop)
+
+- **Behoben: Streams brachen mit `RuntimeError: bound to a different event loop` ab** (VLC/Player
+  „konnte nicht öffnen"). Zwei Ursachen, beide behoben:
+  1. **Canary-Selbstabruf nutzte den geteilten Proxy-Client.** Der Canary läuft im Hintergrund-Loop;
+     `_get_segment()` (und damit der geteilte httpx-Client) gehört aber dem Proxy-Loop. Beim
+     Leerlauf-Selbstabruf band der Canary den Client an den falschen Loop → der nächste echte
+     Zuschauer-Stream im Proxy-Loop starb cross-loop. Der Canary nutzt jetzt einen **eigenen
+     frischen Client** (Passiv-Proben werden weiter gefüttert).
+  2. **`_reset_iptv_client()` wurde aus fremden Loops aufgerufen** (Auto-Best-Wächter, `vpn_switch`)
+     und schloss (`aclose`) den geteilten Proxy-Client, während der Proxy gerade Segmente lud →
+     laufende Requests starben. Reset ist jetzt **loop-sicher**: `aclose` nur im eigenen Loop,
+     sonst wird die Referenz nur losgelassen (nächster Proxy-Request erstellt einen frischen Client).
+- Regression aus v1.55/v1.56 (nahtloser Wechsel + Auto-Best), verstärkt durch aktiviertes Auto-Best.
+
+
 ## v1.59
 
 ### Alarm-Mail am VPN vorbei + WireGuard-Selbstreparatur
