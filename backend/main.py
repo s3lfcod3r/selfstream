@@ -5585,10 +5585,31 @@ def _wg_autobest_candidates(active_fn: str, country: str, cap: int = 12) -> list
     return [all_conf[int(i * step)] for i in range(cap)]
 
 
-async def _measure_server_latency(path: str, gw, dev):
+async def _active_endpoint_ip() -> Optional[str]:
+    """IP des Endpoints des AKTUELL aktiven VPN-Servers (für den Routen-Schutz).
+    Dessen /32-Endpoint-Route darf keine Messung anfassen, sonst reißt der Tunnel ab."""
+    p = db.get_setting("vpn_ovpn_path", "")
+    if not p:
+        return None
+    host, _ = _vpn_ovpn_remote(p)
+    if not host:
+        return None
+    if _is_ipv4(host):
+        return host
+    try:
+        infos = await asyncio.to_thread(socket.getaddrinfo, host, None, socket.AF_INET)
+        return infos[0][4][0] if infos else None
+    except Exception:
+        return None
+
+
+async def _measure_server_latency(path: str, gw, dev, active_ip: str = None):
     """Stream-sichere Latenz (ms) zu EINEM VPN-Server messen: kurz eine /32-Direktroute
     übers echte LAN-Gateway setzen (die Test-Pakete gehen NICHT durch den Tunnel), danach
-    wieder entfernen. Gibt (ip, latency_ms) zurück – latency_ms None = nicht erreichbar."""
+    wieder entfernen. Gibt (ip, latency_ms) zurück – latency_ms None = nicht erreichbar.
+
+    SICHERHEIT: Für ``active_ip`` (Endpoint des AKTIVEN Tunnels) wird KEINE Route gesetzt/gelöscht –
+    das würde die Endpoint-Route killen und den Tunnel abreißen."""
     host, port = _vpn_ovpn_remote(path)
     if not host:
         return (None, None)
@@ -5601,7 +5622,7 @@ async def _measure_server_latency(path: str, gw, dev):
             ip = None
     target = ip or host
     route_added = False
-    if gw and dev and ip:
+    if gw and dev and ip and ip != active_ip:
         try:
             await asyncio.to_thread(subprocess.run,
                                     ["ip", "route", "replace", f"{ip}/32", "via", gw, "dev", dev],
@@ -5660,11 +5681,12 @@ async def _wg_autobest_watch():
             cands = _wg_autobest_candidates(active_fn, country)
             if not cands:
                 continue
+            active_ip = await _active_endpoint_ip()   # dessen Route NIE anfassen (Tunnel-Schutz)
             _vpn_log_add(f"🏆 Auto-Best: Server schwächelt ({health.get('level')}, {mbps} Mbit/s) – "
                          f"prüfe {len(cands)} Alternativen…")
             best_fn, best_lat = None, None
             for fn in cands:
-                _ip, lat = await _measure_server_latency(os.path.join(VPN_OVPN_DIR, fn), gw, dev)
+                _ip, lat = await _measure_server_latency(os.path.join(VPN_OVPN_DIR, fn), gw, dev, active_ip)
                 if lat is not None and (best_lat is None or lat < best_lat):
                     best_fn, best_lat = fn, lat
             if not best_fn:
@@ -6244,11 +6266,38 @@ async def vpn_speedtest(_=Depends(check_admin)):
     # ── Test 2: IPTV-Anbieter (nachhaltig, parallel, + Latenz/Jitter) ─────
     # Simuliert SPEEDTEST_CONCURRENT_STREAMS gleichzeitige Streams, misst pro Stream
     # ueber mehrere Segmente (stabiler Wert) und zusaetzlich Latenz + Jitter.
-    iptv_result = await _iptv_measure_provider(streams=SPEEDTEST_CONCURRENT_STREAMS, per_stream_segments=3)
-    if iptv_result.get("ok"):
-        iptv_result["target"] = SPEEDTEST_CONCURRENT_STREAMS
+    # ZUSCHAUER-SCHUTZ: Der Anbieter-Test öffnet mehrere Verbindungen (= Lines). Liefe er,
+    # während Zuschauer schauen, würde er ihnen Lines wegnehmen → „max streams". Darum die
+    # Test-Stream-Zahl auf die FREIEN Lines begrenzen (eine als Puffer frei lassen) und ganz
+    # aussetzen, wenn keine frei ist.
+    try:
+        _cleanup_sessions()
+        _active = len(_sessions)
+    except Exception:
+        _active = 0
+    try:
+        _cap = max([int(p.get("line_capacity") or 0) for p in db.get_m3u_providers()], default=0)
+    except Exception:
+        _cap = 0
+    if _cap:
+        _usable = _cap - _active - 1          # eine Line als Puffer frei lassen
+        if _usable < 1:
+            iptv_result = {"ok": False, "error": (
+                f"Zuschauer aktiv ({_active}/{_cap} Lines belegt) – Anbieter-Test ausgesetzt, "
+                "um niemanden zu verdrängen. Später ohne Zuschauer erneut testen.")}
+        else:
+            _n = min(SPEEDTEST_CONCURRENT_STREAMS, _usable)
+            iptv_result = await _iptv_measure_provider(streams=_n, per_stream_segments=3)
+            if iptv_result.get("ok"):
+                iptv_result["target"] = _n
+            else:
+                iptv_result.setdefault("error", "Kein IPTV-Kanal verfügbar")
     else:
-        iptv_result.setdefault("error", "Kein IPTV-Kanal verfügbar")
+        iptv_result = await _iptv_measure_provider(streams=SPEEDTEST_CONCURRENT_STREAMS, per_stream_segments=3)
+        if iptv_result.get("ok"):
+            iptv_result["target"] = SPEEDTEST_CONCURRENT_STREAMS
+        else:
+            iptv_result.setdefault("error", "Kein IPTV-Kanal verfügbar")
 
     # ── Flaschenhals-Bewertung ─────────────────────────────────────────────
     # WICHTIG: nicht als Verhaeltnis zu Cloudflare bewerten. Ein reiner Ratio-
@@ -7169,19 +7218,7 @@ async def vpn_server_latency(_=Depends(check_admin)):
     # WireGuard erreicht seinen Server genau über diese Route (via LAN-Gateway). Würde der
     # Latenz-Check sie löschen, liefe der Verkehr zum Server in den Tunnel selbst (Schleife)
     # → Tunnel tot → ALLE Streams brechen ab. Darum den aktiven Endpoint hier auslassen.
-    active_path = db.get_setting("vpn_ovpn_path", "")
-    active_ip = None
-    if active_path:
-        _ah, _ = _vpn_ovpn_remote(active_path)
-        if _ah:
-            if _is_ipv4(_ah):
-                active_ip = _ah
-            else:
-                try:
-                    _infos = await asyncio.to_thread(socket.getaddrinfo, _ah, None, socket.AF_INET)
-                    active_ip = _infos[0][4][0] if _infos else None
-                except Exception:
-                    active_ip = None
+    active_ip = await _active_endpoint_ip()
 
     results = []
     for path in files:

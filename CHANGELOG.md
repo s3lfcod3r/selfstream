@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.62 — Diagnose-Tools zuschauer-/tunnelsicher gemacht
+
+Audit aller Hintergrund-/Diagnose-Funktionen, damit KEINE davon Ausfälle verursacht:
+- **Speedtest – Flaschenhals-Analyse:** öffnete bisher fest 5 parallele Anbieter-Streams (= 5 Lines)
+  ohne Rücksicht auf Zuschauer → konnte sie verdrängen („max streams"). Jetzt **Zuschauer-Schutz**:
+  Test-Streams werden auf die freien Lines begrenzt (eine bleibt als Puffer frei); sind keine frei,
+  wird der Anbieter-Test ausgesetzt (mit Hinweis) statt Zuschauer zu verdrängen.
+- **Auto-Best:** Latenz-Messung fasst die /32-Route des AKTIVEN Servers jetzt garantiert nie an
+  (neuer `active_ip`-Schutz in `_measure_server_latency` + gemeinsamer Helper `_active_endpoint_ip`).
+  War vorher schon sicher (misst nur Kandidaten), jetzt zusätzlich hart abgesichert.
+- **Canary:** bereits in v1.60 auf eigenen frischen Client umgestellt + line-schonend (pausiert nahe
+  Limit); fasst keine Routen an. Bestätigt sicher.
+- Alle Diagnose-Helfer nutzen frische httpx-Clients (kein Cross-Loop mit dem Proxy-Client).
+
+
 ## v1.61 — HOTFIX: Server-Latenz-Check riss den Tunnel ab
 
 - **Behoben: „Server-Latenz prüfen" ließ alle Streams abbrechen.** Der Check setzt pro Server kurz
