@@ -1,5 +1,43 @@
 # Changelog
 
+## v1.64 — EPG frisst keinen Arbeitsspeicher mehr + Qualitätsprüfung der EPG-Quelle
+
+### ① Arbeitsspeicher: Ursache für abgestürzte Container behoben
+Große EPG-Quellen konnten den Container per OOM-Kill beenden. XMLTV wird zum Auswerten als
+Objektbaum gehalten und belegt dabei ein Vielfaches der Dateigröße — bei einer 620-MB-Quelle
+mehrere Gigabyte. Verschärft wurde das durch **fünf Stellen, die diesen Baum immer wieder neu
+aufbauten**, statt den vorhandenen Cache zu nutzen:
+- **Catchup-Abruf:** baute den Baum bei **jedem Zuschauer-Zugriff** neu — bei mehreren
+  gleichzeitigen Zuschauern der direkte Weg in den OOM-Kill.
+- **Catchup-EPG-Watchdog:** baute ihn bei jedem periodischen Durchlauf neu.
+- Drei EPG-Hilfsfunktionen (`_epg_title_from_wall_time_channel`,
+  `_epg_programme_stop_for_title_at_dt`, `_epg_slot_detail_at_dt`) ebenso.
+
+Alle nutzen jetzt den gemeinsamen `_get_epg_root()`-Cache. Zusätzlich:
+- **Download mit Größenlimit** (`epg_max_mb`, Standard 150 MB): die Quelle wird streamend geladen
+  und bei Überschreitung abgebrochen — der bisherige Cache bleibt erhalten, statt dass der Dienst
+  stirbt. Gilt für automatischen Abruf, `/iptv/epg.xml` und „↻ Neu laden".
+- **Prüfsumme blockweise** statt über eine komplette Zweitkopie der EPG-Datei im Speicher
+  (sparte bei jedem Aufruf eine Kopie in Dateigröße).
+- Das Limit steht in der EPG-Ansicht neben Ladezeitpunkt und Größe.
+
+### ② Neu: „Qualität prüfen" — findet vermischte Programmlisten
+Manche EPG-Anbieter führen **zwei komplette Programmlisten unter einer Kanal-ID** zusammen (etwa
+Kabel- und Sat-Variante). Die Sendungen überlappen sich dann, und im Player startet ein
+angeklickter Catchup-Eintrag eine **andere Sendung als angezeigt**. An der Software liegt das nicht
+— nur an den Daten, und bisher war das von außen nicht erkennbar.
+
+Die EPG-Ansicht hat jetzt einen Knopf **🔎 Prüfen** (optional nach Tag und Sender gefiltert):
+- meldet, wie viele Sender betroffen und wie viele sauber sind,
+- listet die betroffenen Sender mit Kanal-ID und Anzahl vermischter Listen,
+- zeigt für die auffälligsten Sender beide Programmlisten nebeneinander, damit erkennbar ist,
+  welche zum echten Feed gehört.
+
+Umgesetzt in `backend/epg_quality.py` (Interval Partitioning) — liest die Datei **streamend**, baut
+also selbst keinen Objektbaum auf: eine 50-MB-Quelle wird in unter einer Sekunde mit rund 45 MB
+Spitzenverbrauch geprüft. Endpoint `GET /api/epg/quality?day=&channel=&tz=&details=`.
+
+
 ## v1.63 — Speedtest neu: Flaschenhals VPN vs. HLS + Server-Durchsatz-Vergleich
 
 ### ① Flaschenhals-Analyse (zuschauer-sicher UND genau)
