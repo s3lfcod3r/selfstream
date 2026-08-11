@@ -250,6 +250,50 @@ def _epg_title_at_time_half_open(channel_name: str, catchup_time_str: str, root)
 # Segment timing events for buffering diagnosis
 _segment_events: list = []
 
+# Obergrenze für EPG-Downloads. XMLTV wird zum Auswerten als Objektbaum in den
+# Speicher gelegt und belegt dabei ein Vielfaches der Dateigröße — eine 600-MB-
+# Quelle genügt, um den Container per OOM-Kill zu beenden.
+EPG_MAX_MB_DEFAULT = "150"
+
+
+class EpgTooLarge(Exception):
+    """EPG-Quelle überschreitet das eingestellte Größenlimit."""
+
+
+def _epg_max_mb() -> int:
+    try:
+        return max(1, int(db.get_setting("epg_max_mb", EPG_MAX_MB_DEFAULT) or EPG_MAX_MB_DEFAULT))
+    except (TypeError, ValueError):
+        return int(EPG_MAX_MB_DEFAULT)
+
+
+async def _fetch_epg_text(source_url: str) -> str:
+    """EPG streamend laden und dabei die Größe begrenzen.
+
+    Bricht ab, sobald das Limit (Einstellung 'epg_max_mb') überschritten ist. So
+    bleibt der vorhandene Cache erhalten, statt dass der Container beim
+    Verarbeiten einer überdimensionierten Quelle am Arbeitsspeicher stirbt.
+    """
+    max_mb = _epg_max_mb()
+    limit = max_mb * 1024 * 1024
+    parts: list = []
+    total = 0
+    async with make_iptv_client(timeout=120, follow_redirects=True) as client:
+        async with client.stream("GET", source_url) as resp:
+            resp.raise_for_status()
+            async for chunk in resp.aiter_bytes(1 << 20):
+                total += len(chunk)
+                if total > limit:
+                    raise EpgTooLarge(
+                        f"EPG-Quelle ist größer als {max_mb} MB - Abruf abgebrochen. "
+                        f"So große Dateien belegen beim Auswerten ein Vielfaches an "
+                        f"Arbeitsspeicher und können den Dienst abstürzen lassen. "
+                        f"Kleineren Zeitraum wählen oder Limit 'epg_max_mb' erhöhen."
+                    )
+                parts.append(chunk)
+    return b"".join(parts).decode("utf-8", errors="replace")
+
+
 async def _fetch_and_cache_epg():
     """Fetch EPG from source, update memory + disk cache."""
     global _epg_cache
@@ -258,10 +302,7 @@ async def _fetch_and_cache_epg():
         if not epg_sources:
             return False
         source_url = epg_sources[0]
-        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
-            resp = await client.get(source_url)
-            resp.raise_for_status()
-            content = resp.text
+        content = await _fetch_epg_text(source_url)
         filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
         if filter_epg:
             content = _filter_epg_xml(content, days_back=7)
@@ -1264,15 +1305,12 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 # Look up EPG title for this catchup timestamp
                 _catchup_epg_title = None
                 try:
-                    _epg_content = _epg_cache.get("content")
-                    if not _epg_content:
-                        try:
-                            with open("/data/epg_cache.xml","r",encoding="utf-8") as _ef:
-                                _epg_content = _ef.read()
-                        except Exception:
-                            pass
-                    if _epg_content:
-                        _root = ET.fromstring(_epg_content)
+                    # Gemeinsamer Baum-Cache: hier lief pro Catchup-Abruf eines
+                    # Zuschauers ein komplettes ET.fromstring() über die gesamte
+                    # EPG-Datei — bei mehreren gleichzeitigen Zugriffen der
+                    # sicherste Weg in den OOM-Kill.
+                    _root = _get_epg_root()
+                    if _root is not None:
                         _t = _epg_title_at_time_half_open(channel_name, dt_str, _root)
                         _catchup_epg_title = _t if _t else None
                 except Exception:
@@ -1835,16 +1873,12 @@ def _epg_title_from_wall_time_channel(channel_name: str, wall_dt_str: str) -> Op
         ct = _parse_catchup_wall_time(wall_dt_str)
         if not ct:
             return None
-        epg_c = _epg_cache.get("content")
-        if not epg_c:
-            try:
-                with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
-                    epg_c = f.read()
-            except Exception:
-                return None
-        if not epg_c:
+        # Über den gemeinsamen Baum-Cache — ein eigenes ET.fromstring() hier würde
+        # bei jedem Aufruf einen kompletten zweiten Objektbaum aufbauen (bei großen
+        # EPG-Quellen mehrere GB) und den Container in den OOM-Kill treiben.
+        root = _get_epg_root()
+        if root is None:
             return None
-        root = ET.fromstring(epg_c)
         ch_rec = db.get_channel_by_name(channel_name) or {}
         tvg = ch_rec.get("tvg_id", "").strip()
         if not tvg:
@@ -1871,16 +1905,12 @@ def _epg_programme_stop_for_title_at_dt(channel_name: str, ct: datetime, title_w
     if not tw:
         return None
     try:
-        epg_c = _epg_cache.get("content")
-        if not epg_c:
-            try:
-                with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
-                    epg_c = f.read()
-            except Exception:
-                return None
-        if not epg_c:
+        # Über den gemeinsamen Baum-Cache — ein eigenes ET.fromstring() hier würde
+        # bei jedem Aufruf einen kompletten zweiten Objektbaum aufbauen (bei großen
+        # EPG-Quellen mehrere GB) und den Container in den OOM-Kill treiben.
+        root = _get_epg_root()
+        if root is None:
             return None
-        root = ET.fromstring(epg_c)
         ch_rec = db.get_channel_by_name(channel_name) or {}
         tvg = ch_rec.get("tvg_id", "").strip()
         if not tvg:
@@ -1905,16 +1935,12 @@ def _epg_slot_detail_at_dt(channel_name: str, ct: datetime) -> Optional[dict]:
     if not channel_name or not ct:
         return None
     try:
-        epg_c = _epg_cache.get("content")
-        if not epg_c:
-            try:
-                with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
-                    epg_c = f.read()
-            except Exception:
-                return None
-        if not epg_c:
+        # Über den gemeinsamen Baum-Cache — ein eigenes ET.fromstring() hier würde
+        # bei jedem Aufruf einen kompletten zweiten Objektbaum aufbauen (bei großen
+        # EPG-Quellen mehrere GB) und den Container in den OOM-Kill treiben.
+        root = _get_epg_root()
+        if root is None:
             return None
-        root = ET.fromstring(epg_c)
         ch_rec = db.get_channel_by_name(channel_name) or {}
         tvg = ch_rec.get("tvg_id", "").strip()
         if not tvg:
@@ -2630,16 +2656,11 @@ async def _catchup_epg_watchdog():
                     # Look up EPG title at stored catchup_time
                     _new_epg = None
                     try:
-                        import xml.etree.ElementTree as _ET3
-                        _epg_c3 = _epg_cache.get("content")
-                        if not _epg_c3:
-                            try:
-                                with open("/data/epg_cache.xml", "r", encoding="utf-8") as _ef3:
-                                    _epg_c3 = _ef3.read()
-                            except Exception:
-                                pass
-                        if _epg_c3:
-                            _root3 = _ET3.fromstring(_epg_c3)
+                        # Gemeinsamer Baum-Cache statt eigenem Parse: dieser Watchdog
+                        # läuft periodisch und hat vorher bei jedem Durchlauf einen
+                        # kompletten zweiten Objektbaum aufgebaut.
+                        _root3 = _get_epg_root()
+                        if _root3 is not None:
                             _ch_rec3 = db.get_channel_by_name(row["channel"]) or {}
                             _tvg3 = _ch_rec3.get("tvg_id", "").strip()
                             if _tvg3:
@@ -3257,10 +3278,7 @@ async def global_epg(force: str = None):
 
     try:
         logger.info(f"Fetching EPG from {_mask_creds(source_url)}")
-        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
-            resp = await client.get(source_url)
-            resp.raise_for_status()
-            content_text = resp.text
+        content_text = await _fetch_epg_text(source_url)
 
         # Filter EPG to only include channels we have in DB
         filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
@@ -4039,7 +4057,34 @@ def epg_status(_=Depends(check_admin)):
         "fetched_at": fetched_at,
         "size_kb": size_kb,
         "source_url": _epg_cache.get("url", ""),
+        "max_mb": _epg_max_mb(),
     }
+
+
+@admin_app.get("/api/epg/quality")
+def check_epg_quality(day: str = "", channel: str = "", tz: int = 2,
+                      details: int = 3, _=Depends(check_admin)):
+    """EPG-Quelle auf vermischte Programmlisten prüfen — rein lesend.
+
+    Findet Sender, unter deren Kanal-ID der Anbieter zwei Programmlisten
+    zusammengeführt hat. Bei solchen Sendern spielt ein angeklickter
+    Catchup-Eintrag eine andere Sendung als im Player angezeigt.
+    """
+    import epg_quality as _eq
+
+    path = "/data/epg_cache.xml"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404,
+                            detail="Kein EPG im Cache — erst „↻ Neu laden“ drücken.")
+    try:
+        result = _eq.analyze(path, tz_offset_h=tz, day=day.strip(),
+                             name_filter=channel.strip(),
+                             detail_limit=max(0, min(details, 10)))
+    except Exception as e:
+        logger.warning(f"EPG quality check failed: {e}")
+        raise HTTPException(status_code=500, detail=f"EPG-Prüfung fehlgeschlagen: {e}")
+    result["size_mb"] = round(os.path.getsize(path) / 1048576, 1)
+    return result
 
 @admin_app.post("/api/epg/refresh")
 async def refresh_epg(_=Depends(check_admin)):
@@ -4058,10 +4103,7 @@ async def refresh_epg(_=Depends(check_admin)):
     source_url = epg_sources[0]
     now = int(time.time())
     try:
-        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
-            resp = await client.get(source_url)
-            resp.raise_for_status()
-            content_text = resp.text
+        content_text = await _fetch_epg_text(source_url)
 
         if db.get_setting("epg_filter_channels", "0") == "1":
             content_text = _filter_epg_xml(content_text, days_back=7)
@@ -4119,7 +4161,13 @@ def _get_epg_root():
     if not content:
         return None
     # Must reflect content bytes, not only length (same-size EPG updates used to leave a stale tree).
-    content_hash = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
+    # Blockweise, weil content.encode() sonst bei jedem Aufruf eine komplette
+    # zweite Kopie der EPG-Datei im Speicher anlegt.
+    _md5 = hashlib.md5()
+    _step = 4 << 20
+    for _pos in range(0, len(content), _step):
+        _md5.update(content[_pos:_pos + _step].encode("utf-8", errors="replace"))
+    content_hash = _md5.hexdigest()
     if _epg_tree_cache["root"] is not None and _epg_tree_cache["content_hash"] == content_hash:
         return _epg_tree_cache["root"]
     try:
