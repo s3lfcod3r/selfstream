@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.66 — EPG-Abrufe fressen keinen Arbeitsspeicher mehr
+
+Trotz v1.64 lief der Speicher weiter voll (über 3 GB). Ursache waren **drei Abruf-Routen, die pro
+Anfrage die komplette EPG-Datei in den Speicher holten** — und IPTV-Apps rufen die regelmäßig ab:
+
+- **`/iptv/epg-1d|3d|7d.xml`** filterte bei **jedem** Abruf neu: Text + Quellbaum + Zielbaum +
+  Ausgabe. Gemessen rund **290 MB pro Anfrage**. Hier fehlte außerdem noch das in v1.64 eingeführte
+  Größenlimit.
+- **`/iptv/{token}/epg.xml`** lud die Datei bei **jedem** Abruf frisch vom Anbieter und hielt sie
+  im Speicher — ohne jede Wiederverwendung.
+- **`/iptv/epg.xml`** lieferte den kompletten Text aus dem Speicher aus.
+
+Behoben:
+- Das tagesgefilterte Ergebnis wird **auf der Platte zwischengespeichert** und nur neu gebaut, wenn
+  die Quelle frischer ist oder das Zeitfenster weitergewandert ist (stündlich). Zweiter Abruf:
+  **0 Sekunden, kein zusätzlicher Speicher.**
+- Alle drei Routen liefern jetzt per `FileResponse` **direkt von der Platte**, statt die Datei
+  komplett im Speicher zu halten.
+- Das Filtern läuft im Hintergrund-Thread, der Dienst bleibt währenddessen ansprechbar.
+
+Hintergrund zur Größenordnung: Eine 48-MB-XMLTV-Datei belegt als Python-Text **205 MB**, weil die
+kyrillischen Zeichen der Quelle vier Byte je Zeichen erzwingen; der Objektbaum kommt mit weiteren
+234 MB obendrauf.
+
+
 ## v1.65 — EPG-Zeiten im Admin-Panel waren zwei Stunden zu früh
 
 Bei „läuft gerade" zeigte das Panel die Sendezeiten in UTC — im Sommer also zwei Stunden zu früh

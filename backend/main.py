@@ -837,13 +837,17 @@ async def serve_epg(token: str):
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
     if not epg_sources:
         raise HTTPException(status_code=404, detail="No EPG source configured")
-    try:
-        async with make_iptv_client(timeout=60, follow_redirects=True) as client:
-            resp = await client.get(epg_sources[0])
-            resp.raise_for_status()
-            return HTMLResponse(content=resp.text, media_type="application/xml")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"EPG fetch failed: {e}")
+    # Aus dem Plattencache streamen. Vorher wurde die komplette Datei bei jedem
+    # Abruf frisch vom Anbieter geladen und im Speicher gehalten — bei einer
+    # 50-MB-Quelle rund 200 MB pro Anfrage, ohne jede Wiederverwendung.
+    from fastapi.responses import FileResponse
+    refresh_secs = int(db.get_setting("epg_refresh_hours", "6") or "6") * 3600
+    if time.time() - _epg_cache.get("fetched_at", 0) > refresh_secs or \
+            not os.path.exists("/data/epg_cache.xml"):
+        await _fetch_and_cache_epg()
+    if not os.path.exists("/data/epg_cache.xml"):
+        raise HTTPException(status_code=502, detail="EPG fetch failed")
+    return FileResponse("/data/epg_cache.xml", media_type="application/xml")
 
 
 @proxy_app.get("/iptv/error-stream.jpg")
@@ -3267,11 +3271,14 @@ async def global_epg(force: str = None):
         force != "1"
     )
 
-    if cache_valid:
+    if cache_valid and os.path.exists("/data/epg_cache.xml"):
+        from fastapi.responses import FileResponse
         age_min = (now - _epg_cache["fetched_at"]) // 60
         logger.info(f"EPG served from cache (age: {age_min}min)")
-        return HTMLResponse(
-            content=_epg_cache["content"],
+        # Von der Platte streamen statt den kompletten Text pro Abruf im
+        # Speicher zu halten (50-MB-Quelle ≈ 200 MB als Python-Text).
+        return FileResponse(
+            "/data/epg_cache.xml",
             media_type="application/xml",
             headers={"X-EPG-Cache": "HIT", "X-EPG-Age-Minutes": str(age_min)}
         )
@@ -3355,45 +3362,62 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
         return xml_content
 
 
+def _build_filtered_epg(days: int) -> str:
+    """Pfad zur tagesgefilterten EPG-Datei liefern, bei Bedarf neu erzeugen.
+
+    Das Filtern kostet ein Vielfaches der Dateigröße an Arbeitsspeicher (Text +
+    Quellbaum + Zielbaum + Ausgabe). Vorher lief das bei JEDEM Abruf der
+    1d/3d/7d-URL erneut, und IPTV-Apps rufen die regelmäßig ab — bei einer
+    50-MB-Quelle knapp ein Gigabyte pro Anfrage. Jetzt landet das Ergebnis auf
+    der Platte und wird nur neu gebaut, wenn die Quelle frischer ist oder das
+    Zeitfenster spürbar weitergewandert ist.
+    """
+    src = "/data/epg_cache.xml"
+    out = f"/data/epg_filtered_{days}d.xml"
+    try:
+        src_mtime = os.path.getmtime(src)
+    except OSError:
+        return ""
+    try:
+        out_mtime = os.path.getmtime(out)
+        if out_mtime >= src_mtime and (time.time() - out_mtime) < 3600:
+            return out
+    except OSError:
+        pass
+    with open(src, "r", encoding="utf-8", errors="replace") as f:
+        raw = f.read()
+    # „7d“ = gleiches Fenster nach hinten und vorn (Catchup braucht Historie).
+    filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
+    del raw
+    tmp = out + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(filtered)
+    del filtered
+    os.replace(tmp, out)
+    return out
+
+
 @proxy_app.get("/iptv/epg-{days}d.xml")
 async def global_epg_days(days: int, force: str = None):
     """EPG filtered to N days back and N days forward from UTC now (symmetric window)."""
-    global _epg_cache
+    from fastapi.responses import FileResponse
     if days not in (1, 3, 7):
         raise HTTPException(status_code=400, detail="days must be 1, 3, or 7")
-    epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
-    if not epg_sources:
+    if not db.get_epg_sources():
         raise HTTPException(status_code=404, detail="No EPG source")
-    source_url = epg_sources[0]
-    now_ts = int(time.time())
-    refresh_secs = int(db.get_setting("epg_refresh_hours", "6")) * 3600
-    cache_valid = (
-        _epg_cache.get("content") and _epg_cache.get("url") == source_url and
-        (now_ts - _epg_cache.get("fetched_at", 0)) < refresh_secs and force != "1"
-    )
-    if not cache_valid:
-        try:
-            async with make_iptv_client(timeout=120, follow_redirects=True) as client:
-                resp = await client.get(source_url)
-                resp.raise_for_status()
-                raw = resp.text
-            _epg_cache = {"content": raw, "fetched_at": now_ts, "url": source_url}
-            try:
-                with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
-                    _f.write(raw)
-            except Exception as _e:
-                logger.warning(f"EPG disk cache write failed: {_e}")
-                diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
-        except Exception as e:
-            raw = _epg_cache.get("content") or ""
-            if not raw:
-                raise HTTPException(status_code=502, detail=str(e))
-    else:
-        raw = _epg_cache["content"]
-    # „7d“ = gleiches Fenster nach hinten und vorn (Catchup braucht Historie; vorher war days_back=1 irreführend).
-    filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
-    return HTMLResponse(content=filtered, media_type="application/xml",
-                       headers={"Cache-Control": "max-age=3600"})
+
+    refresh_secs = int(db.get_setting("epg_refresh_hours", "6") or "6") * 3600
+    cache_age = time.time() - _epg_cache.get("fetched_at", 0)
+    if force == "1" or cache_age > refresh_secs or not os.path.exists("/data/epg_cache.xml"):
+        await _fetch_and_cache_epg()
+
+    # Im Threadpool: Lesen und Filtern blockieren, der Event-Loop soll weiterlaufen.
+    path = await asyncio.to_thread(_build_filtered_epg, days)
+    if not path:
+        raise HTTPException(status_code=503, detail="Kein EPG vorhanden")
+    # FileResponse streamt von der Platte — die Datei landet nicht komplett im Speicher.
+    return FileResponse(path, media_type="application/xml",
+                        headers={"Cache-Control": "max-age=3600"})
 
 
 @proxy_app.get("/")
