@@ -4216,11 +4216,15 @@ def _get_now_playing(channel_name: str) -> dict:
             if start is None or stop is None:
                 continue
             if start <= now <= stop:
+                # Rohe Zeitstempel mit Zeitzone liefern — umgerechnet wird im Frontend
+                # anhand der Einstellung 'diagnostic_timezone', so wie bei den
+                # Diagnose-Zeiten. Ein strftime an dieser Stelle ergab UTC-Uhrzeiten,
+                # also in der Sommerzeit zwei Stunden zu früh.
                 return {
                     "title": programme.findtext("title") or "",
                     "desc":  (programme.findtext("desc") or "")[:120],
-                    "start": start.strftime("%H:%M"),
-                    "stop":  stop.strftime("%H:%M"),
+                    "start": start.isoformat(),
+                    "stop":  stop.isoformat(),
                 }
         return {}
     except Exception as e:

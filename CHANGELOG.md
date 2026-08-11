@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.65 — EPG-Zeiten im Admin-Panel waren zwei Stunden zu früh
+
+Bei „läuft gerade" zeigte das Panel die Sendezeiten in UTC — im Sommer also zwei Stunden zu früh
+(die Tagesschau stand als „18:00" statt 20:00). Ursache: das Backend formatierte die Uhrzeit selbst,
+statt sie wie die Diagnose-Zeiten roh zu liefern.
+
+`_get_now_playing` gibt `start`/`stop` jetzt als vollständigen Zeitstempel mit Zeitzone zurück; die
+Umrechnung macht das Panel über die **bereits vorhandene Einstellung `diagnostic_timezone`**
+(Standard `Europe/Berlin`, „browser" möglich). Neue Hilfsfunktion `formatEpgClock` analog zu
+`formatDiagTime`.
+
+Damit bleibt es bei einer einzigen Zeitzonen-Einstellung, das Image braucht weiterhin **kein
+tzdata**, und die Sommer-/Winterzeit stimmt automatisch (18:15 UTC → 20:15 im August, 19:15 im
+Januar). Liefert ein älterer Server noch „18:00", wird das unverändert angezeigt.
+
+
 ## v1.64 — EPG frisst keinen Arbeitsspeicher mehr + Qualitätsprüfung der EPG-Quelle
 
 ### ① Arbeitsspeicher: Ursache für abgestürzte Container behoben
