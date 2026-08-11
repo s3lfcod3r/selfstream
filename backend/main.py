@@ -4024,49 +4024,71 @@ def reorder_epg_channels(body: dict, _=Depends(check_admin)):
     return {"ok": True}
 
 @admin_app.post("/api/epg/scan")
-async def scan_epg_channels(_=Depends(check_admin)):
+async def scan_epg_channels(only_known: bool = True, _=Depends(check_admin)):
     """Parse active EPG source and populate epg_channel_filter table."""
-    epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
-    if not epg_sources:
+    if not db.get_epg_sources():
         raise HTTPException(status_code=404, detail="No active EPG source")
+    if not os.path.exists("/data/epg_cache.xml"):
+        await _fetch_and_cache_epg()
+    if not os.path.exists("/data/epg_cache.xml"):
+        raise HTTPException(status_code=502, detail="EPG fetch failed")
+
     try:
-        async with make_iptv_client(timeout=120, follow_redirects=True) as client:
-            resp = await client.get(epg_sources[0])
-            resp.raise_for_status()
-            xml_text = resp.text
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"EPG fetch failed: {e}")
-
-    # Parse channels from XML
-    import xml.etree.ElementTree as ET
-    try:
-        root = ET.fromstring(xml_text)
-        # Get channel manager data for icon fallback + sort order
-        ch_manager_list = db.get_channels()
-        ch_manager = {c["tvg_id"]: c["sort_order"] for c in ch_manager_list if c.get("tvg_id")}
-        ch_logos = {c["tvg_id"]: c.get("tvg_logo","") for c in ch_manager_list if c.get("tvg_id")}
-
-        channels = []
-        for ch in root.findall("channel"):
-            cid = ch.get("id", "")
-            name_el = ch.find("display-name")
-            name = name_el.text if name_el is not None else cid
-            icon_el = ch.find("icon")
-            # Try EPG icon first, then fall back to M3U logo
-            icon_url = ""
-            if icon_el is not None:
-                icon_url = icon_el.get("src", "")
-            if not icon_url and cid in ch_logos:
-                icon_url = ch_logos[cid]  # Use M3U channel logo as fallback
-            if cid:
-                sort_order = ch_manager.get(cid, 9999)
-                channels.append({"tvg_id": cid, "name": name, "icon_url": icon_url, "sort_order": sort_order})
-
-        channels.sort(key=lambda x: x["sort_order"])
-        db.upsert_epg_channels(channels)
-        return {"ok": True, "found": len(channels)}
+        return await asyncio.to_thread(_scan_epg_channels_sync, only_known)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"XML parse failed: {e}")
+
+
+def _scan_epg_channels_sync(only_known: bool) -> dict:
+    """Kanalliste aus der EPG-Datei einlesen — streamend, ohne Objektbaum.
+
+    only_known=True übernimmt nur Sender, deren tvg_id auch in der eigenen
+    Kanalliste steht. EPG-Anbieter liefern reihenweise Fremdsender mit (andere
+    Länder, fremde Pakete); die landeten bisher alle im Kanal-Manager.
+    """
+    ch_manager_list = db.get_channels()
+    ch_order = {c["tvg_id"]: c["sort_order"] for c in ch_manager_list if c.get("tvg_id")}
+    ch_logos = {c["tvg_id"]: c.get("tvg_logo", "") for c in ch_manager_list if c.get("tvg_id")}
+    known = db.get_known_tvg_ids() if only_known else None
+
+    channels = []
+    skipped = 0
+    for _event, elem in ET.iterparse("/data/epg_cache.xml", events=("end",)):
+        if elem.tag != "channel":
+            if elem.tag == "programme":
+                elem.clear()          # Sendungen interessieren hier nicht
+            continue
+        cid = elem.get("id", "")
+        if cid:
+            if known is not None and cid not in known:
+                skipped += 1
+            else:
+                name = elem.findtext("display-name") or cid
+                icon_el = elem.find("icon")
+                icon_url = icon_el.get("src", "") if icon_el is not None else ""
+                if not icon_url:
+                    icon_url = ch_logos.get(cid, "")   # ersatzweise das Logo aus der M3U
+                channels.append({
+                    "tvg_id": cid,
+                    "name": " ".join(str(name).split()),
+                    "icon_url": icon_url,
+                    "sort_order": ch_order.get(cid, 9999),
+                })
+        elem.clear()
+
+    channels.sort(key=lambda x: x["sort_order"])
+    db.upsert_epg_channels(channels)
+    return {"ok": True, "found": len(channels), "skipped": skipped}
+
+
+@admin_app.delete("/api/epg/channels/orphans")
+def delete_orphan_epg_channels(_=Depends(check_admin)):
+    """EPG-Kanäle entfernen, zu denen es keinen eigenen Sender gibt."""
+    removed = db.delete_orphan_epg_channels()
+    logger.info(f"EPG channel cleanup: {removed} orphans removed")
+    return {"ok": True, "removed": removed}
 
 @admin_app.get("/api/epg")
 def list_epg(_=Depends(check_admin)):

@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.66</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.67</div>
       </div>
     </div>
 
@@ -737,6 +737,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <button class="btn sm" onclick="epgChToggleAll(1)">Alle ✓</button>
               <button class="btn sm danger" onclick="epgChToggleAll(0)">Alle ✗</button>
               <button class="btn sm primary" onclick="autoMatchEpgChannels()">⚡ Auto-Match</button>
+              <button class="btn sm danger" onclick="cleanupEpgChannels()" id="epg-cleanup-btn"
+                      title="Entfernt EPG-Sender, zu denen es keinen eigenen Kanal gibt">🧹 Fremde entfernen</button>
             </div>
           </div>
           <p style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-bottom:10px;">
@@ -1121,7 +1123,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.66</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.67</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -4092,10 +4094,25 @@ async function scanEpgChannels() {
   btn.disabled = true; btn.textContent = '⏳ Lädt…';
   try {
     const r = await api('POST', '/api/epg/scan');
-    showToast(`${r.found} EPG-Kanäle eingelesen!`);
+    const extra = r.skipped ? ` · ${r.skipped} fremde übersprungen` : '';
+    showToast(`${r.found} EPG-Kanäle eingelesen!${extra}`);
     await loadEpgChannels();
   } catch(e) { showToast(e.message, true); }
   finally { btn.disabled = false; btn.textContent = '📡 EPG einlesen'; }
+}
+
+/** Entfernt EPG-Sender, zu denen es keinen eigenen Kanal gibt. */
+async function cleanupEpgChannels() {
+  if (!confirm('EPG-Sender entfernen, zu denen es keinen eigenen Kanal gibt?\n\n'
+             + 'Betrifft nur die EPG-Kanalliste – deine Sender bleiben unberührt.')) return;
+  const btn = document.getElementById('epg-cleanup-btn');
+  btn.disabled = true; btn.textContent = '⏳ Räumt auf…';
+  try {
+    const r = await api('DELETE', '/api/epg/channels/orphans');
+    showToast(r.removed ? `${r.removed} fremde EPG-Sender entfernt` : 'Nichts zu entfernen');
+    await loadEpgChannels();
+  } catch(e) { showToast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '🧹 Fremde entfernen'; }
 }
 
 function filterEpgCh() {
