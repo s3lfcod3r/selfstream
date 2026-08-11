@@ -1917,13 +1917,14 @@ async function loadStats() {
         const durStr=durSec>3600?`${Math.floor(durSec/3600)}h ${Math.floor((durSec%3600)/60)}m`
                     :durSec>60?`${Math.floor(durSec/60)}m ${durSec%60}s`:`${durSec}s`;
         const np=sess.now_playing||{};
+        const npTime=(np.start||np.stop)?`${formatEpgClock(np.start)}–${formatEpgClock(np.stop)}`:'';
         return `<div class="session-row" style="padding:10px 14px;flex-wrap:nowrap;overflow:hidden;">
           <div class="live-dot active" style="flex-shrink:0;"></div>
           <strong style="flex-shrink:0;">${esc(sess.user)}</strong>
           ${sess.ip?`<span style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-left:4px;flex-shrink:0;">(${esc(sess.ip)})</span>`:''}
           <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
           <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(sess.channel)}</span>
-          ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${np.start||''}–${np.stop||''}</span>`:''}
+          ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${npTime}</span>`:''}
           <span class="session-meta" style="flex-shrink:0;">${timeStr?`seit ${timeStr} · ${durStr}`:''}</span>
         </div>`;
       }).join('');
@@ -3605,6 +3606,24 @@ async function clearLogs() {
   if(!confirm(msg)) return;
   await api('POST','/api/logs/clear',{days:days===-1?0:days});
   loadLogs(1); showToast('Verlauf bereinigt');
+}
+
+/** EPG-Uhrzeit als HH:MM in der Zeitzone aus diagnostic_timezone. */
+function formatEpgClock(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  // Ältere Server liefern hier bereits "18:00" — unverändert übernehmen.
+  if (/^\d{1,2}:\d{2}$/.test(s)) return esc(s);
+  const d = new Date(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z');
+  if (Number.isNaN(d.getTime())) return esc(s);
+  const tz = window._diagnosticTimezone || 'Europe/Berlin';
+  const opts = {hour: '2-digit', minute: '2-digit'};
+  if (tz && tz !== 'browser') opts.timeZone = tz;
+  try {
+    return esc(d.toLocaleTimeString('de-DE', opts));
+  } catch (_e) {
+    return esc(d.toLocaleTimeString('de-DE', {...opts, timeZone: 'UTC'}));
+  }
 }
 
 /** Diagnose: DB-Zeit als UTC lesen, nach Einstellung diagnostic_timezone formatieren. */
