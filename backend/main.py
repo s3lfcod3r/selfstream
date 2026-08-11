@@ -3315,6 +3315,55 @@ async def global_epg(force: str = None):
         raise HTTPException(status_code=502, detail="EPG fetch failed")
 
 
+def _dominant_track(programmes: list) -> list:
+    """Bei vermischten Programmlisten nur die echte behalten.
+
+    Manche EPG-Anbieter legen zwei komplette Programmlisten unter dieselbe
+    Kanal-ID (etwa Kabel- und Sat-Variante). Die Sendungen überlappen sich dann,
+    und im Player startet ein angeklickter Catchup-Eintrag eine andere Sendung
+    als angezeigt.
+
+    Die Sendungen werden auf überschneidungsfreie Spuren verteilt; behalten wird
+    die Spur mit der größten Gesamtsendezeit. Gemessen an epg.team deckt die bei
+    allen 128 betroffenen Sendern den kompletten Zeitraum ab (z. B. MDR 214 h
+    gegen 2 h), die übrigen Spuren sind nur Einsprengsel.
+    """
+    items = []
+    for p in programmes:
+        s = (p.get("start") or "")[:14]
+        e = (p.get("stop") or "")[:14]
+        if len(s) == 14 and len(e) == 14:
+            items.append((s, e, p))
+    if len(items) < 2:
+        return programmes
+
+    tracks: list = []
+    track_end: list = []
+    for item in sorted(items, key=lambda x: (x[0], x[1])):
+        for i, end in enumerate(track_end):
+            if item[0] >= end:
+                tracks[i].append(item)
+                track_end[i] = item[1]
+                break
+        else:
+            tracks.append([item])
+            track_end.append(item[1])
+    if len(tracks) < 2:
+        return programmes
+
+    def sendezeit(track) -> float:
+        total = 0.0
+        for s, e, _p in track:
+            try:
+                total += (datetime.strptime(e, "%Y%m%d%H%M%S")
+                          - datetime.strptime(s, "%Y%m%d%H%M%S")).total_seconds()
+            except ValueError:
+                continue
+        return total
+
+    return [p for _s, _e, p in max(tracks, key=sendezeit)]
+
+
 def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7) -> str:
     """Filter EPG XML – channel whitelist + time window [now−days_back, now+days_forward] + channel order."""
     try:
@@ -3344,6 +3393,8 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
         for cid in sorted_ids:
             new_root.append(ch_map[cid])
 
+        # Nach Kanal sammeln, damit vermischte Programmlisten aufgelöst werden können.
+        progs_by_ch: dict = {}
         for prog in root.findall("programme"):
             ch_id = prog.get("channel", "")
             if known_ids and ch_id not in known_ids:
@@ -3353,7 +3404,18 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
                 dt = _parse_xmltv_datetime(start_str)
                 if dt is not None and not (t_from <= dt <= t_to):
                     continue
-            new_root.append(prog)
+            progs_by_ch.setdefault(ch_id, []).append(prog)
+
+        if db.get_setting("epg_dedupe_overlaps", "0") == "1":
+            for cid in list(progs_by_ch):
+                progs_by_ch[cid] = _dominant_track(progs_by_ch[cid])
+
+        for cid in sorted_ids:                       # erst in der eingestellten Reihenfolge
+            for prog in progs_by_ch.pop(cid, []):
+                new_root.append(prog)
+        for rest in progs_by_ch.values():            # dann alles Übrige
+            for prog in rest:
+                new_root.append(prog)
 
         return ET.tostring(new_root, encoding="unicode", xml_declaration=True)
     except Exception as e:
@@ -4458,6 +4520,8 @@ def get_settings(_=Depends(check_admin)):
         "hls_follow_redirects": s.get("hls_follow_redirects", "1"),
         "epg_refresh_hours":    s.get("epg_refresh_hours", "6"),
         "epg_filter_channels":  s.get("epg_filter_channels", "0"),
+        "epg_dedupe_overlaps":  s.get("epg_dedupe_overlaps", "0"),
+        "epg_max_mb":           s.get("epg_max_mb", EPG_MAX_MB_DEFAULT),
         "log_retention_days":   s.get("log_retention_days", "-1"),
         "short_domain":         s.get("short_domain", ""),
         "m3u_refresh_hours":    s.get("m3u_refresh_hours", "0"),
@@ -4483,7 +4547,8 @@ def update_settings(body: dict, _=Depends(check_admin)):
     allowed = {"base_url", "proxy_url", "source_m3u_url",
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
-               "epg_refresh_hours", "epg_filter_channels", "log_retention_days",
+               "epg_refresh_hours", "epg_filter_channels", "epg_dedupe_overlaps",
+               "epg_max_mb", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "diagnostics_enabled", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",

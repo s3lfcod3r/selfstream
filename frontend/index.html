@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.67</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.68</div>
       </div>
     </div>
 
@@ -667,6 +667,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
               Sucht Sender, bei denen der Anbieter zwei Programmlisten unter einer Kanal-ID mischt.
               Bei solchen Sendern läuft im Catchup eine andere Sendung als im Player angezeigt.
               Ohne Datum wird der gesamte Zeitraum geprüft.
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--text);cursor:pointer;">
+              <input type="checkbox" id="epg-dedupe" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
+              Vermischte Programmlisten bereinigen – nur die echte behalten
+            </label>
+            <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5;">
+              Behält bei betroffenen Sendern die Liste, die den Zeitraum durchgehend abdeckt, und
+              wirft die fremde weg. Wirkt auf die gefilterten EPG-Adressen (1/3/7 Tage). Nach dem
+              Umstellen einmal „↻ Neu laden“ drücken.
             </div>
             <div id="epg-q-result" style="margin-top:10px;"></div>
           </div>
@@ -1123,7 +1132,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.67</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.68</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -3307,7 +3316,9 @@ async function refreshCh() {
 async function saveEpgSettings() {
   const hours = document.getElementById('epg-refresh').value;
   const filter = document.getElementById('epg-filter').checked ? '1' : '0';
-  await api('POST', '/api/settings', {epg_refresh_hours: hours, epg_filter_channels: filter});
+  const dedupe = document.getElementById('epg-dedupe')?.checked ? '1' : '0';
+  await api('POST', '/api/settings', {epg_refresh_hours: hours, epg_filter_channels: filter,
+                                      epg_dedupe_overlaps: dedupe});
   showToast('EPG-Einstellungen gespeichert');
 }
 
@@ -3394,6 +3405,8 @@ async function loadEpg() {
   const filterCb = document.getElementById('epg-filter');
   if (refreshSel && settings.epg_refresh_hours) refreshSel.value = settings.epg_refresh_hours;
   if (filterCb) filterCb.checked = settings.epg_filter_channels === '1';
+  const dedupeCb = document.getElementById('epg-dedupe');
+  if (dedupeCb) dedupeCb.checked = settings.epg_dedupe_overlaps === '1';
   try {
     const epgStatus = await api('GET', '/api/epg/status');
     const lastFetchEl = document.getElementById('epg-last-fetch');

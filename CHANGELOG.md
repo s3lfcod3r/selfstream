@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.68 — Vermischte Programmlisten bereinigen (Catchup zeigt die richtige Sendung)
+
+Manche EPG-Anbieter legen **zwei komplette Programmlisten unter dieselbe Kanal-ID** (etwa Kabel- und
+Sat-Variante). Die Sendungen überlappen sich dann, und im Player startet ein angeklickter
+Catchup-Eintrag eine völlig andere Sendung als angezeigt. Reparieren lässt sich das nur beim
+Anbieter — herausfiltern aber schon.
+
+Neues Häkchen in der EPG-Ansicht: **„Vermischte Programmlisten bereinigen"** (standardmäßig aus).
+Ist es gesetzt, werden die Sendungen je Sender auf überschneidungsfreie Spuren verteilt und nur die
+Spur mit der größten Gesamtsendezeit behalten.
+
+Die Regel ist gemessen, nicht geraten: An der Quelle epg.team deckt diese Spur bei **allen 128
+betroffenen Sendern** den kompletten Zeitraum ab, die übrigen sind nur Einsprengsel — MDR Fernsehen
+214 Stunden gegen 2, Sky Sport Top Event 300 gegen 4, Nitro 295 gegen 67. Zusätzlich gegen eine
+unabhängige TV-Zeitschrift verifiziert: Bei Sky Cinema Highlights bleibt genau das echte Programm
+übrig (11.08.: aus 11 überlappenden Einträgen werden 8 lückenlose).
+
+Wirkt auf die gefilterten EPG-Adressen (1/3/7 Tage). Nach dem Umstellen einmal „↻ Neu laden".
+
+Außerdem: `epg_dedupe_overlaps` und das in v1.64 eingeführte `epg_max_mb` waren nicht in der
+Positivliste der Einstellungen — sie wurden beim Speichern stillschweigend verworfen. Behoben.
+
+
 ## v1.67 — Kein fremder Ballast mehr im EPG-Kanal-Manager
 
 EPG-Anbieter liefern reihenweise Sender mit, die man nie bestellt hat (andere Länder, fremde
