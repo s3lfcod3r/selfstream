@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.67 — Kein fremder Ballast mehr im EPG-Kanal-Manager
+
+EPG-Anbieter liefern reihenweise Sender mit, die man nie bestellt hat (andere Länder, fremde
+Pakete). Die landeten bisher **alle** im Kanal-Manager, und weg bekam man sie nicht: Sender ließen
+sich nur an- und ausschalten, einen Lösch-Weg gab es weder in der Oberfläche noch im Backend.
+
+- **„📡 EPG einlesen" übernimmt jetzt nur noch Sender, die es auch in der eigenen Kanalliste
+  gibt.** Die Meldung sagt, wie viele fremde übersprungen wurden. Wer alles will, ruft die Route
+  mit `?only_known=false` auf.
+- **Neuer Knopf „🧹 Fremde entfernen"** räumt den vorhandenen Ballast in einem Rutsch weg
+  (`DELETE /api/epg/channels/orphans`). Betrifft nur die EPG-Kanalliste — die eigenen Sender
+  bleiben unberührt.
+
+Nebenbei spart das Einlesen deutlich Arbeitsspeicher: Es liest die Datei jetzt **streamend** und
+aus dem Plattencache, statt sie erneut komplett herunterzuladen und einen Objektbaum aufzubauen.
+
+Gemessen an einer echten Quelle mit 298 Kanälen und drei eigenen Sendern: vorher 298 Einträge,
+nach dem Aufräumen 3, beim erneuten Einlesen 3 übernommen und 295 übersprungen.
+
+
 ## v1.66 — EPG-Abrufe fressen keinen Arbeitsspeicher mehr
 
 Trotz v1.64 lief der Speicher weiter voll (über 3 GB). Ursache waren **drei Abruf-Routen, die pro

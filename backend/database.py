@@ -1466,6 +1466,30 @@ class Database:
         with self.conn() as con:
             con.execute(f"UPDATE epg_channel_filter SET {sets} WHERE tvg_id=?", vals)
 
+    def get_known_tvg_ids(self) -> set:
+        """tvg_ids aus der eigenen Kanalliste — Maßstab dafür, welche EPG-Kanäle taugen."""
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT DISTINCT tvg_id FROM channels WHERE tvg_id IS NOT NULL AND tvg_id != ''"
+            ).fetchall()
+            return {r["tvg_id"] for r in rows}
+
+    def delete_orphan_epg_channels(self) -> int:
+        """EPG-Kanäle löschen, zu denen es keinen Sender in der Kanalliste gibt.
+
+        Räumt die Fremdsender auf, die EPG-Anbieter mitliefern (andere Länder,
+        fremde Pakete). Gibt die Zahl der entfernten Einträge zurück.
+        """
+        with self.conn() as con:
+            cur = con.execute("""
+                DELETE FROM epg_channel_filter
+                WHERE tvg_id NOT IN (
+                    SELECT tvg_id FROM channels
+                    WHERE tvg_id IS NOT NULL AND tvg_id != ''
+                )
+            """)
+            return cur.rowcount
+
     def get_enabled_epg_ids(self) -> set:
         with self.conn() as con:
             rows = con.execute(
