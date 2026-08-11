@@ -3361,7 +3361,27 @@ def _dominant_track(programmes: list) -> list:
                 continue
         return total
 
-    return [p for _s, _e, p in max(tracks, key=sendezeit)]
+    best = max(tracks, key=sendezeit)
+
+    # Aus den übrigen Spuren alles übernehmen, was in eine Lücke der Hauptspur
+    # passt: weg soll nur, was tatsächlich kollidiert. Sonst reißt die
+    # Bereinigung Löcher in Zeiträume, für die es gar keinen Konflikt gab.
+    from bisect import bisect_left, insort
+    belegt = sorted((s, e) for s, e, _p in best)
+    ergebnis = list(best)
+    for track in tracks:
+        if track is best:
+            continue
+        for s, e, p in track:
+            i = bisect_left(belegt, (s, ""))
+            kollidiert = ((i > 0 and belegt[i - 1][1] > s)
+                          or (i < len(belegt) and belegt[i][0] < e))
+            if not kollidiert:
+                insort(belegt, (s, e))
+                ergebnis.append((s, e, p))
+
+    ergebnis.sort(key=lambda x: (x[0], x[1]))
+    return [p for _s, _e, p in ergebnis]
 
 
 def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7) -> str:

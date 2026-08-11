@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.69 — Bereinigung wirft nur noch weg, was wirklich kollidiert
+
+Die Bereinigung aus v1.68 verwarf ganze Programmlisten. Enthielt die verworfene Liste Sendungen für
+Zeiträume, in denen die behaltene Liste gar nichts hat, entstanden dort **Lücken im Player**
+("Keine Daten"), obwohl es an dieser Stelle nie einen Konflikt gab.
+
+Jetzt wird aus den verworfenen Listen alles übernommen, was **in eine Lücke passt**; entfernt wird
+nur, was sich tatsächlich mit der Hauptliste überschneidet. Geprüft: danach bleiben **null**
+überlappende Sender übrig, die Bereinigung ist also weiterhin vollständig.
+
+Hinweis für die Fehlersuche: Lücken können auch schlicht daher kommen, dass die Quelle nichts
+liefert. Bei Sky Cinema Highlights am 11.08.2026 etwa fehlen im EPG von epg.team sämtliche
+Vormittagsfilme (Apollo 13, Jurassic Park, Der Terminator, Beverly Hills Cop I + II); dort stand
+nur eine erfundene zehnstündige "Sendepause". Solche Löcher kann selfstream nicht füllen — die
+Prüfung "🔎 Prüfen" hilft, das auseinanderzuhalten.
+
+
 ## v1.68 — Vermischte Programmlisten bereinigen (Catchup zeigt die richtige Sendung)
 
 Manche EPG-Anbieter legen **zwei komplette Programmlisten unter dieselbe Kanal-ID** (etwa Kabel- und
