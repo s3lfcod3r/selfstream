@@ -4,6 +4,7 @@ import time
 import re
 import json
 import hashlib
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
@@ -154,6 +155,20 @@ class Database:
                     sort_order INTEGER DEFAULT 0,
                     icon_url   TEXT DEFAULT ''
                 );
+
+                -- Eigenes EPG-Archiv: hält Sendungen länger vor, als der Anbieter
+                -- sie ausliefert (der liefert nur ein gleitendes Fenster).
+                CREATE TABLE IF NOT EXISTS epg_archive (
+                    channel   TEXT NOT NULL,
+                    start_key TEXT NOT NULL,   -- YYYYMMDDHHMMSS, für Sortierung und Aufräumen
+                    start_raw TEXT NOT NULL,   -- XMLTV-Originalwert inkl. Zeitzone
+                    stop_raw  TEXT NOT NULL,
+                    title     TEXT DEFAULT '',
+                    descr     TEXT DEFAULT '',
+                    seen_at   TEXT DEFAULT (datetime('now')),
+                    PRIMARY KEY (channel, start_key, stop_raw)
+                );
+                CREATE INDEX IF NOT EXISTS idx_epg_archive_key ON epg_archive(start_key);
 
                 -- EPG sources
                 CREATE TABLE IF NOT EXISTS epg_sources (
@@ -1465,6 +1480,68 @@ class Database:
         vals = list(fields.values()) + [tvg_id]
         with self.conn() as con:
             con.execute(f"UPDATE epg_channel_filter SET {sets} WHERE tvg_id=?", vals)
+
+    def archive_epg_programmes(self, rows: list) -> int:
+        """Sendungen ins eigene Archiv schreiben.
+
+        rows: (channel, start_key, start_raw, stop_raw, title, descr)
+        Bereits bekannte Sendungen werden aufgefrischt, nicht verdoppelt — der
+        Primärschlüssel (channel, start_key) hält jede Sendung genau einmal.
+        """
+        if not rows:
+            return 0
+        with self.conn() as con:
+            con.executemany("""
+                INSERT INTO epg_archive (channel, start_key, start_raw, stop_raw, title, descr)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(channel, start_key, stop_raw) DO UPDATE SET
+                    title=excluded.title,
+                    descr=excluded.descr
+            """, rows)
+        return len(rows)
+
+    def get_archived_programmes(self, from_key: str, to_key: str,
+                                channels: set = None) -> list:
+        """Archivierte Sendungen im Zeitfenster holen (start_key als YYYYMMDDHHMMSS)."""
+        with self.conn() as con:
+            rows = con.execute("""
+                SELECT channel, start_key, start_raw, stop_raw, title, descr
+                FROM epg_archive
+                WHERE start_key >= ? AND start_key <= ?
+                ORDER BY channel, start_key
+            """, (from_key, to_key)).fetchall()
+        out = [dict(r) for r in rows]
+        if channels is not None:
+            out = [r for r in out if r["channel"] in channels]
+        return out
+
+    def prune_epg_archive(self, keep_days: int) -> int:
+        """Archiveinträge löschen, die älter als keep_days sind."""
+        if keep_days <= 0:
+            return 0
+        grenze = (datetime.now(timezone.utc)
+                  - timedelta(days=keep_days)).strftime("%Y%m%d%H%M%S")
+        with self.conn() as con:
+            cur = con.execute("DELETE FROM epg_archive WHERE start_key < ?", (grenze,))
+            return cur.rowcount
+
+    def epg_archive_stats(self) -> dict:
+        """Umfang des Archivs — für die Anzeige im Panel."""
+        with self.conn() as con:
+            row = con.execute("""
+                SELECT COUNT(*) AS anzahl,
+                       COUNT(DISTINCT channel) AS sender,
+                       MIN(start_key) AS aeltester,
+                       MAX(start_key) AS neuester
+                FROM epg_archive
+            """).fetchone()
+        d = dict(row) if row else {}
+        return {
+            "programmes": d.get("anzahl", 0) or 0,
+            "channels":   d.get("sender", 0) or 0,
+            "oldest":     d.get("aeltester") or "",
+            "newest":     d.get("neuester") or "",
+        }
 
     def get_known_tvg_ids(self) -> set:
         """tvg_ids aus der eigenen Kanalliste — Maßstab dafür, welche EPG-Kanäle taugen."""
