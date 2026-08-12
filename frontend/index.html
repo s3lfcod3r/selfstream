@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.69</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.70</div>
       </div>
     </div>
 
@@ -676,6 +676,27 @@ tr:hover td{background:rgba(255,255,255,.02);}
               Behält bei betroffenen Sendern die Liste, die den Zeitraum durchgehend abdeckt, und
               wirft die fremde weg. Wirkt auf die gefilterten EPG-Adressen (1/3/7 Tage). Nach dem
               Umstellen einmal „↻ Neu laden“ drücken.
+            </div>
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+                <strong style="color:var(--text);font-size:12px;">Eigenes EPG-Archiv</strong>
+                <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" id="epg-archive-fill" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
+                  Lücken auffüllen
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);">
+                  aufheben:
+                  <input class="form-input" id="epg-archive-days" type="number" min="7" max="365"
+                         onchange="saveEpgSettings()" style="width:70px;font-size:11px;padding:4px 6px;">
+                  Tage
+                </label>
+                <button class="btn sm" id="epg-archive-btn" onclick="buildEpgArchive()">💾 Jetzt sichern</button>
+              </div>
+              <div id="epg-archive-info" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5;">
+                selfstream schreibt bei jedem EPG-Abruf mit. Der Anbieter liefert nur ein
+                gleitendes Fenster – was dort herausfällt, bleibt im eigenen Archiv erhalten
+                und wird beim Catchup weiter ausgeliefert.
+              </div>
             </div>
             <div id="epg-q-result" style="margin-top:10px;"></div>
           </div>
@@ -1132,7 +1153,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.69</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.70</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -3317,8 +3338,11 @@ async function saveEpgSettings() {
   const hours = document.getElementById('epg-refresh').value;
   const filter = document.getElementById('epg-filter').checked ? '1' : '0';
   const dedupe = document.getElementById('epg-dedupe')?.checked ? '1' : '0';
+  const arcFill = document.getElementById('epg-archive-fill')?.checked ? '1' : '0';
+  const arcDays = document.getElementById('epg-archive-days')?.value || '30';
   await api('POST', '/api/settings', {epg_refresh_hours: hours, epg_filter_channels: filter,
-                                      epg_dedupe_overlaps: dedupe});
+                                      epg_dedupe_overlaps: dedupe,
+                                      epg_archive_fill: arcFill, epg_archive_days: arcDays});
   showToast('EPG-Einstellungen gespeichert');
 }
 
@@ -3407,6 +3431,10 @@ async function loadEpg() {
   if (filterCb) filterCb.checked = settings.epg_filter_channels === '1';
   const dedupeCb = document.getElementById('epg-dedupe');
   if (dedupeCb) dedupeCb.checked = settings.epg_dedupe_overlaps === '1';
+  const arcFillCb = document.getElementById('epg-archive-fill');
+  if (arcFillCb) arcFillCb.checked = settings.epg_archive_fill !== '0';
+  const arcDaysIn = document.getElementById('epg-archive-days');
+  if (arcDaysIn) arcDaysIn.value = settings.epg_archive_days || '30';
   try {
     const epgStatus = await api('GET', '/api/epg/status');
     const lastFetchEl = document.getElementById('epg-last-fetch');
@@ -3418,6 +3446,7 @@ async function loadEpg() {
       const limitStr = epgStatus.max_mb ? ` · Limit ${epgStatus.max_mb} MB` : '';
       lastFetchEl.innerHTML = `📅 Zuletzt geladen: <strong>${timeStr}</strong> (${agoStr}) · ${epgStatus.size_kb} KB${limitStr}`;
     }
+    renderEpgArchiveInfo(epgStatus);
   } catch(e) {}
 
   const tbody=document.getElementById('epg-tbody');
@@ -4112,6 +4141,34 @@ async function scanEpgChannels() {
     await loadEpgChannels();
   } catch(e) { showToast(e.message, true); }
   finally { btn.disabled = false; btn.textContent = '📡 EPG einlesen'; }
+}
+
+/** Zeigt an, wie weit das eigene EPG-Archiv zurückreicht. */
+function renderEpgArchiveInfo(st) {
+  const el = document.getElementById('epg-archive-info');
+  if (!el || !st) return;
+  const a = st.archive || {};
+  const tag = k => k && k.length >= 8 ? `${k.slice(6,8)}.${k.slice(4,6)}.${k.slice(0,4)}` : '—';
+  const kern = a.programmes
+    ? `<strong>${a.programmes.toLocaleString('de-DE')}</strong> Sendungen · ${a.channels} Sender · `
+      + `${tag(a.oldest)} bis ${tag(a.newest)}`
+    : 'noch leer – wird beim nächsten EPG-Abruf gefüllt';
+  el.innerHTML = `📚 ${kern}<br>`
+    + 'selfstream schreibt bei jedem EPG-Abruf mit. Der Anbieter liefert nur ein gleitendes '
+    + 'Fenster – was dort herausfällt, bleibt im eigenen Archiv und wird beim Catchup weiter '
+    + 'ausgeliefert.';
+}
+
+async function buildEpgArchive() {
+  const btn = document.getElementById('epg-archive-btn');
+  btn.disabled = true; btn.textContent = '⏳ Sichert…';
+  try {
+    const r = await api('POST', '/api/epg/archive');
+    showToast(`${(r.stored||0).toLocaleString('de-DE')} Sendungen gesichert`
+              + (r.pruned ? ` · ${r.pruned} veraltete entfernt` : ''));
+    renderEpgArchiveInfo({archive: r.stats});
+  } catch(e) { showToast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '💾 Jetzt sichern'; }
 }
 
 /** Entfernt EPG-Sender, zu denen es keinen eigenen Kanal gibt. */

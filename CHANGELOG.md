@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.70 — Eigenes EPG-Archiv: Historie bleibt, auch wenn der Anbieter sie fallen lässt
+
+EPG-Anbieter liefern nur ein **gleitendes Fenster** (bei epg.team gut zwei Wochen). Was dort
+herausfällt, ist weg — auch für Catchup, wo gerade die Vergangenheit zählt.
+
+selfstream schreibt jetzt bei jedem EPG-Abruf mit. Die Sendungen landen in der eigenen Datenbank
+(Tabelle `epg_archive`) und werden beim Ausliefern wieder eingesetzt, sobald der Anbieter sie nicht
+mehr führt. Aufgehoben wird standardmäßig **30 Tage**, einstellbar zwischen 7 und 365.
+
+- Häkchen **„Lücken auffüllen"** und Feld für die Aufbewahrungsdauer in der EPG-Ansicht
+- Knopf **„💾 Jetzt sichern"** stößt die Sicherung sofort an (`POST /api/epg/archive`)
+- Die Anzeige nennt Umfang und Zeitraum des Archivs
+- Gelesen wird **streamend**; das Sichern von rund 1.000 Sendungen dauert 0,6 s bei 8 MB
+  Mehrverbrauch. Geschrieben wird blockweise zu je 5.000 Einträgen.
+
+Zusammenspiel mit der Bereinigung aus v1.68: Die Archiv-Einträge werden **vor** dem Auflösen der
+vermischten Programmlisten eingesetzt, damit nicht über den Umweg des Archivs wieder fremde Listen
+hereinkommen. Geprüft, indem sämtliche Sendungen eines Senders aus der Quelle entfernt wurden:
+Das Archiv stellte genau die echte Liste wieder her — 8 Sendungen, lückenlos, ohne Fremdeinträge
+und ohne Überlappungen.
+
+Der Schlüssel im Archiv ist (Sender, Startzeit, Endzeit): Zwei Sendungen mit gleicher Startzeit,
+aber unterschiedlichem Ende sind verschiedene Sendungen und bleiben beide erhalten — sonst hätte
+bei vermischten Listen die falsche die richtige überschrieben.
+
+
 ## v1.69 — Bereinigung wirft nur noch weg, was wirklich kollidiert
 
 Die Bereinigung aus v1.68 verwarf ganze Programmlisten. Enthielt die verworfene Liste Sendungen für

@@ -311,6 +311,12 @@ async def _fetch_and_cache_epg():
         with open("/data/epg_cache.xml", "w", encoding="utf-8") as f:
             f.write(content)
         logger.info(f"EPG auto-fetched and cached ({len(content)//1024}KB)")
+        # Mitschreiben, solange die Sendungen noch geliefert werden — das Fenster
+        # des Anbieters wandert weiter, das eigene Archiv bleibt.
+        try:
+            _archive_epg_from_disk()
+        except Exception as _ea:
+            logger.warning(f"EPG archive after fetch failed: {_ea}")
         return True
     except Exception as e:
         logger.warning(f"EPG auto-fetch failed: {e}")
@@ -3315,6 +3321,65 @@ async def global_epg(force: str = None):
         raise HTTPException(status_code=502, detail="EPG fetch failed")
 
 
+EPG_ARCHIVE_DAYS_DEFAULT = "30"
+
+
+def _epg_archive_days() -> int:
+    try:
+        return max(0, int(db.get_setting("epg_archive_days", EPG_ARCHIVE_DAYS_DEFAULT)
+                          or EPG_ARCHIVE_DAYS_DEFAULT))
+    except (TypeError, ValueError):
+        return int(EPG_ARCHIVE_DAYS_DEFAULT)
+
+
+def _archive_epg_from_disk() -> dict:
+    """Alle Sendungen der aktuellen EPG-Datei ins eigene Archiv übernehmen.
+
+    Der Anbieter liefert nur ein gleitendes Fenster (bei epg.team gut zwei
+    Wochen). Was einmal herausfällt, ist weg — auch für Catchup. Deshalb wird
+    bei jedem Abruf mitgeschrieben; das Archiv reicht dann so weit zurück, wie
+    unter 'epg_archive_days' eingestellt ist.
+
+    Liest streamend (iterparse), damit auch große Quellen keinen Objektbaum
+    im Speicher aufbauen.
+    """
+    pfad = "/data/epg_cache.xml"
+    if not os.path.exists(pfad):
+        return {"ok": False, "stored": 0}
+
+    erlaubt = db.get_enabled_epg_ids() or None   # nur Sender, die auch genutzt werden
+    puffer: list = []
+    gespeichert = 0
+    try:
+        for _event, elem in ET.iterparse(pfad, events=("end",)):
+            if elem.tag != "programme":
+                continue
+            cid = elem.get("channel") or ""
+            start_raw = (elem.get("start") or "").strip()
+            stop_raw = (elem.get("stop") or "").strip()
+            key = start_raw[:14]
+            if cid and len(key) == 14 and stop_raw and (erlaubt is None or cid in erlaubt):
+                puffer.append((
+                    cid, key, start_raw, stop_raw,
+                    (elem.findtext("title") or "").strip()[:300],
+                    (elem.findtext("desc") or "").strip()[:600],
+                ))
+                if len(puffer) >= 5000:          # blockweise schreiben, spart Speicher
+                    gespeichert += db.archive_epg_programmes(puffer)
+                    puffer = []
+            elem.clear()
+        if puffer:
+            gespeichert += db.archive_epg_programmes(puffer)
+    except Exception as e:
+        logger.warning(f"EPG archive failed: {e}")
+        diag_log("WARNING", "epg", f"EPG-Archivierung fehlgeschlagen: {e}")
+        return {"ok": False, "stored": gespeichert}
+
+    entfernt = db.prune_epg_archive(_epg_archive_days())
+    logger.info(f"EPG archive: {gespeichert} programmes stored, {entfernt} pruned")
+    return {"ok": True, "stored": gespeichert, "pruned": entfernt}
+
+
 def _dominant_track(programmes: list) -> list:
     """Bei vermischten Programmlisten nur die echte behalten.
 
@@ -3426,9 +3491,44 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
                     continue
             progs_by_ch.setdefault(ch_id, []).append(prog)
 
+        # Aus dem eigenen Archiv ergänzen, was der Anbieter nicht mehr liefert.
+        # Sein Fenster wandert mit; alte Sendungen fallen heraus und fehlen dann
+        # beim Catchup. Ergänzt wird nur, was noch keine Sendung überdeckt.
+        if db.get_setting("epg_archive_fill", "1") == "1":
+            try:
+                belegt = {(cid, (p.get("start") or "")[:14], (p.get("stop") or ""))
+                          for cid, plist in progs_by_ch.items() for p in plist}
+                nachgetragen = 0
+                for row in db.get_archived_programmes(
+                        t_from.strftime("%Y%m%d%H%M%S"),
+                        t_to.strftime("%Y%m%d%H%M%S"),
+                        known_ids or None):
+                    schluessel = (row["channel"], row["start_key"], row["stop_raw"])
+                    if schluessel in belegt:
+                        continue
+                    el = ET.Element("programme", {
+                        "channel": row["channel"],
+                        "start": row["start_raw"],
+                        "stop": row["stop_raw"],
+                    })
+                    if row["title"]:
+                        ET.SubElement(el, "title").text = row["title"]
+                    if row["descr"]:
+                        ET.SubElement(el, "desc").text = row["descr"]
+                    progs_by_ch.setdefault(row["channel"], []).append(el)
+                    belegt.add(schluessel)
+                    nachgetragen += 1
+                if nachgetragen:
+                    logger.info(f"EPG: {nachgetragen} Sendungen aus dem Archiv ergänzt")
+            except Exception as _e:
+                logger.warning(f"EPG archive fill failed: {_e}")
+
         if db.get_setting("epg_dedupe_overlaps", "0") == "1":
             for cid in list(progs_by_ch):
                 progs_by_ch[cid] = _dominant_track(progs_by_ch[cid])
+
+        for plist in progs_by_ch.values():
+            plist.sort(key=lambda p: (p.get("start") or ""))
 
         for cid in sorted_ids:                       # erst in der eingestellten Reihenfolge
             for prog in progs_by_ch.pop(cid, []):
@@ -4186,7 +4286,19 @@ def epg_status(_=Depends(check_admin)):
         "size_kb": size_kb,
         "source_url": _epg_cache.get("url", ""),
         "max_mb": _epg_max_mb(),
+        "archive": db.epg_archive_stats(),
+        "archive_days": _epg_archive_days(),
     }
+
+
+@admin_app.post("/api/epg/archive")
+async def build_epg_archive(_=Depends(check_admin)):
+    """Aktuelle EPG-Daten sofort ins eigene Archiv übernehmen."""
+    if not os.path.exists("/data/epg_cache.xml"):
+        await _fetch_and_cache_epg()
+    ergebnis = await asyncio.to_thread(_archive_epg_from_disk)
+    ergebnis["stats"] = db.epg_archive_stats()
+    return ergebnis
 
 
 @admin_app.get("/api/epg/quality")
@@ -4541,6 +4653,8 @@ def get_settings(_=Depends(check_admin)):
         "epg_refresh_hours":    s.get("epg_refresh_hours", "6"),
         "epg_filter_channels":  s.get("epg_filter_channels", "0"),
         "epg_dedupe_overlaps":  s.get("epg_dedupe_overlaps", "0"),
+        "epg_archive_days":     s.get("epg_archive_days", EPG_ARCHIVE_DAYS_DEFAULT),
+        "epg_archive_fill":     s.get("epg_archive_fill", "1"),
         "epg_max_mb":           s.get("epg_max_mb", EPG_MAX_MB_DEFAULT),
         "log_retention_days":   s.get("log_retention_days", "-1"),
         "short_domain":         s.get("short_domain", ""),
@@ -4568,7 +4682,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "epg_dedupe_overlaps",
-               "epg_max_mb", "log_retention_days",
+               "epg_max_mb", "epg_archive_days", "epg_archive_fill", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "diagnostics_enabled", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",
