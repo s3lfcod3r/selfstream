@@ -3332,6 +3332,56 @@ def _epg_archive_days() -> int:
         return int(EPG_ARCHIVE_DAYS_DEFAULT)
 
 
+def _dominant_slots(eintraege: list) -> list:
+    """Vermischte Programmlisten schon beim Einlagern auflösen.
+
+    Arbeitet auf Tupeln (start_key, stop_key, …) statt auf XML-Elementen, sonst
+    identisch zu _dominant_track(): dominante Spur behalten, aus den übrigen
+    ergänzen, was in eine Lücke passt.
+    """
+    if len(eintraege) < 2:
+        return eintraege
+    spuren: list = []
+    enden: list = []
+    for e in sorted(eintraege):
+        for i, ende in enumerate(enden):
+            if e[0] >= ende:
+                spuren[i].append(e)
+                enden[i] = e[1]
+                break
+        else:
+            spuren.append([e])
+            enden.append(e[1])
+    if len(spuren) < 2:
+        return eintraege
+
+    def dauer(spur) -> float:
+        gesamt = 0.0
+        for e in spur:
+            try:
+                gesamt += (datetime.strptime(e[1], "%Y%m%d%H%M%S")
+                           - datetime.strptime(e[0], "%Y%m%d%H%M%S")).total_seconds()
+            except ValueError:
+                continue
+        return gesamt
+
+    from bisect import bisect_left, insort
+    beste = max(spuren, key=dauer)
+    belegt = sorted((e[0], e[1]) for e in beste)
+    ergebnis = list(beste)
+    for spur in spuren:
+        if spur is beste:
+            continue
+        for e in spur:
+            i = bisect_left(belegt, (e[0], ""))
+            if ((i > 0 and belegt[i - 1][1] > e[0])
+                    or (i < len(belegt) and belegt[i][0] < e[1])):
+                continue
+            insort(belegt, (e[0], e[1]))
+            ergebnis.append(e)
+    return ergebnis
+
+
 def _archive_epg_from_disk() -> dict:
     """Alle Sendungen der aktuellen EPG-Datei ins eigene Archiv übernehmen.
 
@@ -3348,8 +3398,11 @@ def _archive_epg_from_disk() -> dict:
         return {"ok": False, "stored": 0}
 
     erlaubt = db.get_enabled_epg_ids() or None   # nur Sender, die auch genutzt werden
-    puffer: list = []
-    gespeichert = 0
+    schutz = db.get_setting("epg_archive_freeze", "1") == "1"
+
+    # Erst je Sender einsammeln, dann verarbeiten: nur so lassen sich vermischte
+    # Programmlisten schon beim Einlagern auflösen.
+    gesammelt: dict = {}
     try:
         for _event, elem in ET.iterparse(pfad, events=("end",)):
             if elem.tag != "programme":
@@ -3359,25 +3412,45 @@ def _archive_epg_from_disk() -> dict:
             stop_raw = (elem.get("stop") or "").strip()
             key = start_raw[:14]
             if cid and len(key) == 14 and stop_raw and (erlaubt is None or cid in erlaubt):
-                puffer.append((
-                    cid, key, start_raw, stop_raw,
+                gesammelt.setdefault(cid, []).append((
+                    key, stop_raw[:14], start_raw, stop_raw,
                     (elem.findtext("title") or "").strip()[:300],
                     (elem.findtext("desc") or "").strip()[:600],
                 ))
-                if len(puffer) >= 5000:          # blockweise schreiben, spart Speicher
-                    gespeichert += db.archive_epg_programmes(puffer)
-                    puffer = []
             elem.clear()
-        if puffer:
-            gespeichert += db.archive_epg_programmes(puffer)
     except Exception as e:
-        logger.warning(f"EPG archive failed: {e}")
+        logger.warning(f"EPG archive read failed: {e}")
         diag_log("WARNING", "epg", f"EPG-Archivierung fehlgeschlagen: {e}")
-        return {"ok": False, "stored": gespeichert}
+        return {"ok": False, "stored": 0}
+
+    from bisect import bisect_left, insort
+    bestand = db.get_archive_slots() if schutz else {}
+    puffer: list = []
+    gespeichert = 0
+    abgewiesen = 0
+
+    for cid, eintraege in gesammelt.items():
+        # Vermischte Listen schon hier auflösen — sonst wandert der Fehler ins Archiv.
+        eintraege = _dominant_slots(eintraege)
+        belegt = sorted(bestand.get(cid, []))
+        for key, stopkey, start_raw, stop_raw, titel, beschr in sorted(eintraege):
+            if schutz and belegt:
+                i = bisect_left(belegt, (key, ""))
+                if ((i > 0 and belegt[i - 1][1] > key)
+                        or (i < len(belegt) and belegt[i][0] < stopkey)):
+                    abgewiesen += 1      # kollidiert mit bereits Archiviertem
+                    continue
+                insort(belegt, (key, stopkey))
+            puffer.append((cid, key, start_raw, stop_raw, titel, beschr))
+            if len(puffer) >= 5000:
+                gespeichert += db.archive_epg_programmes(puffer)
+                puffer = []
+    if puffer:
+        gespeichert += db.archive_epg_programmes(puffer)
 
     entfernt = db.prune_epg_archive(_epg_archive_days())
-    logger.info(f"EPG archive: {gespeichert} programmes stored, {entfernt} pruned")
-    return {"ok": True, "stored": gespeichert, "pruned": entfernt}
+    logger.info(f"EPG archive: {gespeichert} stored, {abgewiesen} rejected, {entfernt} pruned")
+    return {"ok": True, "stored": gespeichert, "rejected": abgewiesen, "pruned": entfernt}
 
 
 def _dominant_track(programmes: list) -> list:
@@ -4655,6 +4728,7 @@ def get_settings(_=Depends(check_admin)):
         "epg_dedupe_overlaps":  s.get("epg_dedupe_overlaps", "0"),
         "epg_archive_days":     s.get("epg_archive_days", EPG_ARCHIVE_DAYS_DEFAULT),
         "epg_archive_fill":     s.get("epg_archive_fill", "1"),
+        "epg_archive_freeze":   s.get("epg_archive_freeze", "1"),
         "epg_max_mb":           s.get("epg_max_mb", EPG_MAX_MB_DEFAULT),
         "log_retention_days":   s.get("log_retention_days", "-1"),
         "short_domain":         s.get("short_domain", ""),
@@ -4682,7 +4756,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "epg_dedupe_overlaps",
-               "epg_max_mb", "epg_archive_days", "epg_archive_fill", "log_retention_days",
+               "epg_max_mb", "epg_archive_days", "epg_archive_fill", "epg_archive_freeze", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "diagnostics_enabled", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",

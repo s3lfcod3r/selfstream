@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.71 — Erststand schützen: das Archiv bleibt sauber, auch wenn der Anbieter nachträglich Unsinn liefert
+
+Messung an fünf Tagen Abstand, dieselbe Quelle, derselbe Tag:
+
+| Tag | am 11.08. abgerufen | am 16.08. abgerufen |
+|---|---|---|
+| 14.08. | 4 von 277 Sendern fehlerhaft | 65 von 287 |
+| 15.08. | 1 von 268 | 68 von 287 |
+| 16.08. | 2 von 233 | 20 von 286 |
+
+Die Daten sind **im Voraus fast sauber** und werden **nachträglich verschmutzt** — der Anbieter
+spielt später zusätzliche Programmlisten über bereits gelieferte Tage.
+
+Deshalb nimmt das Archiv nachgelieferte Sendungen jetzt nur noch an, wenn sie sich **nicht** mit
+bereits archivierten überschneiden (Häkchen „Erststand schützen", standardmäßig an). Was zuerst
+kam, bleibt. Zusätzlich werden vermischte Programmlisten schon **beim Einlagern** aufgelöst, statt
+erst beim Ausliefern.
+
+Geprüft mit den echten Dateien beider Tage: 90.077 Sendungen aus dem sauberen Stand eingelagert,
+danach aus dem verschmutzten Stand 29.169 neue übernommen und **55.295 nachträgliche Änderungen
+abgewiesen**. Ergebnis für den 15.08.: **0 von 287 Sendern** mit Überlappung im Archiv — gegenüber
+68 von 287 in der Rohdatei des Anbieters.
+
+Damit wird das eigene Archiv zur besseren Quelle als der Anbieter selbst.
+
+
 ## v1.70 — Eigenes EPG-Archiv: Historie bleibt, auch wenn der Anbieter sie fallen lässt
 
 EPG-Anbieter liefern nur ein **gleitendes Fenster** (bei epg.team gut zwei Wochen). Was dort
