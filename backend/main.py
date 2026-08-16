@@ -764,7 +764,14 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
     else:
         short_domain = db.get_setting("short_domain", "")
         public_url = short_domain.rstrip("/") if short_domain else proxy_url
-    epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
+
+    # Welche EPG-Adresse trägt die Playlist ein? Standardmäßig die eigene, denn
+    # sonst holt der Player die Daten direkt beim Anbieter und umgeht damit
+    # Bereinigung, Archiv und Zusammenführung vollständig.
+    if db.get_setting("playlist_epg_own", "1") == "1":
+        epg_sources = [f"{public_url.rstrip('/')}/iptv/epg-7d.xml"]
+    else:
+        epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
 
     if not channels:
         try:
@@ -4810,6 +4817,7 @@ def get_settings(_=Depends(check_admin)):
         "epg_archive_days":     s.get("epg_archive_days", EPG_ARCHIVE_DAYS_DEFAULT),
         "epg_archive_fill":     s.get("epg_archive_fill", "1"),
         "epg_archive_freeze":   s.get("epg_archive_freeze", "1"),
+        "playlist_epg_own":     s.get("playlist_epg_own", "1"),
         "epg_max_mb":           s.get("epg_max_mb", EPG_MAX_MB_DEFAULT),
         "log_retention_days":   s.get("log_retention_days", "-1"),
         "short_domain":         s.get("short_domain", ""),
@@ -4837,7 +4845,8 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_timeout", "hls_read_timeout", "hls_chunk_size",
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "epg_dedupe_overlaps",
-               "epg_max_mb", "epg_archive_days", "epg_archive_fill", "epg_archive_freeze", "log_retention_days",
+               "epg_max_mb", "epg_archive_days", "epg_archive_fill", "epg_archive_freeze",
+               "playlist_epg_own", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "diagnostics_enabled", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
                "catchup_auto_live_on_program_change",

@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.73 — Playlist verweist aufs eigene EPG + Archiv einsehbar
+
+### ① Die Playlist schickte den Player direkt zum Anbieter
+In die Kopfzeile der M3U (`url-tvg`) wurden bisher die **rohen Anbieter-Adressen** geschrieben.
+Der Player holte die Programmdaten damit **direkt bei epg.team** — und umging Bereinigung,
+Archiv und Quellen-Zusammenführung vollständig. Die gesamte Aufbereitung lief ins Leere, solange
+man die eigene Adresse nicht von Hand eintrug.
+
+Jetzt trägt die Playlist standardmäßig die **eigene** Adresse ein (`/iptv/epg-7d.xml`), also den
+aufbereiteten Stand. Neues Häkchen in der EPG-Ansicht: „Playlist verweist auf das eigene EPG" —
+abschaltbar, wer weiterhin direkt zum Anbieter will.
+
+### ② Ins eigene Archiv hineinschauen
+Das Panel zeigte bisher nur, **wie viel** im Archiv liegt, nicht **was**. Jetzt lässt sich je
+Sender (Name oder Kanal-ID) und Tag nachsehen, was gespeichert wurde — mit Uhrzeiten in Ortszeit
+und der ausdrücklichen Angabe, ob der Tag **überschneidungsfrei** ist.
+Endpoint `GET /api/epg/archive/browse?channel=&day=&tz=`, rein lesend. Auch Sender einsehbar, die
+im Archiv liegen, aber nicht mehr im Kanal-Manager stehen.
+
+
 ## v1.73 — Ins eigene EPG-Archiv hineinschauen
 
 Bisher zeigte das Panel nur, **wie viel** im Archiv liegt — nicht **was**. Jetzt lässt sich je

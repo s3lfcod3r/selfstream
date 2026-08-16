@@ -669,6 +669,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
               Ohne Datum wird der gesamte Zeitraum geprüft.
             </div>
             <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--text);cursor:pointer;">
+              <input type="checkbox" id="playlist-epg-own" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
+              Playlist verweist auf das eigene EPG (statt direkt auf den Anbieter)
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text);cursor:pointer;">
               <input type="checkbox" id="epg-dedupe" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
               Vermischte Programmlisten bereinigen – nur die echte behalten
             </label>
@@ -3350,10 +3354,12 @@ async function saveEpgSettings() {
   const arcFill = document.getElementById('epg-archive-fill')?.checked ? '1' : '0';
   const arcDays = document.getElementById('epg-archive-days')?.value || '30';
   const arcFreeze = document.getElementById('epg-archive-freeze')?.checked ? '1' : '0';
+  const plEpgOwn = document.getElementById('playlist-epg-own')?.checked ? '1' : '0';
   await api('POST', '/api/settings', {epg_refresh_hours: hours, epg_filter_channels: filter,
                                       epg_dedupe_overlaps: dedupe,
                                       epg_archive_fill: arcFill, epg_archive_days: arcDays,
-                                      epg_archive_freeze: arcFreeze});
+                                      epg_archive_freeze: arcFreeze,
+                                      playlist_epg_own: plEpgOwn});
   showToast('EPG-Einstellungen gespeichert');
 }
 
@@ -3448,6 +3454,8 @@ async function loadEpg() {
   if (arcDaysIn) arcDaysIn.value = settings.epg_archive_days || '30';
   const arcFreezeCb = document.getElementById('epg-archive-freeze');
   if (arcFreezeCb) arcFreezeCb.checked = settings.epg_archive_freeze !== '0';
+  const plOwnCb = document.getElementById('playlist-epg-own');
+  if (plOwnCb) plOwnCb.checked = settings.playlist_epg_own !== '0';
   try {
     const epgStatus = await api('GET', '/api/epg/status');
     const lastFetchEl = document.getElementById('epg-last-fetch');
