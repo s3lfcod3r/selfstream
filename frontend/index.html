@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.72</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.73</div>
       </div>
     </div>
 
@@ -695,6 +695,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
                   Erststand schützen
                 </label>
                 <button class="btn sm" id="epg-archive-btn" onclick="buildEpgArchive()">💾 Jetzt sichern</button>
+                <input class="form-input" id="epg-arc-channel" placeholder="Sender ansehen…"
+                       style="width:150px;font-size:11px;padding:4px 6px;">
+                <input class="form-input" id="epg-arc-day" type="date" style="width:145px;font-size:11px;padding:4px 6px;">
+                <button class="btn sm" id="epg-arc-show" onclick="showEpgArchive()">👁 Anzeigen</button>
               </div>
               <div id="epg-archive-info" style="margin-top:6px;font-size:11px;color:var(--text2);line-height:1.5;">
                 selfstream schreibt bei jedem EPG-Abruf mit. Der Anbieter liefert nur ein
@@ -702,6 +706,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 und wird beim Catchup weiter ausgeliefert.
               </div>
             </div>
+            <div id="epg-arc-result" style="margin-top:10px;"></div>
             <div id="epg-q-result" style="margin-top:10px;"></div>
           </div>
         </div>
@@ -1157,7 +1162,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.72</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.73</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -4165,6 +4170,37 @@ function renderEpgArchiveInfo(st) {
     + 'selfstream schreibt bei jedem EPG-Abruf mit. Der Anbieter liefert nur ein gleitendes '
     + 'Fenster – was dort herausfällt, bleibt im eigenen Archiv und wird beim Catchup weiter '
     + 'ausgeliefert.';
+}
+
+/** Zeigt, was für einen Sender an einem Tag im eigenen Archiv steht. */
+async function showEpgArchive() {
+  const btn = document.getElementById('epg-arc-show');
+  const out = document.getElementById('epg-arc-result');
+  const ch  = document.getElementById('epg-arc-channel').value.trim();
+  const day = document.getElementById('epg-arc-day').value || '';
+  if (!ch) { showToast('Bitte einen Sender eintragen (Name oder Kanal-ID)', true); return; }
+  btn.disabled = true;
+  out.innerHTML = '<span style="color:var(--text2);font-size:11px;">Archiv wird gelesen…</span>';
+  try {
+    const tz = Math.round(-new Date().getTimezoneOffset() / 60);
+    const qs = new URLSearchParams({channel: ch, day: day, tz: String(tz)});
+    const r = await api('GET', '/api/epg/archive/browse?' + qs);
+    if (!r.count) {
+      out.innerHTML = `<span style="font-size:11px;color:var(--yellow);">Für <strong>${esc(r.name)}</strong> `
+        + `am ${esc(r.day)} liegt nichts im Archiv.</span>`;
+    } else {
+      const warn = r.overlaps
+        ? `<span style="color:var(--red);"> · ${r.overlaps} Überschneidungen</span>`
+        : '<span style="color:var(--green);"> · überschneidungsfrei</span>';
+      out.innerHTML = `<div style="font-size:12px;margin-bottom:6px;"><strong>${esc(r.name)}</strong> `
+        + `<span style="color:var(--text2);">· ${esc(r.day)} · ${r.count} Sendungen</span>${warn}</div>`
+        + r.programmes.map(p =>
+            `<div style="font-size:11px;color:var(--text2);font-family:var(--mono);">`
+            + `${esc(p.start)}–${esc(p.stop)}  <span style="color:var(--text);">${esc(p.title)}</span></div>`
+          ).join('');
+    }
+  } catch(e) { out.innerHTML = `<span style="color:var(--red);font-size:11px;">${esc(e.message||e)}</span>`; }
+  finally { btn.disabled = false; }
 }
 
 async function buildEpgArchive() {

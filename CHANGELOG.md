@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.73 — Ins eigene EPG-Archiv hineinschauen
+
+Bisher zeigte das Panel nur, **wie viel** im Archiv liegt — nicht **was**. Jetzt lässt sich je
+Sender und Tag nachsehen, was gespeichert wurde, und mit dem Fernsehprogramm abgleichen.
+
+- Sender per Name oder Kanal-ID eingeben, Tag wählen, **👁 Anzeigen**
+- Zeigt alle Sendungen mit Uhrzeit in Ortszeit
+- Meldet ausdrücklich, ob der Tag **überschneidungsfrei** ist — genau das war die Ursache dafür,
+  dass im Catchup etwas anderes lief als angeklickt
+- Auch Sender einsehbar, die im Archiv liegen, aber nicht mehr im Kanal-Manager stehen
+
+Endpoint `GET /api/epg/archive/browse?channel=&day=&tz=`, rein lesend.
+
+
 ## v1.72 — Mehrere EPG-Quellen gleichzeitig nutzen
 
 Bisher wurde nur die **erste** aktive EPG-Quelle verwendet, alle weiteren lagen brach. Jetzt werden

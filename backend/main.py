@@ -4401,6 +4401,60 @@ async def build_epg_archive(_=Depends(check_admin)):
     return ergebnis
 
 
+@admin_app.get("/api/epg/archive/browse")
+def browse_epg_archive(channel: str = "", day: str = "", tz: int = 2,
+                       _=Depends(check_admin)):
+    """Ins eigene Archiv hineinschauen — welcher Sender, welcher Tag, was steht drin.
+
+    Meldet zusätzlich, ob sich Sendungen überschneiden; im Archiv sollte das
+    nach dem Einlagern nicht mehr vorkommen.
+    """
+    kanal = (channel or "").strip()
+    if not kanal:
+        raise HTTPException(status_code=400, detail="Bitte einen Sender angeben")
+    alle = db.get_epg_channels()
+    # Eingabe kann Kanal-ID oder Name sein. Auch Sender zulassen, die zwar im
+    # Archiv liegen, aber nicht (mehr) im Kanal-Manager stehen.
+    if not any(c["tvg_id"] == kanal for c in alle) and kanal not in db.get_archive_slots():
+        treffer = [c for c in alle if kanal.lower() in (c["name"] or "").lower()]
+        if not treffer:
+            raise HTTPException(status_code=404, detail=f"Kein Sender gefunden für „{kanal}“")
+        kanal = treffer[0]["tvg_id"]
+
+    tag = (day or "").replace("-", "").strip()
+    if len(tag) != 8:
+        tag = datetime.now(timezone.utc).strftime("%Y%m%d")
+    rows = db.get_archived_programmes(tag + "000000", tag + "235959", {kanal})
+
+    name = next((c["name"] for c in alle if c["tvg_id"] == kanal), kanal)
+    verschiebung = timedelta(hours=tz)
+    sendungen = []
+    vorheriges_ende = ""
+    ueberlappungen = 0
+    for r in sorted(rows, key=lambda x: x["start_key"]):
+        start = _parse_xmltv_datetime(r["start_raw"])
+        stop = _parse_xmltv_datetime(r["stop_raw"])
+        if start is None or stop is None:
+            continue
+        if vorheriges_ende and r["start_key"] < vorheriges_ende:
+            ueberlappungen += 1
+        vorheriges_ende = max(vorheriges_ende, (r["stop_raw"] or "")[:14])
+        sendungen.append({
+            "start": (start + verschiebung).strftime("%H:%M"),
+            "stop":  (stop + verschiebung).strftime("%H:%M"),
+            "title": r["title"] or "",
+            "desc":  (r["descr"] or "")[:160],
+        })
+    return {
+        "channel": kanal,
+        "name": name,
+        "day": day or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "count": len(sendungen),
+        "overlaps": ueberlappungen,
+        "programmes": sendungen,
+    }
+
+
 @admin_app.get("/api/epg/quality")
 def check_epg_quality(day: str = "", channel: str = "", tz: int = 2,
                       details: int = 3, _=Depends(check_admin)):
