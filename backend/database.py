@@ -1500,6 +1500,21 @@ class Database:
             """, rows)
         return len(rows)
 
+    def get_archive_slots(self) -> dict:
+        """Belegte Sendeplätze je Sender: {channel: [(start_key, stop_key), …]}.
+
+        Grundlage dafür, später nachgelieferte Sendungen abzuweisen, die sich mit
+        bereits archivierten überschneiden — der Erststand bleibt damit erhalten.
+        """
+        slots: dict = {}
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT channel, start_key, stop_raw FROM epg_archive ORDER BY channel, start_key"
+            ).fetchall()
+        for r in rows:
+            slots.setdefault(r["channel"], []).append((r["start_key"], (r["stop_raw"] or "")[:14]))
+        return slots
+
     def get_archived_programmes(self, from_key: str, to_key: str,
                                 channels: set = None) -> list:
         """Archivierte Sendungen im Zeitfenster holen (start_key als YYYYMMDDHHMMSS)."""

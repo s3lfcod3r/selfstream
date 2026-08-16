@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.70</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.71</div>
       </div>
     </div>
 
@@ -689,6 +689,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
                   <input class="form-input" id="epg-archive-days" type="number" min="7" max="365"
                          onchange="saveEpgSettings()" style="width:70px;font-size:11px;padding:4px 6px;">
                   Tage
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" id="epg-archive-freeze" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
+                  Erststand schützen
                 </label>
                 <button class="btn sm" id="epg-archive-btn" onclick="buildEpgArchive()">💾 Jetzt sichern</button>
               </div>
@@ -1153,7 +1157,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.70</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.71</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -3340,9 +3344,11 @@ async function saveEpgSettings() {
   const dedupe = document.getElementById('epg-dedupe')?.checked ? '1' : '0';
   const arcFill = document.getElementById('epg-archive-fill')?.checked ? '1' : '0';
   const arcDays = document.getElementById('epg-archive-days')?.value || '30';
+  const arcFreeze = document.getElementById('epg-archive-freeze')?.checked ? '1' : '0';
   await api('POST', '/api/settings', {epg_refresh_hours: hours, epg_filter_channels: filter,
                                       epg_dedupe_overlaps: dedupe,
-                                      epg_archive_fill: arcFill, epg_archive_days: arcDays});
+                                      epg_archive_fill: arcFill, epg_archive_days: arcDays,
+                                      epg_archive_freeze: arcFreeze});
   showToast('EPG-Einstellungen gespeichert');
 }
 
@@ -3435,6 +3441,8 @@ async function loadEpg() {
   if (arcFillCb) arcFillCb.checked = settings.epg_archive_fill !== '0';
   const arcDaysIn = document.getElementById('epg-archive-days');
   if (arcDaysIn) arcDaysIn.value = settings.epg_archive_days || '30';
+  const arcFreezeCb = document.getElementById('epg-archive-freeze');
+  if (arcFreezeCb) arcFreezeCb.checked = settings.epg_archive_freeze !== '0';
   try {
     const epgStatus = await api('GET', '/api/epg/status');
     const lastFetchEl = document.getElementById('epg-last-fetch');
@@ -4165,6 +4173,7 @@ async function buildEpgArchive() {
   try {
     const r = await api('POST', '/api/epg/archive');
     showToast(`${(r.stored||0).toLocaleString('de-DE')} Sendungen gesichert`
+              + (r.rejected ? ` · ${r.rejected.toLocaleString('de-DE')} nachträgliche Änderungen abgewiesen` : '')
               + (r.pruned ? ` · ${r.pruned} veraltete entfernt` : ''));
     renderEpgArchiveInfo({archive: r.stats});
   } catch(e) { showToast(e.message, true); }
