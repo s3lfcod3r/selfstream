@@ -291,25 +291,52 @@ async def _fetch_epg_text(source_url: str) -> str:
                         f"Kleineren Zeitraum wählen oder Limit 'epg_max_mb' erhöhen."
                     )
                 parts.append(chunk)
-    return b"".join(parts).decode("utf-8", errors="replace")
+    roh = b"".join(parts)
+    if roh[:2] == b"\x1f\x8b":          # gzip-Signatur: viele Quellen liefern .xml.gz
+        import gzip
+        roh = gzip.decompress(roh)
+    return roh.decode("utf-8", errors="replace")
 
 
 async def _fetch_and_cache_epg():
     """Fetch EPG from source, update memory + disk cache."""
     global _epg_cache
     try:
-        epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
-        if not epg_sources:
+        aktive = [e for e in db.get_epg_sources() if e["active"]]
+        if not aktive:
             return False
-        source_url = epg_sources[0]
-        content = await _fetch_epg_text(source_url)
-        filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
-        if filter_epg:
-            content = _filter_epg_xml(content, days_back=7)
+        source_url = aktive[0]["url"]
+
+        # Alle aktiven Quellen holen. Die erste hat Vorrang, die weiteren füllen
+        # nur, was dort fehlt — kein Anbieter ist für sich genommen vollständig.
+        dateien = []
+        for e in aktive:
+            text = await _fetch_epg_text(e["url"])
+            pfad = f"/data/epg_src_{e['id']}.xml"
+            with open(pfad, "w", encoding="utf-8") as f:
+                f.write(text)
+            dateien.append(pfad)
+            del text
+
         now = int(time.time())
+        if len(dateien) > 1:
+            import epg_merge
+            zusammen = await asyncio.to_thread(
+                epg_merge.zusammenfuehren, dateien, "/data/epg_cache.xml")
+            for q in zusammen.get("sources", []):
+                logger.info(f"EPG-Quelle {q['source']}: {q['added']} Sendungen, "
+                            f"{q['mapped']} Sender zugeordnet")
+            with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
+                content = f.read()
+        else:
+            with open(dateien[0], "r", encoding="utf-8") as f:
+                content = f.read()
+            if db.get_setting("epg_filter_channels", "0") == "1":
+                content = _filter_epg_xml(content, days_back=7)
+            with open("/data/epg_cache.xml", "w", encoding="utf-8") as f:
+                f.write(content)
+
         _epg_cache = {"content": content, "fetched_at": now, "url": source_url}
-        with open("/data/epg_cache.xml", "w", encoding="utf-8") as f:
-            f.write(content)
         logger.info(f"EPG auto-fetched and cached ({len(content)//1024}KB)")
         # Mitschreiben, solange die Sendungen noch geliefert werden — das Fenster
         # des Anbieters wandert weiter, das eigene Archiv bleibt.
