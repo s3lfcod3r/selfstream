@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.72 — Mehrere EPG-Quellen gleichzeitig nutzen
+
+Bisher wurde nur die **erste** aktive EPG-Quelle verwendet, alle weiteren lagen brach. Jetzt werden
+alle aktiven Quellen geladen und zusammengeführt.
+
+**Die Regel ist bewusst einfach und nachvollziehbar:** Die erste Quelle gibt den Ton an, die
+weiteren füllen ausschließlich **echte Lücken**. Eine schwächere Quelle kann eine gute damit nie
+überschreiben — es wird nicht geraten, welche Quelle „recht hat".
+
+- Sender werden über ihren Namen zugeordnet: `Sky Cinema Highlights HD` und
+  `Sky.Cinema.Highlights.HD.de` finden zusammen (Groß-/Kleinschreibung, Punkte sowie Zusätze wie
+  HD/UHD/de werden dabei ignoriert).
+- Quellen im `.xml.gz`-Format werden automatisch entpackt — viele kostenlose Anbieter liefern so aus.
+- Die zusammengeführte Datei wird erst als Nebendatei geschrieben und dann umbenannt; bricht ein
+  Abruf ab, bleibt der bisherige Stand unangetastet.
+- Neues Modul `backend/epg_merge.py`, arbeitet streamend.
+
+Getestet mit zwei echten Quellen: 84.464 Sendungen aus der ersten, **263 Sendungen aus der zweiten
+ergänzt** (136 Sender automatisch zugeordnet), Ergebnis 290 Sender mit **null Überlappungen** —
+bei 4 Sekunden Laufzeit und 35 MB Speicherbedarf.
+
+
 ## v1.71 — Erststand schützen: das Archiv bleibt sauber, auch wenn der Anbieter nachträglich Unsinn liefert
 
 Messung an fünf Tagen Abstand, dieselbe Quelle, derselbe Tag:
