@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.74 — Eigenes EPG statt Raten bei vermischten Programmlisten
+
+### ① Die Auswahlregel war nachweislich falsch
+Bei Sendern, unter deren Kanal-ID der Anbieter **zwei Programmlisten** führt, behielt selfstream
+bisher die Liste mit der **größten Gesamtsendezeit**. Diese Regel ist widerlegt: Das fehlerhafte
+Duplikat ist künstlich lückenlos über 24 h und gewinnt damit systematisch, während das echte,
+unregelmäßige Programm verworfen wird. Belegt am 13.08.2026 (Sky Cinema Highlights): Um 18:20 lief
+tatsächlich „Vergessene Welt: Jurassic Park" aus der verworfenen Liste — behalten wurde „Twister".
+
+Auch der naheliegende Ersatz — „die über mehrere Tage identisch wiederkehrende Liste ist das
+Artefakt" — wurde gemessen und **verworfen**: Echtes Programm wiederholt sich ohnehin ständig
+(Median 53 % identische Sendungen an anderen Tagen), und im belegten Fall hätte die Regel gerade
+die richtige Liste weggeworfen. **Aus der Datei allein ist nicht entscheidbar, welche Liste echt
+ist** — deshalb rät selfstream jetzt nicht mehr.
+
+### ② Stattdessen: den sauberen Stand festhalten
+Der Anbieter liefert **im Voraus sauber** und verschmutzt Tage erst ab dem Sendetag nachträglich
+(gemessen: Zukunftstage 0 %, vergangene Tage 17–25 % betroffene Sender; jeder vergangene Tag
+verlor über Nacht weitere Sender). Daraus folgt:
+
+- **Nur saubere Sendertage werden archiviert.** Liegen für einen Sender an einem Tag zwei Listen
+  vor, wird dieser Tag übersprungen statt geraten (Zähler in der Meldung und im Diagnose-Log).
+- **Neu: „Eigenes EPG hat Vorrang".** Bisher füllte das Archiv nur Lücken — falsche
+  Anbieter-Sendungen blieben stehen. Mit der neuen Einstellung ersetzt das Archiv bereits
+  **gelaufene** Sendungen vollständig: Deckt es einen Sendetag weitgehend ab (≥ 80 % der
+  Anbieter-Sendezeit), tritt die komplette Anbieterliste dieses Tages ab. Was noch nicht gelaufen
+  ist, bleibt unangetastet — Programmänderungen kommen weiter durch.
+- **Neu: „🗑 Archiv leeren"** (`DELETE /api/epg/archive`) für den Neuaufbau, wenn im Archiv noch
+  Daten aus der alten Auswahlregel liegen.
+- „Vermischte Programmlisten bereinigen" bleibt vorhanden, ist aber als **nicht empfohlen**
+  gekennzeichnet.
+
 ## v1.73 — Playlist verweist aufs eigene EPG + Archiv einsehbar
 
 ### ① Die Playlist schickte den Player direkt zum Anbieter
