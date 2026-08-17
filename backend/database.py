@@ -586,8 +586,9 @@ class Database:
         raise RuntimeError("Konnte keinen eindeutigen Short-Token erzeugen")
 
     def regenerate_token(self, user_id: int) -> str:
-        import uuid
-        new_token = str(uuid.uuid4()).replace("-", "")[:24]
+        # secrets (kryptografisch sicher) statt uuid4 – der Token ist eine öffentliche Stream-URL.
+        import secrets
+        new_token = secrets.token_hex(12)   # 24 Hex-Zeichen = 96 Bit
         with self.conn() as con:
             con.execute("UPDATE users SET token = ? WHERE id = ?", (new_token, user_id))
         return new_token

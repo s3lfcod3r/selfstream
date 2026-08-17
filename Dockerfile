@@ -7,20 +7,13 @@ LABEL org.opencontainers.image.licenses="GPL-3.0"
 
 WORKDIR /app
 
-# Install OpenVPN + WireGuard + microsocks (SOCKS5 proxy for split-tunnel)
+# Install WireGuard (aktiv) + OpenVPN (Legacy-Fallback, gehärtet: script-security 0).
+# microsocks/iptables/git/build-essential entfernt — waren ungenutzt (kleinere Angriffsfläche,
+# kein ungepinnter git-clone-Build im Image).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openvpn \
     wireguard-tools \
     iproute2 \
-    iptables \
-    git \
-    build-essential \
-    && git clone https://github.com/rofl0r/microsocks.git /tmp/microsocks \
-    && make -C /tmp/microsocks \
-    && cp /tmp/microsocks/microsocks /usr/local/bin/ \
-    && rm -rf /tmp/microsocks \
-    && apt-get remove -y git build-essential \
-    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .

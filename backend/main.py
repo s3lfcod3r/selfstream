@@ -1,5 +1,6 @@
 import os
 import uuid
+import secrets
 import time
 import hmac
 import hashlib
@@ -60,6 +61,12 @@ async def _security_headers(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    # HSTS bewusst OHNE includeSubDomains/preload (es gibt weitere Subdomains unter ss-its.de,
+    # die evtl. nicht HTTPS-only sind). setdefault → falls der Reverse-Proxy bereits HSTS setzt,
+    # bleibt dessen Wert. Browser werten HSTS nur über HTTPS aus, über HTTP wird es ignoriert.
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    response.headers.setdefault(
+        "Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; script-src 'self' 'unsafe-inline'; "
@@ -105,6 +112,27 @@ def _track_background_task(task) -> None:
     """Starke Referenz auf einen Hintergrund-Task halten und nach Abschluss wieder freigeben."""
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
+
+
+def _fwd_client_ip(request) -> str:
+    """Die vom Reverse-Proxy gesetzte ECHTE Client-IP.
+
+    WICHTIG: Das LINKE Element von ``X-Forwarded-For`` ist client-seitig fälschbar und
+    ließe sich zur Umgehung von max_streams / der Catchup-Session-Bindung missbrauchen.
+    Wir nehmen darum den vom nächsten Proxy (Zoraxy) gesetzten Wert: ``X-Real-IP``, sonst
+    das RECHTE Element von ``X-Forwarded-For``. Leerstring, wenn keiner da ist → der Aufrufer
+    fällt dann wie bisher auf die TCP-Peer-IP (``request.client.host``) zurück."""
+    if request is None:
+        return ""
+    try:
+        xri = (request.headers.get("x-real-ip") or "").strip()
+        if xri:
+            return xri
+        xff = request.headers.get("x-forwarded-for") or ""
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        return parts[-1] if parts else ""
+    except Exception:
+        return ""
 
 
 # Zugangsdaten in URLs/Strings maskieren, bevor sie in Logs/Diagnose landen.
@@ -1101,7 +1129,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
 
     _req_ip_common = ""
     if request:
-        _fwd_ip_common = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        _fwd_ip_common = _fwd_client_ip(request)
         _req_ip_common = _fwd_ip_common or (request.client.host if request.client else "")
     _now_common = time.time()
     _catchup_live_break_active = False
@@ -1173,7 +1201,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     if not utc and (not _catchup_live_break_active) and is_catchup_guard_master_enabled() and is_catchup_hard_lock_enabled():
         _req_ip_hl = ""
         if request:
-            _fwd_ip_hl = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            _fwd_ip_hl = _fwd_client_ip(request)
             _req_ip_hl = _fwd_ip_hl or (request.client.host if request.client else "")
         _now_hl = time.time()
         _best_key = ""
@@ -1228,7 +1256,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     if not utc and (not _catchup_live_break_active) and is_catchup_guard_master_enabled() and is_catchup_force_same_channel_live_enabled():
         _req_ip = ""
         if request:
-            _fwd_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            _fwd_ip = _fwd_client_ip(request)
             _req_ip = _fwd_ip or (request.client.host if request.client else "")
         _now = time.time()
         _recent_cv = None
@@ -1270,7 +1298,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             _is_recent = (_now - float(_cv.get("last_seen", 0))) <= max(30, _idle_ttl)
             _same_ip = True
             if request:
-                _fwd_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                _fwd_ip = _fwd_client_ip(request)
                 _req_ip = _fwd_ip or (request.client.host if request.client else "")
                 _sess_ip = (_cv.get("ip") or "").strip()
                 if _sess_ip and _req_ip:
@@ -1361,7 +1389,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     pass
                 _catchup_ip = ""
                 if request:
-                    _fwd = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                    _fwd = _fwd_client_ip(request)
                     _catchup_ip = _fwd or (request.client.host if request.client else "")
                 _catchup_key = f"catchup::{token}::{channel_name}"
                 now_cu = time.time()
@@ -1476,7 +1504,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     "catchup",
                     f"Catchup strict mode active: no live fallback for {user['name']} → {channel_name} (utc={utc})",
                 )
-                raise HTTPException(status_code=502, detail=f"Catchup fetch failed: {e}")
+                raise HTTPException(status_code=502, detail="Catchup fetch failed")
             diag_log(
                 "WARNING",
                 "catchup",
@@ -1491,7 +1519,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     if max_s > 0:
         _cleanup_sessions()
         uid = user["id"]
-        _fwd3 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
+        _fwd3 = _fwd_client_ip(request)
         _ip3 = _fwd3 or (request.client.host if request.client else "")
         _ua3 = request.headers.get("user-agent","")[:60]
         _sid3 = hashlib.md5(f"{token}::{_ip3}::{_ua3}".encode()).hexdigest()[:16]
@@ -1522,7 +1550,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             playlist_content = resp.text
 
         # Generate stable SID: same device = same SID = same session
-        _fwd2 = request.headers.get("x-forwarded-for","").split(",")[0].strip()
+        _fwd2 = _fwd_client_ip(request)
         _ip2 = _fwd2 or (request.client.host if request.client else "")
         _ua2 = request.headers.get("user-agent","")[:60]
         sid = hashlib.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
@@ -1771,6 +1799,11 @@ def _passive_health(window_sec: int = PASSIVE_WINDOW_SEC) -> dict:
             "p90_s": round(p90, 2) if p90 is not None else None, "mbps": mbps}
 
 
+# Obergrenze pro Segment-Download (Schutz vor Speicher-Überlastung). Normale HLS-Segmente
+# sind 1–5 MB; 200 MB ist weit über allem Realen und wird im Normalbetrieb nie erreicht.
+MAX_SEGMENT_BYTES = 200 * 1024 * 1024
+
+
 async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
     """Download a segment, sharing the result if another coroutine is already fetching it.
     Returns (data: bytes, elapsed: float, from_cache: bool).
@@ -1840,6 +1873,11 @@ async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
                         return b"", elapsed, False
                     async for chunk in resp.aiter_bytes(chunk_size=131072):
                         buf.extend(chunk)
+                        if len(buf) > MAX_SEGMENT_BYTES:
+                            logger.warning(f"Segment > {MAX_SEGMENT_BYTES // (1024*1024)} MB – abgebrochen: {_mask_creds(url)}")
+                            elapsed = time.time() - t_start
+                            _passive_record(elapsed, len(buf), False)
+                            return b"", elapsed, False
                 break
             except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError,
                     httpx.RemoteProtocolError, httpx.PoolTimeout):
@@ -2871,8 +2909,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
 
         client_ip0 = ""
         if request:
-            forwarded0 = request.headers.get("x-forwarded-for")
-            client_ip0 = forwarded0.split(",")[0].strip() if forwarded0 else (request.client.host if request.client else "")
+            client_ip0 = _fwd_client_ip(request) or (request.client.host if request.client else "")
 
         ua0 = request.headers.get("user-agent", "") if request else ""
         # Must match proxy_stream sid derivation, otherwise we create duplicate session keys
@@ -3016,6 +3053,8 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                         raise HTTPException(status_code=502, detail=f"Catchup segment upstream HTTP {r2.status_code}")
                                     async for chunk in r2.aiter_bytes(chunk_size=hls["hls_chunk_size"]):
                                         _buf.extend(chunk)
+                                        if len(_buf) > MAX_SEGMENT_BYTES:
+                                            raise HTTPException(status_code=502, detail="Catchup-Segment zu groß")
                             _cu_elapsed = time.time() - _cu_t0
                             _cu_data = bytes(_buf)
                             if len(_cu_data) >= 1_000:
@@ -3108,7 +3147,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             _log_player_request("segment:catchup_error", request, token, {"decoded_url": decoded_url, "error": repr(e)}, level="ERROR")
             logger.error(f"Catchup segment error: {e}")
             diag_log("ERROR", "catchup", f"Catchup segment error: {e}")
-            raise HTTPException(status_code=502, detail=f"Catchup segment failed: {e}")
+            raise HTTPException(status_code=502, detail="Catchup segment failed")
 
     ts_prefetch: tuple[bytes, float, bool] | None = None
     if is_ts:
@@ -3292,6 +3331,22 @@ _epg_cache: dict = {"content": None, "fetched_at": 0, "url": ""}
 # Parsed EPG tree cache — avoid re-parsing XML on every channel switch
 _epg_tree_cache: dict = {"root": None, "content_hash": None}
 
+# Schutz gegen DoS über wiederholten Zwangs-Refresh (?force=1): die EPG-Endpunkte sind
+# ohne Token erreichbar. Ein erzwungener Frisch-Abruf ist darum höchstens 1×/60 s erlaubt;
+# sonst wird ganz normal die gecachte Antwort geliefert.
+_epg_force_last = 0.0
+
+
+def _epg_force_ok(force) -> bool:
+    global _epg_force_last
+    if force != "1":
+        return False
+    now = time.time()
+    if now - _epg_force_last < 60:
+        return False
+    _epg_force_last = now
+    return True
+
 @proxy_app.get("/iptv/epg.xml")
 async def global_epg(force: str = None):
     """Global EPG URL – no token needed, same for all users. Cached."""
@@ -3304,11 +3359,12 @@ async def global_epg(force: str = None):
     refresh_hours = int(db.get_setting("epg_refresh_hours", "6"))
     refresh_secs = refresh_hours * 3600
     now = int(time.time())
+    _forced = _epg_force_ok(force)   # force=1 nur max. 1×/60 s (DoS-Schutz)
     cache_valid = (
         _epg_cache["content"] is not None and
         _epg_cache["url"] == source_url and
         (now - _epg_cache["fetched_at"]) < refresh_secs and
-        force != "1"
+        not _forced
     )
 
     if cache_valid and os.path.exists("/data/epg_cache.xml"):
@@ -3804,7 +3860,7 @@ async def global_epg_days(days: int, force: str = None):
 
     refresh_secs = int(db.get_setting("epg_refresh_hours", "6") or "6") * 3600
     cache_age = time.time() - _epg_cache.get("fetched_at", 0)
-    if force == "1" or cache_age > refresh_secs or not os.path.exists("/data/epg_cache.xml"):
+    if _epg_force_ok(force) or cache_age > refresh_secs or not os.path.exists("/data/epg_cache.xml"):
         await _fetch_and_cache_epg()
 
     # Im Threadpool: Lesen und Filtern blockieren, der Event-Loop soll weiterlaufen.
@@ -3863,10 +3919,13 @@ def check_admin(x_admin_token: str = Header(...), request: Request = None):
         ip = request.client.host
 
     now = time.time()
-    # Abgelaufene Sperren aufräumen (verhindert unbegrenztes Wachstum des Dicts)
-    for _k in [k for k, v in _failed_attempts.items() if v.get("blocked_until", 0) < now and v.get("count", 0) == 0]:
+    # Abgelaufene/veraltete Einträge aufräumen (verhindert unbegrenztes Wachstum des Dicts):
+    # weder aktuell gesperrt (blocked_until abgelaufen) NOCH kürzlich ein Fehlversuch. So werden
+    # auch tatsächlich gesperrte IPs nach Ablauf der Sperre entfernt (nicht nur count==0-Einträge).
+    for _k in [k for k, v in _failed_attempts.items()
+               if v.get("blocked_until", 0) <= now and (now - v.get("ts", 0)) > BLOCK_SECONDS]:
         _failed_attempts.pop(_k, None)
-    attempt = _failed_attempts.get(ip, {"count": 0, "blocked_until": 0})
+    attempt = _failed_attempts.get(ip, {"count": 0, "blocked_until": 0, "ts": now})
 
     # Check if blocked
     if attempt["blocked_until"] > now:
@@ -3877,6 +3936,7 @@ def check_admin(x_admin_token: str = Header(...), request: Request = None):
 
     if not admin_token or not _verify_admin_token(x_admin_token, admin_token):
         attempt["count"] += 1
+        attempt["ts"] = now
         if attempt["count"] >= MAX_ATTEMPTS:
             attempt["blocked_until"] = now + BLOCK_SECONDS
             logger.warning(f"Admin login blocked for {ip} after {MAX_ATTEMPTS} failed attempts")
@@ -3930,7 +3990,7 @@ def create_user(body: dict, _=Depends(check_admin)):
                 m3u_source = p.get("source_url") or m3u_source
         except Exception:
             provider_id = None
-    token = str(uuid.uuid4()).replace("-", "")[:24]
+    token = secrets.token_hex(12)   # 96 Bit, kryptografisch sicher (öffentliche Stream-URL)
     user = db.create_user(name=name, token=token, m3u_source=m3u_source, notes=notes, provider_id=provider_id)
     if allowed_groups:
         db.update_user(user["id"], {"allowed_groups": allowed_groups})
@@ -5286,23 +5346,32 @@ def _vpn_harden_config(ovpn_content: str) -> tuple[str, int]:
     # Direktiven, die wir selbst setzen, vorher entfernen (sonst Doppelung).
     drop = ("connect-retry", "server-poll-timeout", "resolv-retry",
             "ns-cert-type", "remote-cert-tls", "auth-nocache")
+    # SICHERHEIT: OpenVPN-Direktiven, die BELIEBIGE BEFEHLE ausführen können, werden aus
+    # jeder Config entfernt. Eine bösartige/kompromittierte .ovpn könnte sonst über solche
+    # Hooks Code als root ausführen (der openvpn-Prozess läuft mit root + NET_ADMIN). Zusätzlich
+    # erzwingen wir unten `script-security 0` (OpenVPN führt dann gar keine Skripte aus).
+    dangerous = ("up", "up-restart", "down", "down-pre", "route-up", "route-pre-down",
+                 "client-connect", "client-disconnect", "plugin", "ipchange", "learn-address",
+                 "tls-verify", "auth-user-pass-verify", "script-security", "tls-export-cert",
+                 "cd", "setenv-safe")
     kept, remote_count = [], 0
     for raw in ovpn_content.splitlines():
         head = raw.strip().split()[0].lower() if raw.strip() else ""
         if head == "remote":
             remote_count += 1
-        if head in drop:
+        if head in drop or head in dangerous:
             continue
         kept.append(raw)
 
     kept += [
         "",
-        "# --- von SelfStream ergaenzt (Stabilitaet) ---",
+        "# --- von SelfStream ergaenzt (Stabilitaet + Sicherheit) ---",
         "auth-nocache",
         "connect-retry 5 30",
         "server-poll-timeout 15",
         "resolv-retry infinite",
         "remote-cert-tls server",
+        "script-security 0",   # keine externen Skripte/Hooks ausführen
     ]
     return "\n".join(kept) + "\n", remote_count
 
@@ -5452,6 +5521,14 @@ def _wg_up(conf_path: str) -> dict:
     # IPv4-Adresse (falls IPv6 mit dabei) + Endpoint-IP
     addr4 = next((a.strip() for a in addr.split(",") if ":" not in a), addr.split(",")[0].strip())
     endpoint_ip = endpoint.rsplit(":", 1)[0].strip("[]")
+    # Format-Prüfung (Defense-in-Depth): Endpoint muss eine echte IP sein, Address ein gültiges
+    # CIDR – bevor die Werte in `ip route`/`ip addr` landen. Verhindert unsaubere Routing-Zustände
+    # aus fehlerhaften/manipulierten Configs (im unbeaufsichtigten Watchdog/Auto-Best besonders wichtig).
+    try:
+        ipaddress.ip_address(endpoint_ip)
+        ipaddress.ip_interface(addr4)
+    except Exception:
+        return {"ok": False, "error": f"Config-Werte ungültig (Endpoint '{endpoint_ip}' / Address '{addr4}')"}
 
     _wg_down()  # Reste weg
     try:
@@ -5515,6 +5592,10 @@ def _wg_switch_seamless(conf_path: str) -> dict:
     if not (new_pub and new_endpoint):
         return {"ok": False, "error": "Config unvollständig (PublicKey/Endpoint)"}
     new_ip = new_endpoint.rsplit(":", 1)[0].strip("[]")
+    try:
+        ipaddress.ip_address(new_ip)   # Endpoint muss echte IP sein, bevor die /32-Route gesetzt wird
+    except Exception:
+        return {"ok": False, "error": f"Endpoint-IP ungültig ('{new_ip}')"}
     try:
         old_peers = subprocess.run(["wg", "show", WG_IFACE, "peers"],
                                    capture_output=True, text=True, timeout=5).stdout.split()
@@ -5610,6 +5691,7 @@ def vpn_start() -> dict:
     cmd = [
         "openvpn",
         "--config", split_ovpn_path,
+        "--script-security", "0",   # keine externen Skripte/Hooks (Defense-in-Depth)
     ]
     if vpn_user and vpn_pass:
         cmd += ["--auth-user-pass", VPN_AUTH_FILE]
@@ -6384,6 +6466,12 @@ async def mullvad_import(body: dict, _=Depends(check_admin)):
         host, pub, ip = r.get("hostname", ""), r.get("pubkey", ""), r.get("ipv4_addr_in", "")
         if not host or not pub or not ip:
             continue
+        # Externe (untrusted) API-Daten streng validieren, bevor daraus ein Dateiname/Config-Wert
+        # wird: hostname ohne '/'/'.'/'..' (Path-Traversal ausgeschlossen), IP echt, PubKey base64.
+        if not re.fullmatch(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?", host) \
+                or not _is_ipv4(ip) \
+                or not re.fullmatch(r"[A-Za-z0-9+/=]{40,50}", pub):
+            continue
         conf = (
             "[Interface]\n"
             f"PrivateKey = {priv}\n"
@@ -6396,6 +6484,8 @@ async def mullvad_import(body: dict, _=Depends(check_admin)):
         )
         fn = f"mullvad-{host}.conf"
         dest = os.path.join(VPN_OVPN_DIR, fn)
+        if not os.path.realpath(dest).startswith(os.path.realpath(VPN_OVPN_DIR) + os.sep):
+            continue   # Zweite Verteidigungslinie gegen Zip-Slip/Path-Traversal
         with open(dest, "w") as f:
             f.write(conf)
         os.chmod(dest, 0o600)
@@ -6554,6 +6644,10 @@ async def vpn_upload_ovpn(request: Request, _=Depends(check_admin)):
             raise HTTPException(status_code=400, detail="Nur .conf (WireGuard, z.B. Mullvad) erlaubt")
         dest = os.path.join(VPN_OVPN_DIR, filename)
         content = await file.read()
+        # WireGuard-Configs sind winzig (wenige hundert Byte). 256 KB ist großzügig und
+        # verhindert, dass ein (kompromittiertes) Admin-Token über Riesen-Uploads Disk/RAM füllt.
+        if len(content) > 256 * 1024:
+            raise HTTPException(status_code=413, detail="Datei zu groß (max. 256 KB für eine WireGuard-Config)")
         with open(dest, "wb") as f:
             f.write(content)
         os.chmod(dest, 0o600)
@@ -8092,9 +8186,11 @@ async def _dual_measure_one(candidate_path: str) -> dict:
         return {"ovpn": name, "ok": False, "error": "LAN-Gateway nicht gefunden"}
     server_ip = ip
     try:
-        # Config-Kopie OHNE 'remote'-Zeilen – wir erzwingen die IP per CLI (kein VPN-über-VPN)
+        # Config-Kopie: gehärtet (gefährliche Script-Hooks raus) UND OHNE 'remote'-Zeilen –
+        # wir erzwingen die IP per CLI (kein VPN-über-VPN).
         with open(candidate_path, "r", encoding="utf-8", errors="ignore") as f:
-            cfg = "\n".join(l for l in f.read().splitlines() if not l.strip().startswith("remote "))
+            _hardened, _ = _vpn_harden_config(f.read())
+        cfg = "\n".join(l for l in _hardened.splitlines() if not l.strip().startswith("remote "))
         dual_cfg = os.path.join(VPN_OVPN_DIR, "dual.ovpn")
         with open(dual_cfg, "w") as f:
             f.write(cfg + "\n")
@@ -8103,6 +8199,7 @@ async def _dual_measure_one(candidate_path: str) -> dict:
         steps.append("route /32 gesetzt")
         # 2) Zweiten OpenVPN starten – fasst die Haupt-Routing-Tabelle NICHT an
         cmd = ["openvpn", "--config", dual_cfg, "--dev", "tun1",
+               "--script-security", "0",
                "--route-noexec", "--route-nopull",
                "--pull-filter", "ignore", "redirect-gateway",
                "--remote", server_ip, str(port),

@@ -1,0 +1,19 @@
+# Build-Kontext schlank halten und Sensibles nie an den Docker-Daemon schicken
+.git
+.github
+.gitignore
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.sqlite
+tests/
+tools/
+custom_*.png
+custom_*.jpg
+*.md
+docker-compose.yml
+unraid/
+setup.sh
+update.sh
