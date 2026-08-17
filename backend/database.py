@@ -1540,6 +1540,17 @@ class Database:
             cur = con.execute("DELETE FROM epg_archive WHERE start_key < ?", (grenze,))
             return cur.rowcount
 
+    def clear_epg_archive(self) -> int:
+        """Das gesamte eigene EPG-Archiv verwerfen.
+
+        Gedacht für den Neuaufbau, wenn im Archiv Daten aus einer verworfenen
+        Auswahlregel liegen: Der Anbieter liefert die kommenden Tage sauber
+        nach, die Vergangenheit ist ohnehin nicht wiederherstellbar.
+        """
+        with self.conn() as con:
+            cur = con.execute("DELETE FROM epg_archive")
+            return cur.rowcount
+
     def epg_archive_stats(self) -> dict:
         """Umfang des Archivs — für die Anzeige im Panel."""
         with self.conn() as con:

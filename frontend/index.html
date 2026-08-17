@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.73</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.74</div>
       </div>
     </div>
 
@@ -674,12 +674,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </label>
             <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--text);cursor:pointer;">
               <input type="checkbox" id="epg-dedupe" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
-              Vermischte Programmlisten bereinigen – nur die echte behalten
+              Vermischte Programmlisten bereinigen – nicht empfohlen
             </label>
             <div style="margin-top:4px;font-size:11px;color:var(--text2);line-height:1.5;">
-              Behält bei betroffenen Sendern die Liste, die den Zeitraum durchgehend abdeckt, und
-              wirft die fremde weg. Wirkt auf die gefilterten EPG-Adressen (1/3/7 Tage). Nach dem
-              Umstellen einmal „↻ Neu laden“ drücken.
+              ⚠️ Behält die Liste, die den Zeitraum durchgehend abdeckt. Das ist unzuverlässig:
+              Gerade die künstlich lückenlose Liste ist oft die falsche, geprüft an belegten
+              Fällen. Besser das eigene Archiv nutzen (unten). Wirkt auf die gefilterten
+              EPG-Adressen (1/3/7 Tage); nach dem Umstellen einmal „↻ Neu laden“ drücken.
             </div>
             <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
@@ -698,7 +699,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
                   <input type="checkbox" id="epg-archive-freeze" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
                   Erststand schützen
                 </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);cursor:pointer;">
+                  <input type="checkbox" id="epg-archive-override" onchange="saveEpgSettings()" style="accent-color:var(--teal);">
+                  Eigenes EPG hat Vorrang
+                </label>
                 <button class="btn sm" id="epg-archive-btn" onclick="buildEpgArchive()">💾 Jetzt sichern</button>
+                <button class="btn sm" id="epg-archive-clear" onclick="clearEpgArchive()">🗑 Archiv leeren</button>
                 <input class="form-input" id="epg-arc-channel" placeholder="Sender ansehen…"
                        style="width:150px;font-size:11px;padding:4px 6px;">
                 <input class="form-input" id="epg-arc-day" type="date" style="width:145px;font-size:11px;padding:4px 6px;">
@@ -708,6 +714,11 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 selfstream schreibt bei jedem EPG-Abruf mit. Der Anbieter liefert nur ein
                 gleitendes Fenster – was dort herausfällt, bleibt im eigenen Archiv erhalten
                 und wird beim Catchup weiter ausgeliefert.
+                Der Anbieter liefert kommende Tage sauber und vermischt sie erst nachträglich;
+                deshalb werden nur Sendertage ohne Doppelliste eingelagert – bei vermischten
+                wird nichts geraten. <strong>Eigenes EPG hat Vorrang</strong> ersetzt bereits
+                gelaufene Sendungen komplett durch den archivierten Stand, statt nur Lücken zu
+                füllen. Was noch nicht gelaufen ist, bleibt beim Anbieter.
               </div>
             </div>
             <div id="epg-arc-result" style="margin-top:10px;"></div>
@@ -1166,7 +1177,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.73</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.74</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -3354,11 +3365,13 @@ async function saveEpgSettings() {
   const arcFill = document.getElementById('epg-archive-fill')?.checked ? '1' : '0';
   const arcDays = document.getElementById('epg-archive-days')?.value || '30';
   const arcFreeze = document.getElementById('epg-archive-freeze')?.checked ? '1' : '0';
+  const arcOverride = document.getElementById('epg-archive-override')?.checked ? '1' : '0';
   const plEpgOwn = document.getElementById('playlist-epg-own')?.checked ? '1' : '0';
   await api('POST', '/api/settings', {epg_refresh_hours: hours, epg_filter_channels: filter,
                                       epg_dedupe_overlaps: dedupe,
                                       epg_archive_fill: arcFill, epg_archive_days: arcDays,
                                       epg_archive_freeze: arcFreeze,
+                                      epg_archive_override: arcOverride,
                                       playlist_epg_own: plEpgOwn});
   showToast('EPG-Einstellungen gespeichert');
 }
@@ -3454,6 +3467,8 @@ async function loadEpg() {
   if (arcDaysIn) arcDaysIn.value = settings.epg_archive_days || '30';
   const arcFreezeCb = document.getElementById('epg-archive-freeze');
   if (arcFreezeCb) arcFreezeCb.checked = settings.epg_archive_freeze !== '0';
+  const arcOverrideCb = document.getElementById('epg-archive-override');
+  if (arcOverrideCb) arcOverrideCb.checked = settings.epg_archive_override === '1';
   const plOwnCb = document.getElementById('playlist-epg-own');
   if (plOwnCb) plOwnCb.checked = settings.playlist_epg_own !== '0';
   try {
@@ -4218,10 +4233,26 @@ async function buildEpgArchive() {
     const r = await api('POST', '/api/epg/archive');
     showToast(`${(r.stored||0).toLocaleString('de-DE')} Sendungen gesichert`
               + (r.rejected ? ` · ${r.rejected.toLocaleString('de-DE')} nachträgliche Änderungen abgewiesen` : '')
+              + (r.skipped_days ? ` · ${r.skipped_days} vermischte Sendertage übersprungen` : '')
               + (r.pruned ? ` · ${r.pruned} veraltete entfernt` : ''));
     renderEpgArchiveInfo({archive: r.stats});
   } catch(e) { showToast(e.message, true); }
   finally { btn.disabled = false; btn.textContent = '💾 Jetzt sichern'; }
+}
+
+/** Leert das eigene EPG-Archiv – für den Neuaufbau aus sauberen Anbieterdaten. */
+async function clearEpgArchive() {
+  if (!confirm('Eigenes EPG-Archiv komplett leeren?\n\n'
+             + 'Sinnvoll nur für den Neuaufbau: Die kommenden Tage liefert der Anbieter '
+             + 'sauber nach, die archivierte Vergangenheit ist danach weg.')) return;
+  const btn = document.getElementById('epg-archive-clear');
+  btn.disabled = true; btn.textContent = '⏳ Leert…';
+  try {
+    const r = await api('DELETE', '/api/epg/archive');
+    showToast(`${(r.removed||0).toLocaleString('de-DE')} Sendungen entfernt`);
+    renderEpgArchiveInfo({archive: r.stats});
+  } catch(e) { showToast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = '🗑 Archiv leeren'; }
 }
 
 /** Entfernt EPG-Sender, zu denen es keinen eigenen Kanal gibt. */

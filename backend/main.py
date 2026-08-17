@@ -3366,54 +3366,42 @@ def _epg_archive_days() -> int:
         return int(EPG_ARCHIVE_DAYS_DEFAULT)
 
 
-def _dominant_slots(eintraege: list) -> list:
-    """Vermischte Programmlisten schon beim Einlagern auflösen.
+def _saubere_tage(eintraege: list) -> tuple:
+    """Nur Sendertage übernehmen, an denen genau EINE Programmliste vorliegt.
 
-    Arbeitet auf Tupeln (start_key, stop_key, …) statt auf XML-Elementen, sonst
-    identisch zu _dominant_track(): dominante Spur behalten, aus den übrigen
-    ergänzen, was in eine Lücke passt.
+    Der Anbieter liefert im Voraus sauber und vermischt Tage erst ab dem
+    Sendetag nachträglich (gemessen: Zukunftstage 0 %, vergangene Tage 17–25 %
+    betroffene Sender). Welche von zwei Listen die echte ist, lässt sich aus der
+    Datei nachweislich NICHT bestimmen — weder über die Gesamtsendezeit noch
+    über mehrtägige Wiederholung; beide Merkmale wurden an belegten Fällen
+    widerlegt. Deshalb wird an vermischten Tagen gar nichts eingelagert, statt
+    zu raten: Der früher gesicherte saubere Stand bleibt damit unangetastet.
+
+    Sendungen zählen zu ihrem Starttag; ein Film über Mitternacht gehört also
+    zum Tag seines Beginns.
+
+    Rückgabe: (übernommene Einträge, Zahl der übersprungenen Sendertage)
     """
-    if len(eintraege) < 2:
-        return eintraege
-    spuren: list = []
-    enden: list = []
-    for e in sorted(eintraege):
-        for i, ende in enumerate(enden):
-            if e[0] >= ende:
-                spuren[i].append(e)
-                enden[i] = e[1]
-                break
+    nach_tag: dict = {}
+    for e in eintraege:
+        nach_tag.setdefault(e[0][:8], []).append(e)
+
+    behalten: list = []
+    uebersprungen = 0
+    for tageseintraege in nach_tag.values():
+        enden: list = []                      # je Spur das Ende der letzten Sendung
+        for e in sorted(tageseintraege):
+            for i, ende in enumerate(enden):
+                if e[0] >= ende:              # Spur ist zu dieser Zeit frei
+                    enden[i] = e[1]
+                    break
+            else:
+                enden.append(e[1])
+        if len(enden) > 1:
+            uebersprungen += 1                # vermischt — nicht einlagern
         else:
-            spuren.append([e])
-            enden.append(e[1])
-    if len(spuren) < 2:
-        return eintraege
-
-    def dauer(spur) -> float:
-        gesamt = 0.0
-        for e in spur:
-            try:
-                gesamt += (datetime.strptime(e[1], "%Y%m%d%H%M%S")
-                           - datetime.strptime(e[0], "%Y%m%d%H%M%S")).total_seconds()
-            except ValueError:
-                continue
-        return gesamt
-
-    from bisect import bisect_left, insort
-    beste = max(spuren, key=dauer)
-    belegt = sorted((e[0], e[1]) for e in beste)
-    ergebnis = list(beste)
-    for spur in spuren:
-        if spur is beste:
-            continue
-        for e in spur:
-            i = bisect_left(belegt, (e[0], ""))
-            if ((i > 0 and belegt[i - 1][1] > e[0])
-                    or (i < len(belegt) and belegt[i][0] < e[1])):
-                continue
-            insort(belegt, (e[0], e[1]))
-            ergebnis.append(e)
-    return ergebnis
+            behalten.extend(tageseintraege)
+    return behalten, uebersprungen
 
 
 def _archive_epg_from_disk() -> dict:
@@ -3462,10 +3450,13 @@ def _archive_epg_from_disk() -> dict:
     puffer: list = []
     gespeichert = 0
     abgewiesen = 0
+    tage_uebersprungen = 0
 
     for cid, eintraege in gesammelt.items():
-        # Vermischte Listen schon hier auflösen — sonst wandert der Fehler ins Archiv.
-        eintraege = _dominant_slots(eintraege)
+        # Vermischte Sendertage gar nicht erst einlagern — raten wäre schlimmer
+        # als die Lücke, weil eine falsch eingelagerte Liste später als Wahrheit gilt.
+        eintraege, uebersprungen = _saubere_tage(eintraege)
+        tage_uebersprungen += uebersprungen
         belegt = sorted(bestand.get(cid, []))
         for key, stopkey, start_raw, stop_raw, titel, beschr in sorted(eintraege):
             if schutz and belegt:
@@ -3483,8 +3474,14 @@ def _archive_epg_from_disk() -> dict:
         gespeichert += db.archive_epg_programmes(puffer)
 
     entfernt = db.prune_epg_archive(_epg_archive_days())
-    logger.info(f"EPG archive: {gespeichert} stored, {abgewiesen} rejected, {entfernt} pruned")
-    return {"ok": True, "stored": gespeichert, "rejected": abgewiesen, "pruned": entfernt}
+    logger.info(f"EPG archive: {gespeichert} stored, {abgewiesen} rejected, "
+                f"{tage_uebersprungen} mixed days skipped, {entfernt} pruned")
+    if tage_uebersprungen:
+        diag_log("INFO", "epg",
+                 f"EPG-Archiv: {tage_uebersprungen} vermischte Sendertage übersprungen "
+                 f"(dort liefert der Anbieter zwei Programmlisten – es wird nichts geraten).")
+    return {"ok": True, "stored": gespeichert, "rejected": abgewiesen,
+            "skipped_days": tage_uebersprungen, "pruned": entfernt}
 
 
 def _dominant_track(programmes: list) -> list:
@@ -3556,6 +3553,111 @@ def _dominant_track(programmes: list) -> list:
     return [p for _s, _e, p in ergebnis]
 
 
+# Ab welchem Anteil der Anbieter-Sendezeit das Archiv einen Tag komplett übernimmt.
+ARCHIV_VORRANG_DECKUNG = 0.8
+
+
+def _spannen_dauer(spannen: list) -> float:
+    """Gesamte Sendezeit einer Liste von (start, stop) in Sekunden."""
+    gesamt = 0.0
+    for s, e in spannen:
+        try:
+            gesamt += (datetime.strptime(e, "%Y%m%d%H%M%S")
+                       - datetime.strptime(s, "%Y%m%d%H%M%S")).total_seconds()
+        except ValueError:
+            continue
+    return gesamt
+
+
+def _tag_bereinigen(tagesprogramm: list, spannen: list, jetzt: str,
+                    ganzer_tag: bool) -> tuple:
+    """Anbieter-Sendungen eines Tages aussortieren, die das Archiv ersetzt.
+
+    ganzer_tag=True: alles Gelaufene weicht. Sonst nur, was einem Archiveintrag
+    zeitlich in die Quere kommt.
+
+    Rückgabe: (behaltene Sendungen, Zahl der verworfenen)
+    """
+    from bisect import bisect_right
+
+    spannen = sorted(spannen)
+    starts = [s for s, _e in spannen]
+    behalten: list = []
+    verworfen = 0
+    for p in tagesprogramm:
+        s = (p.get("start") or "")[:14]
+        if s >= jetzt:                   # läuft noch nicht — bleibt beim Anbieter
+            behalten.append(p)
+            continue
+        if ganzer_tag:
+            verworfen += 1
+            continue
+        e = (p.get("stop") or "")[:14]
+        i = bisect_right(starts, s)
+        kollidiert = ((i > 0 and spannen[i - 1][1] > s)
+                      or (i < len(spannen) and spannen[i][0] < e))
+        if kollidiert:
+            verworfen += 1
+        else:
+            behalten.append(p)
+    return behalten, verworfen
+
+
+def _archiv_vorrang(progs_by_ch: dict, archiv_rows: list, now) -> int:
+    """Für bereits gelaufene Sendungen gewinnt das eigene Archiv gegen den Anbieter.
+
+    Hintergrund: Der Anbieter verschmutzt vergangene Tage nachträglich mit einer
+    zweiten Programmliste. Das Archiv hält den Stand fest, der galt, als die
+    Sendung lief — und der ist belegbar der richtige. Ohne diesen Vorrang bliebe
+    die falsche Anbieter-Sendung stehen, weil das Auffüllen nur Lücken schließt.
+
+    Angefasst wird NUR die Vergangenheit: Was noch kommt, darf der Anbieter
+    weiter ändern (Programmänderungen, Sport, Sondersendungen). Die Grenze wird
+    grob gezogen — eine Unschärfe in Höhe des Quellen-Zeitzonenversatzes ist
+    unkritisch, weil laufende Sendungen ohnehin gleich archiviert werden.
+
+    Ersetzt wird tageweise und nur ganz: Deckt das Archiv einen Sendetag
+    weitgehend ab, tritt die komplette Anbieterliste dieses Tages ab — sonst
+    blieben deren falsche Sendungen in den Lücken dazwischen stehen. Deckt das
+    Archiv den Tag nur teilweise (etwa weil ältere Einträge weggeräumt wurden),
+    weichen nur die Sendungen, die einem Archiveintrag im Weg liegen.
+
+    Rückgabe: Zahl der verworfenen Anbieter-Sendungen.
+    """
+    jetzt = now.strftime("%Y%m%d%H%M%S")
+    archiv: dict = {}                    # (kanal, tag) -> [(start, stop)]
+    for row in archiv_rows:
+        schluessel = row["start_key"]
+        if schluessel < jetzt:           # die Zukunft gehört weiter dem Anbieter
+            archiv.setdefault((row["channel"], schluessel[:8]), []).append(
+                (schluessel, (row["stop_raw"] or "")[:14]))
+
+    verworfen = 0
+    for cid, plist in progs_by_ch.items():
+        nach_tag: dict = {}
+        for p in plist:
+            nach_tag.setdefault((p.get("start") or "")[:8], []).append(p)
+
+        behalten: list = []
+        for tag, tagesprogramm in nach_tag.items():
+            spannen = archiv.get((cid, tag))
+            if not spannen:
+                behalten.extend(tagesprogramm)
+                continue
+            anbieter = [((p.get("start") or "")[:14], (p.get("stop") or "")[:14])
+                        for p in tagesprogramm]
+            ganzer_tag = (_spannen_dauer(spannen)
+                          >= _spannen_dauer(anbieter) * ARCHIV_VORRANG_DECKUNG)
+            uebrig, weg = _tag_bereinigen(tagesprogramm, spannen, jetzt, ganzer_tag)
+            behalten.extend(uebrig)
+            verworfen += weg
+        progs_by_ch[cid] = behalten
+
+    if verworfen:
+        logger.info(f"EPG: {verworfen} Anbieter-Sendungen durch eigenes Archiv ersetzt")
+    return verworfen
+
+
 def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7) -> str:
     """Filter EPG XML – channel whitelist + time window [now−days_back, now+days_forward] + channel order."""
     try:
@@ -3601,15 +3703,20 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
         # Aus dem eigenen Archiv ergänzen, was der Anbieter nicht mehr liefert.
         # Sein Fenster wandert mit; alte Sendungen fallen heraus und fehlen dann
         # beim Catchup. Ergänzt wird nur, was noch keine Sendung überdeckt.
-        if db.get_setting("epg_archive_fill", "1") == "1":
+        vorrang = db.get_setting("epg_archive_override", "0") == "1"
+        # Vorrang ohne Auffüllen ergäbe Löcher: das Entfernen setzt das Ergänzen voraus.
+        if vorrang or db.get_setting("epg_archive_fill", "1") == "1":
             try:
+                archiv_rows = db.get_archived_programmes(
+                    t_from.strftime("%Y%m%d%H%M%S"),
+                    t_to.strftime("%Y%m%d%H%M%S"),
+                    known_ids or None)
+                if vorrang:
+                    _archiv_vorrang(progs_by_ch, archiv_rows, now)
                 belegt = {(cid, (p.get("start") or "")[:14], (p.get("stop") or ""))
                           for cid, plist in progs_by_ch.items() for p in plist}
                 nachgetragen = 0
-                for row in db.get_archived_programmes(
-                        t_from.strftime("%Y%m%d%H%M%S"),
-                        t_to.strftime("%Y%m%d%H%M%S"),
-                        known_ids or None):
+                for row in archiv_rows:
                     schluessel = (row["channel"], row["start_key"], row["stop_raw"])
                     if schluessel in belegt:
                         continue
@@ -4408,6 +4515,14 @@ async def build_epg_archive(_=Depends(check_admin)):
     return ergebnis
 
 
+@admin_app.delete("/api/epg/archive")
+async def clear_epg_archive(_=Depends(check_admin)):
+    """Eigenes EPG-Archiv leeren — für den Neuaufbau aus sauberen Anbieterdaten."""
+    entfernt = await asyncio.to_thread(db.clear_epg_archive)
+    diag_log("INFO", "epg", f"EPG-Archiv geleert: {entfernt} Sendungen entfernt.")
+    return {"ok": True, "removed": entfernt, "stats": db.epg_archive_stats()}
+
+
 @admin_app.get("/api/epg/archive/browse")
 def browse_epg_archive(channel: str = "", day: str = "", tz: int = 2,
                        _=Depends(check_admin)):
@@ -4817,6 +4932,7 @@ def get_settings(_=Depends(check_admin)):
         "epg_archive_days":     s.get("epg_archive_days", EPG_ARCHIVE_DAYS_DEFAULT),
         "epg_archive_fill":     s.get("epg_archive_fill", "1"),
         "epg_archive_freeze":   s.get("epg_archive_freeze", "1"),
+        "epg_archive_override": s.get("epg_archive_override", "0"),
         "playlist_epg_own":     s.get("playlist_epg_own", "1"),
         "epg_max_mb":           s.get("epg_max_mb", EPG_MAX_MB_DEFAULT),
         "log_retention_days":   s.get("log_retention_days", "-1"),
@@ -4846,6 +4962,7 @@ def update_settings(body: dict, _=Depends(check_admin)):
                "hls_user_agent", "hls_referer", "hls_follow_redirects",
                "epg_refresh_hours", "epg_filter_channels", "epg_dedupe_overlaps",
                "epg_max_mb", "epg_archive_days", "epg_archive_fill", "epg_archive_freeze",
+               "epg_archive_override",
                "playlist_epg_own", "log_retention_days",
                "short_domain", "m3u_refresh_hours", "group_sort_prefix", "prefetch_segments", "segment_debug", "diagnostics_enabled", "player_request_debug",
                "catchup_ttl", "catchup_ttl_after_endlist", "catchup_guard_master", "catchup_strict_mode", "catchup_sticky_recover",
