@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.75 — Security-Härtung (Paket 1)
+
+Ergebnis eines kompletten Security-Checks (kein CRITICAL). Härtungen – Streaming-Performance
+bleibt unangetastet. (Auf v1.74 aufgesetzt; einige EPG-Fehlermeldungen waren dort schon generisch.)
+
+- **OpenVPN-Config gehärtet:** gefährliche Script-Direktiven (`up`/`down`/`plugin`/`script-security`
+  u.a.) werden aus jeder .ovpn entfernt + `--script-security 0` erzwungen (auch im Dual-Vergleich).
+  Schließt einen möglichen RCE-Weg über bösartige Legacy-.ovpn (läuft als root).
+- **Image entschlackt:** `microsocks` (ungenutzt, ungepinnter git-Build) + `iptables` (ungenutzt) +
+  Build-Tools raus. Kleinere Angriffsfläche, sichererer Build. `.dockerignore` ergänzt.
+- **Echte Client-IP hinter dem Proxy:** öffentliche Routen nehmen jetzt `X-Real-IP` bzw. das rechte
+  `X-Forwarded-For`-Element (statt des fälschbaren linken) → Umgehung des Stream-Limits (`max_streams`)
+  unterbunden.
+- **Segment-Größenlimit** (200 MB) gegen Speicher-Überlastung – normale Segmente (1–5 MB) unberührt.
+- **EPG `?force=1`** nur noch max. 1×/60 s (DoS-Schutz auf den token-losen EPG-Endpunkten).
+- **Sicherheits-Header:** HSTS + `Permissions-Policy` ergänzt.
+- **Brute-Force-Zähler** räumt gesperrte IPs nach Ablauf auf (kein Speicher-Leck).
+- **PBKDF2 200k → 600k** (OWASP), rückwärtskompatibel; **Viewer-Token über `secrets`**;
+  **Config-Upload** auf 256 KB begrenzt; **Mullvad-Servername/IP/Key** + WireGuard-`Endpoint`/`Address`
+  streng validiert, bevor sie in Dateinamen/Routing-Befehle gehen; **restliche rohe Fehlertexte** auf
+  öffentlichen Routen generisch; **`setup.sh`** liest das Passwort verdeckt + `.env` mit Rechten 600.
+
+
 ## v1.74 — Eigenes EPG statt Raten bei vermischten Programmlisten
 
 ### ① Die Auswahlregel war nachweislich falsch

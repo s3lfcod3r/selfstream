@@ -50,7 +50,8 @@ def assert_safe_upstream_url(url: str) -> None:
 # ── Admin-Token-Hashing ─────────────────────────────────────────────────────────
 # Token werden gehasht (PBKDF2-HMAC-SHA256) statt im Klartext in der DB gespeichert.
 # Alt-Bestände im Klartext werden beim ersten erfolgreichen Login automatisch migriert.
-_PBKDF2_ITERATIONS = 200_000
+_PBKDF2_ITERATIONS = 600_000   # OWASP-Empfehlung (2023) für PBKDF2-HMAC-SHA256; alte Hashes
+                               # verifizieren weiter mit ihrer gespeicherten Rundenzahl (siehe _verify)
 
 
 def _hash_admin_token(token: str) -> str:

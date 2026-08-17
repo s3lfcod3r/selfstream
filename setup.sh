@@ -20,14 +20,17 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
   echo ""
   echo "⚙️  .env Datei wird angelegt..."
 
-  read -p "   Admin Token (Passwort für Admin Panel): " ADMIN_TOKEN
+  # -s: Passwort verdeckt einlesen (nicht im Terminal/Scrollback/Session-Recording sichtbar)
+  read -s -p "   Admin Token (Passwort für Admin Panel): " ADMIN_TOKEN
+  echo ""
   read -p "   Deine Unraid IP (z.B. 192.168.1.100):  " UNRAID_IP
 
   cat > "$INSTALL_DIR/.env" << EOF
 ADMIN_TOKEN=$ADMIN_TOKEN
 BASE_URL=http://$UNRAID_IP:8000
 EOF
-  echo "   ✅ .env gespeichert"
+  chmod 600 "$INSTALL_DIR/.env"   # enthält das Admin-Token → nur für den Besitzer lesbar
+  echo "   ✅ .env gespeichert (Rechte 600)"
 else
   echo "   ℹ️  .env existiert bereits – wird nicht überschrieben"
 fi

@@ -27,9 +27,6 @@ custom_*.jpg
 .env.*
 !.env.example
 
-# Docker
-.dockerignore
-
 # OS
 .DS_Store
 Thumbs.db
