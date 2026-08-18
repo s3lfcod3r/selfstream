@@ -3769,15 +3769,28 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
                     known_ids or None)
                 if vorrang:
                     _archiv_vorrang(progs_by_ch, archiv_rows, now)
-                belegt = {(cid, (p.get("start") or "")[:14], (p.get("stop") or ""))
-                          for cid, plist in progs_by_ch.items() for p in plist}
+                from bisect import bisect_left, insort
+
+                # Belegte Sendeplaetze je Sender, nicht nur exakte Zeitstempel: Der
+                # Anbieter verschiebt Sendungen um ein paar Minuten, das Archiv haelt den
+                # alten Stand. Ein Vergleich auf Gleichheit liesse dann BEIDE Fassungen
+                # durch - und erzeugte genau die vermischten Listen, die wir bekaempfen.
+                belegt: dict = {}
+                for cid, plist in progs_by_ch.items():
+                    belegt[cid] = sorted(((p.get("start") or "")[:14],
+                                          (p.get("stop") or "")[:14]) for p in plist)
                 nachgetragen = 0
                 for row in archiv_rows:
-                    schluessel = (row["channel"], row["start_key"], row["stop_raw"])
-                    if schluessel in belegt:
-                        continue
+                    cid = row["channel"]
+                    start = row["start_key"]
+                    stop = (row["stop_raw"] or "")[:14]
+                    spannen = belegt.setdefault(cid, [])
+                    i = bisect_left(spannen, (start, ""))
+                    if ((i > 0 and spannen[i - 1][1] > start)
+                            or (i < len(spannen) and spannen[i][0] < stop)):
+                        continue                      # Sendeplatz ist schon besetzt
                     el = ET.Element("programme", {
-                        "channel": row["channel"],
+                        "channel": cid,
                         "start": row["start_raw"],
                         "stop": row["stop_raw"],
                     })
@@ -3785,8 +3798,8 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
                         ET.SubElement(el, "title").text = row["title"]
                     if row["descr"]:
                         ET.SubElement(el, "desc").text = row["descr"]
-                    progs_by_ch.setdefault(row["channel"], []).append(el)
-                    belegt.add(schluessel)
+                    progs_by_ch.setdefault(cid, []).append(el)
+                    insort(spannen, (start, stop))
                     nachgetragen += 1
                 if nachgetragen:
                     logger.info(f"EPG: {nachgetragen} Sendungen aus dem Archiv ergänzt")

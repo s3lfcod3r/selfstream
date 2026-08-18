@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.76 — Auffüllen erzeugte selbst vermischte Listen
+
+Gemessen am 18.08.2026: Die **ausgelieferte** EPG-Datei hatte für kommende Tage *mehr* Sender mit
+Doppellisten als die Anbieterdatei (19.08.: Anbieter 1 Sender, Auslieferung 22). Ursache war das
+Auffüllen aus dem eigenen Archiv: Es übersprang nur Einträge mit **exakt gleichem** Zeitstempel.
+Verschiebt der Anbieter eine Sendung um ein paar Minuten, hält das Archiv den alten Stand — und
+beide Fassungen landeten nebeneinander in der Datei (Beispiel Sky Nature: „Wale" 00:30–01:20 aus
+dem Archiv neben 00:30–01:25 aus der Quelle). Das Auffüllen erzeugte damit genau den Fehler, den
+v1.74 bekämpft, und der Kommentar im Code („ergänzt wird nur, was noch keine Sendung überdeckt")
+beschrieb etwas, das so nie umgesetzt war.
+
+Jetzt wird je Sender geprüft, ob der **Sendeplatz** schon belegt ist (Intervallvergleich statt
+Zeitstempel-Gleichheit). Ergänzt wird nur noch in echte Lücken.
+
 ## v1.75 — Security-Härtung (Paket 1)
 
 Ergebnis eines kompletten Security-Checks (kein CRITICAL). Härtungen – Streaming-Performance
