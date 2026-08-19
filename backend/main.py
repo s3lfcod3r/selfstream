@@ -4832,6 +4832,103 @@ def _stats_title_at_catchup_time(channel: str, catchup_time_str: str, epg_root) 
         return ""
 
 
+@admin_app.get("/api/memstats")
+def get_memstats(deep: int = 0, _=Depends(check_admin)):
+    """Live-Speicherdiagnose: Prozess-RSS + Größen der In-Memory-Strukturen.
+
+    Frühwarnung gegen Speicherlecks (vgl. RAM-Wächter / OOM-Historie). Muss völlig
+    gefahrlos sein: jede einzelne Messung ist gekapselt, ein Fehler liefert nur null
+    statt den Endpunkt (oder gar einen Stream) zu stören. Reines Auslesen, ändert nichts.
+
+    deep=1: zusätzlich die (teurere) Gesamt-Objektzahl (gc.get_objects) — nur auf
+    Anforderung, damit der 10-Sekunden-Auto-Refresh im Panel billig bleibt."""
+    import gc as _gc
+    g = globals()
+
+    def _rss_mb():
+        # Linux-Container: VmRSS aus /proc/self/status (keine Zusatz-Abhängigkeit).
+        try:
+            with open("/proc/self/status", "r") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        return round(int(line.split()[1]) / 1024, 1)
+        except Exception:
+            pass
+        return None
+
+    def _count(name):
+        try:
+            return len(g.get(name) or {})
+        except Exception:
+            return None
+
+    def _segment_cache_mb():
+        try:
+            total = 0
+            for v in list(g.get("_segment_cache", {}).values()):
+                try:
+                    total += len(v)
+                except Exception:
+                    pass
+            return round(total / (1024 * 1024), 1)
+        except Exception:
+            return None
+
+    def _segment_cache_cap():
+        try:
+            return _get_segment_cache_max()
+        except Exception:
+            return None
+
+    def _epg_kb():
+        try:
+            content = (g.get("_epg_cache") or {}).get("content")
+            return round(len(content) / 1024, 1) if content else 0
+        except Exception:
+            return None
+
+    try:
+        gc_count = list(_gc.get_count())   # billig: (gen0, gen1, gen2)
+    except Exception:
+        gc_count = None
+    gc_objects = None
+    if deep:
+        try:
+            gc_objects = len(_gc.get_objects())
+        except Exception:
+            gc_objects = None
+
+    rss = _rss_mb()
+    # Grobe Ampel für die Panel-Anzeige (Container-Limit liegt bei 4 GB).
+    if rss is None:
+        health = "unknown"
+    elif rss < 1000:
+        health = "ok"
+    elif rss < 2500:
+        health = "elevated"
+    else:
+        health = "high"
+
+    return {
+        "rss_mb": rss,
+        "health": health,
+        "gc_count": gc_count,
+        "gc_objects": gc_objects,
+        "structures": {
+            "segment_cache_entries": _count("_segment_cache"),
+            "segment_cache_mb": _segment_cache_mb(),
+            "segment_cache_max": _segment_cache_cap(),
+            "live_sessions": _count("_sessions"),
+            "catchup_sessions": _count("_catchup_sessions"),
+            "segment_in_progress": _count("_segment_in_progress"),
+            "background_tasks": _count("_background_tasks"),
+            "segment_events": _count("_segment_events"),
+            "vpn_log_lines": _count("_vpn_log"),
+            "epg_cache_kb": _epg_kb(),
+        },
+    }
+
+
 @admin_app.get("/api/stats")
 def get_stats(_=Depends(check_admin)):
     users = db.get_all_users()

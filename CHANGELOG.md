@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.77 — Speicher-Melder im Panel (Frühwarnung Leck/OOM)
+
+Nach den RAM-Wächter-Vorfällen (11.08. selfstream ~10 GB, 17.08. OOM-Kill) neue **Live-Speicher­diagnose**:
+Endpunkt `GET /api/memstats` (nur Admin) liefert Prozess-RSS plus die Größen aller In-Memory-Strukturen
+(Segment-Cache in Einträgen **und** MB, Live-/Catchup-Sitzungen, Hintergrund-Tasks, Segment-Events,
+VPN-Log, EPG-Cache-KB) samt einer Ampel (gesund/erhöht/hoch). Im Dashboard erscheint dazu die Kachel
+**„Speicher"** (MB + farbige Ampel). Rein lesend, in `try/except` gekapselt — kann Streams nie stören.
+
+Hintergrund: Die eigentliche Leck-Ursache war der **EPG-Speicherfresser** (ganze EPG-Datei pro Anfrage
+im RAM) — bereits in **v1.64/v1.66** behoben; der Pro-Segment-Verbindungsaufbau wurde schon in **v1.59**
+durch einen geteilten Keep-Alive-Client ersetzt. Der Melder ist die dauerhafte Absicherung, damit ein
+etwaiges neues Leck sofort sichtbar wird statt erst im OOM-Kill.
+
 ## v1.76 — Auffüllen erzeugte selbst vermischte Listen
 
 Gemessen am 18.08.2026: Die **ausgelieferte** EPG-Datei hatte für kommende Tage *mehr* Sender mit

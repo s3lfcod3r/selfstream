@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.76</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.77</div>
       </div>
     </div>
 
@@ -391,6 +391,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="stat-card"><div class="stat-label">Aktive Streams</div><div class="stat-value" id="s-active">—</div></div>
           <div class="stat-card"><div class="stat-label">Heute</div><div class="stat-value" id="s-today">—</div></div>
           <div class="stat-card"><div class="stat-label">Kanäle aktiv</div><div class="stat-value" id="s-channels">—</div><div class="stat-sub" id="s-ch-sub"></div></div>
+          <div class="stat-card"><div class="stat-label">Speicher</div><div class="stat-value" id="s-mem">—</div><div class="stat-sub" id="s-mem-sub"></div></div>
         </div>
         <div class="section-hdr">
           <span class="section-title">Live Sessions</span>
@@ -1177,7 +1178,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.76</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.77</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1953,6 +1954,22 @@ async function loadStats() {
     document.getElementById('s-today').textContent=s.watch_logs_today;
     document.getElementById('s-channels').textContent=s.enabled_channels||'—';
     document.getElementById('s-ch-sub').textContent=`von ${s.total_channels||0} gesamt`;
+
+    // ── Speicher-Melder (Frühwarnung Leck/OOM) – darf die übrigen Stats nie stören ──
+    try {
+      const m = await api('GET','/api/memstats');
+      const memEl=document.getElementById('s-mem');
+      const subEl=document.getElementById('s-mem-sub');
+      if(m && m.rss_mb!=null){
+        memEl.textContent=`${m.rss_mb} MB`;
+        const col={ok:'var(--teal)',elevated:'#e0a53a',high:'#ff4444'}[m.health]||'var(--text)';
+        memEl.style.color=col;
+        const cap=m.structures&&m.structures.segment_cache_mb!=null?`, Cache ${m.structures.segment_cache_mb} MB`:'';
+        subEl.textContent=`${({ok:'gesund',elevated:'erhöht',high:'HOCH',unknown:'—'}[m.health]||'')}${cap}`;
+      } else {
+        memEl.textContent='—';
+      }
+    } catch(e){ /* Diagnose optional – Fehler ignorieren */ }
 
     const dot=document.getElementById('live-dot');
     const lbl=document.getElementById('live-label');
