@@ -3422,6 +3422,44 @@ def _epg_archive_days() -> int:
         return int(EPG_ARCHIVE_DAYS_DEFAULT)
 
 
+# Platzhalter-Titel des Anbieters, die kein Programm beschreiben. Sender wie DAZN
+# liefern ihr Programm erst kurzfristig und stellen bis dahin einen Blockeintrag
+# über die halbe Nacht ein. Der ist formal EINE Liste, gilt also als sauberer Tag
+# und landete bis v1.77 im Archiv — wo er später das echte Programm verdrängte
+# (belegt am 22.08.2026: „LALIGA Highlightshow" und „VfB in Team" auf drei
+# DAZN-Kanälen gelöscht). Solche Einträge sind kein Programmstand.
+PLATZHALTER_TITEL = (
+    "keine programminformation",
+    "keine programminformationen verfuegbar",
+    "keine informationen",
+    "no information",
+    "no programme information",
+    "no program information",
+    "n/a",
+)
+PLATZHALTER_MIN_DAUER = 6 * 3600     # ab dieser Länge zählt ein Eintrag ohne Text als Blocker
+
+
+def _ist_platzhalter(titel: str, beschr: str, key: str, stopkey: str) -> bool:
+    """Kein echtes Programm, sondern ein Füller des Anbieters?
+
+    Zwei Merkmale: ein bekannter Platzhaltertitel, oder ein sehr langer Block
+    ganz ohne Beschreibungstext. Beides sagt nichts über die Sendung aus und darf
+    deshalb nie als archivierte Wahrheit gegen den Anbieter gewinnen.
+    """
+    t = " ".join((titel or "").lower().split())
+    if any(m in t for m in PLATZHALTER_TITEL):
+        return True
+    if beschr:
+        return False
+    try:
+        dauer = (datetime.strptime(stopkey, "%Y%m%d%H%M%S")
+                 - datetime.strptime(key, "%Y%m%d%H%M%S")).total_seconds()
+    except ValueError:
+        return False
+    return dauer >= PLATZHALTER_MIN_DAUER
+
+
 def _saubere_tage(eintraege: list) -> tuple:
     """Nur Sendertage übernehmen, an denen genau EINE Programmliste vorliegt.
 
@@ -3481,6 +3519,7 @@ def _archive_epg_from_disk() -> dict:
     # Erst je Sender einsammeln, dann verarbeiten: nur so lassen sich vermischte
     # Programmlisten schon beim Einlagern auflösen.
     gesammelt: dict = {}
+    platzhalter = 0
     try:
         for _event, elem in ET.iterparse(pfad, events=("end",)):
             if elem.tag != "programme":
@@ -3490,11 +3529,14 @@ def _archive_epg_from_disk() -> dict:
             stop_raw = (elem.get("stop") or "").strip()
             key = start_raw[:14]
             if cid and len(key) == 14 and stop_raw and (erlaubt is None or cid in erlaubt):
-                gesammelt.setdefault(cid, []).append((
-                    key, stop_raw[:14], start_raw, stop_raw,
-                    (elem.findtext("title") or "").strip()[:300],
-                    (elem.findtext("desc") or "").strip()[:600],
-                ))
+                titel = (elem.findtext("title") or "").strip()[:300]
+                beschr = (elem.findtext("desc") or "").strip()[:600]
+                if _ist_platzhalter(titel, beschr, key, stop_raw[:14]):
+                    platzhalter += 1     # Füller nicht einlagern, siehe _ist_platzhalter
+                else:
+                    gesammelt.setdefault(cid, []).append((
+                        key, stop_raw[:14], start_raw, stop_raw, titel, beschr,
+                    ))
             elem.clear()
     except Exception as e:
         logger.warning(f"EPG archive read failed: {e}")
@@ -3531,7 +3573,8 @@ def _archive_epg_from_disk() -> dict:
 
     entfernt = db.prune_epg_archive(_epg_archive_days())
     logger.info(f"EPG archive: {gespeichert} stored, {abgewiesen} rejected, "
-                f"{tage_uebersprungen} mixed days skipped, {entfernt} pruned")
+                f"{tage_uebersprungen} mixed days skipped, "
+                f"{platzhalter} placeholders ignored, {entfernt} pruned")
     if tage_uebersprungen:
         diag_log("INFO", "epg",
                  f"EPG-Archiv: {tage_uebersprungen} vermischte Sendertage übersprungen "
@@ -3610,29 +3653,25 @@ def _dominant_track(programmes: list) -> list:
 
 
 # Ab welchem Anteil der Anbieter-Sendezeit das Archiv einen Tag komplett übernimmt.
-ARCHIV_VORRANG_DECKUNG = 0.8
-
-
-def _spannen_dauer(spannen: list) -> float:
-    """Gesamte Sendezeit einer Liste von (start, stop) in Sekunden."""
-    gesamt = 0.0
-    for s, e in spannen:
-        try:
-            gesamt += (datetime.strptime(e, "%Y%m%d%H%M%S")
-                       - datetime.strptime(s, "%Y%m%d%H%M%S")).total_seconds()
-        except ValueError:
-            continue
-    return gesamt
-
-
-def _tag_bereinigen(tagesprogramm: list, spannen: list, jetzt: str,
-                    ganzer_tag: bool) -> tuple:
+def _tag_bereinigen(tagesprogramm: list, spannen: list, jetzt: str) -> tuple:
     """Anbieter-Sendungen eines Tages aussortieren, die das Archiv ersetzt.
 
-    ganzer_tag=True: alles Gelaufene weicht. Sonst nur, was einem Archiveintrag
-    zeitlich in die Quere kommt.
+    Zwei Sicherungen, beide aus belegten Schadensfaellen entstanden:
 
-    Rückgabe: (behaltene Sendungen, Zahl der verworfenen)
+    1. Angefasst wird nur, was ZU ENDE ist. Eine laufende Sendung gehoert weiter
+       dem Anbieter - er verschiebt Anfangszeiten noch, waehrend sie laeuft
+       (21.08.2026: an sieben Sky-Sport-Kanaelen verdraengte der aeltere
+       Archivstand die aktuellere Fassung und riss eine Luecke in den Abend).
+    2. Verworfen wird nur, was ein Archiveintrag auch wirklich ueberdeckt. Sonst
+       verschwindet eine kurzfristig angesetzte Sendung ersatzlos, die das Archiv
+       nie gesehen hat (23.08.2026: "Live: Herren Hockey-WM 2026" war komplett
+       aus der Auslieferung verschwunden).
+
+    Damit gilt: Das Archiv darf eine Anbieter-Sendung ERSETZEN, aber nie einfach
+    loeschen. Eine Luecke ist schlimmer als eine vermischte Liste - die Liste
+    laesst sich noch lesen, die Luecke nicht.
+
+    Rueckgabe: (behaltene Sendungen, Zahl der verworfenen)
     """
     from bisect import bisect_right
 
@@ -3642,20 +3681,17 @@ def _tag_bereinigen(tagesprogramm: list, spannen: list, jetzt: str,
     verworfen = 0
     for p in tagesprogramm:
         s = (p.get("start") or "")[:14]
-        if s >= jetzt:                   # läuft noch nicht — bleibt beim Anbieter
+        e = (p.get("stop") or "")[:14]
+        if not e or e > jetzt:           # laeuft noch nicht oder noch nicht zu Ende
             behalten.append(p)
             continue
-        if ganzer_tag:
-            verworfen += 1
-            continue
-        e = (p.get("stop") or "")[:14]
         i = bisect_right(starts, s)
-        kollidiert = ((i > 0 and spannen[i - 1][1] > s)
-                      or (i < len(spannen) and spannen[i][0] < e))
-        if kollidiert:
+        gedeckt = ((i > 0 and spannen[i - 1][1] > s)
+                   or (i < len(spannen) and spannen[i][0] < e))
+        if gedeckt:
             verworfen += 1
         else:
-            behalten.append(p)
+            behalten.append(p)           # nichts ersatzlos loeschen
     return behalten, verworfen
 
 
@@ -3667,16 +3703,15 @@ def _archiv_vorrang(progs_by_ch: dict, archiv_rows: list, now) -> int:
     Sendung lief — und der ist belegbar der richtige. Ohne diesen Vorrang bliebe
     die falsche Anbieter-Sendung stehen, weil das Auffüllen nur Lücken schließt.
 
-    Angefasst wird NUR die Vergangenheit: Was noch kommt, darf der Anbieter
-    weiter ändern (Programmänderungen, Sport, Sondersendungen). Die Grenze wird
-    grob gezogen — eine Unschärfe in Höhe des Quellen-Zeitzonenversatzes ist
-    unkritisch, weil laufende Sendungen ohnehin gleich archiviert werden.
+    Angefasst wird NUR abgeschlossene Vergangenheit: Was noch läuft oder erst
+    kommt, darf der Anbieter weiter ändern (Programmänderungen, Sport,
+    Sondersendungen). Maßgeblich ist das ENDE der Sendung, nicht ihr Beginn —
+    an einer laufenden Sendung verschiebt der Anbieter noch die Anfangszeit.
 
-    Ersetzt wird tageweise und nur ganz: Deckt das Archiv einen Sendetag
-    weitgehend ab, tritt die komplette Anbieterliste dieses Tages ab — sonst
-    blieben deren falsche Sendungen in den Lücken dazwischen stehen. Deckt das
-    Archiv den Tag nur teilweise (etwa weil ältere Einträge weggeräumt wurden),
-    weichen nur die Sendungen, die einem Archiveintrag im Weg liegen.
+    Ersetzt wird nur, was ein Archiveintrag auch überdeckt. Eine Anbieter-Sendung
+    ohne Entsprechung im Archiv bleibt stehen, selbst wenn sie zu einer vermischten
+    Liste gehört: Eine Lücke wäre schlimmer als die vermischte Liste — kurzfristig
+    angesetzte Übertragungen kennt das Archiv naturgemäß nicht.
 
     Rückgabe: Zahl der verworfenen Anbieter-Sendungen.
     """
@@ -3684,7 +3719,8 @@ def _archiv_vorrang(progs_by_ch: dict, archiv_rows: list, now) -> int:
     archiv: dict = {}                    # (kanal, tag) -> [(start, stop)]
     for row in archiv_rows:
         schluessel = row["start_key"]
-        if schluessel < jetzt:           # die Zukunft gehört weiter dem Anbieter
+        ende = (row["stop_raw"] or "")[:14]
+        if ende and ende < jetzt:        # nur abgeschlossene Sendungen sind belegbar
             archiv.setdefault((row["channel"], schluessel[:8]), []).append(
                 (schluessel, (row["stop_raw"] or "")[:14]))
 
@@ -3700,11 +3736,7 @@ def _archiv_vorrang(progs_by_ch: dict, archiv_rows: list, now) -> int:
             if not spannen:
                 behalten.extend(tagesprogramm)
                 continue
-            anbieter = [((p.get("start") or "")[:14], (p.get("stop") or "")[:14])
-                        for p in tagesprogramm]
-            ganzer_tag = (_spannen_dauer(spannen)
-                          >= _spannen_dauer(anbieter) * ARCHIV_VORRANG_DECKUNG)
-            uebrig, weg = _tag_bereinigen(tagesprogramm, spannen, jetzt, ganzer_tag)
+            uebrig, weg = _tag_bereinigen(tagesprogramm, spannen, jetzt)
             behalten.extend(uebrig)
             verworfen += weg
         progs_by_ch[cid] = behalten
@@ -3767,6 +3799,13 @@ def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7)
                     t_from.strftime("%Y%m%d%H%M%S"),
                     t_to.strftime("%Y%m%d%H%M%S"),
                     known_ids or None)
+                # Auch beim Lesen filtern, nicht nur beim Einlagern: In bereits
+                # bestehenden Archiven stecken Platzhalter aus der Zeit vor v1.78,
+                # und die würden das echte Programm weiter verdrängen.
+                archiv_rows = [r for r in archiv_rows
+                               if not _ist_platzhalter(r["title"], r["descr"],
+                                                       r["start_key"],
+                                                       (r["stop_raw"] or "")[:14])]
                 if vorrang:
                     _archiv_vorrang(progs_by_ch, archiv_rows, now)
                 from bisect import bisect_left, insort

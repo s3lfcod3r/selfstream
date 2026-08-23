@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.78 — Archiv darf ersetzen, aber nie löschen
+
+Der Archiv-Vorrang aus v1.74 hat in der Praxis **echte Sendungen vernichtet**. Drei belegte Schäden,
+alle drei behoben:
+
+**1. Platzhalter galten als Programmstand.** Sender wie DAZN liefern ihr Programm erst kurzfristig und
+stellen bis dahin einen Blockeintrag „Keine Programminformationen verfügbar" ein. Der ist formal EINE
+Liste, zählte also als sauberer Tag und wanderte ins Archiv — wo er später das echte Programm verdrängte.
+Am 22.08.2026 verschwanden so „LALIGA Highlightshow 26/27" und „VfB in Team" auf drei DAZN-Kanälen.
+Solche Einträge werden jetzt weder eingelagert noch beim Lesen berücksichtigt (auch nicht aus
+Altbeständen, die vor v1.78 entstanden sind).
+
+**2. Der Vorrang griff ab Sendungsbeginn statt ab Sendungsende.** An einer laufenden Sendung verschiebt
+der Anbieter noch die Anfangszeit; der ältere Archivstand gewann und riss eine Lücke. Belegt am
+21.08.2026 an sieben Sky-Sport-Kanälen. Maßgeblich ist jetzt das Ende der Sendung.
+
+**3. „Ganzen Tag ersetzen" löschte kurzfristig angesetzte Sendungen.** Deckte das Archiv einen Tag zu
+über 80 %, trat die komplette Anbieterliste ab — auch Sendungen, die das Archiv nie gesehen hatte.
+Am 23.08.2026 fehlte dadurch „Live: Herren Hockey-WM 2026" (MS Sport HD) vollständig. Verworfen wird
+jetzt nur noch, was ein Archiveintrag auch wirklich überdeckt.
+
+**Leitsatz:** Eine Lücke ist schlimmer als eine vermischte Liste — die Liste lässt sich noch lesen, die
+Lücke nicht. Folge: Bleibt ein Tag beim Anbieter vermischt, ohne dass das Archiv ihn deckt, bleibt er
+vermischt, statt dass Sendungen verschwinden.
+
 ## v1.77 — Speicher-Melder im Panel (Frühwarnung Leck/OOM)
 
 Nach den RAM-Wächter-Vorfällen (11.08. selfstream ~10 GB, 17.08. OOM-Kill) neue **Live-Speicher­diagnose**:
