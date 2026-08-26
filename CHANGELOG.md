@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.79 — Vorrang nur dort, wo der Anbieter wirklich zwei Listen liefert
+
+v1.78 hat das Löschen gestoppt, aber der Vorrang griff weiterhin an Tagen, an denen die Anbieterliste
+völlig in Ordnung war. Dort gibt es nichts zu reparieren — und der Archivstand ist dann nicht der
+bessere, sondern der ältere: Das Archiv hält den **Vorab**-Stand fest, der Anbieter arbeitet
+Programmänderungen ein.
+
+Belegt am 26.08.2026 auf Eurosport 1 (an dem Tag null vermischte Sender in der Quelle):
+
+```
+Quelle:        14:45-18:00  Radsport: Vuelta a España
+               18:00-19:00  Mountainbike: Weltcup Haute-Savoie
+Ausgeliefert:  14:45-19:00  Radsport: Vuelta a España      <- Übertragung verschwunden
+```
+
+Neue Bedingung: `_archiv_vorrang` fasst einen Sendertag nur an, wenn die Anbieterliste dort
+**mehrspurig** ist. Einspurig heißt sauber, und dann gewinnt der Anbieter, weil er aktueller ist.
+Die Spurzählung steckt jetzt in `_spurzahl()` und wird von Einlagern und Vorrang gemeinsam genutzt.
+
+Damit ist die Zuständigkeit sauber getrennt: Das Archiv repariert **vermischte Listen** — es mischt
+sich nicht mehr in **Programmänderungen** ein.
+
 ## v1.78 — Archiv darf ersetzen, aber nie löschen
 
 Der Archiv-Vorrang aus v1.74 hat in der Praxis **echte Sendungen vernichtet**. Drei belegte Schäden,
