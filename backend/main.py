@@ -3460,6 +3460,25 @@ def _ist_platzhalter(titel: str, beschr: str, key: str, stopkey: str) -> bool:
     return dauer >= PLATZHALTER_MIN_DAUER
 
 
+def _spurzahl(spannen) -> int:
+    """Wie viele parallele Programmlisten stecken in diesen (start, stop)-Paaren?
+
+    1 = eine durchgehende Liste (normal). Mehr als 1 heisst: Der Anbieter liefert
+    fuer denselben Sendeplatz zwei Fassungen — das ist der Schaden, um den es hier
+    ueberhaupt geht. Gezaehlt wird wie beim Belegen von Spuren: Jede Sendung kommt
+    auf die erste Spur, die zu ihrer Startzeit frei ist.
+    """
+    enden: list = []
+    for s_, e_ in sorted(spannen):
+        for i, ende in enumerate(enden):
+            if s_ >= ende:                    # Spur ist zu dieser Zeit frei
+                enden[i] = e_
+                break
+        else:
+            enden.append(e_)
+    return len(enden)
+
+
 def _saubere_tage(eintraege: list) -> tuple:
     """Nur Sendertage übernehmen, an denen genau EINE Programmliste vorliegt.
 
@@ -3483,15 +3502,7 @@ def _saubere_tage(eintraege: list) -> tuple:
     behalten: list = []
     uebersprungen = 0
     for tageseintraege in nach_tag.values():
-        enden: list = []                      # je Spur das Ende der letzten Sendung
-        for e in sorted(tageseintraege):
-            for i, ende in enumerate(enden):
-                if e[0] >= ende:              # Spur ist zu dieser Zeit frei
-                    enden[i] = e[1]
-                    break
-            else:
-                enden.append(e[1])
-        if len(enden) > 1:
+        if _spurzahl((e[0], e[1]) for e in tageseintraege) > 1:
             uebersprungen += 1                # vermischt — nicht einlagern
         else:
             behalten.extend(tageseintraege)
@@ -3713,6 +3724,11 @@ def _archiv_vorrang(progs_by_ch: dict, archiv_rows: list, now) -> int:
     Liste gehört: Eine Lücke wäre schlimmer als die vermischte Liste — kurzfristig
     angesetzte Übertragungen kennt das Archiv naturgemäß nicht.
 
+    Und angefasst werden ausschließlich Sendertage, an denen der Anbieter zwei
+    Listen liefert. Ist seine Liste einspurig, liegt kein Schaden vor, den das
+    Archiv beheben könnte — dort ist er der Aktuellere, weil er Programmänderungen
+    einarbeitet, während das Archiv den Vorab-Stand festhält.
+
     Rückgabe: Zahl der verworfenen Anbieter-Sendungen.
     """
     jetzt = now.strftime("%Y%m%d%H%M%S")
@@ -3734,6 +3750,17 @@ def _archiv_vorrang(progs_by_ch: dict, archiv_rows: list, now) -> int:
         for tag, tagesprogramm in nach_tag.items():
             spannen = archiv.get((cid, tag))
             if not spannen:
+                behalten.extend(tagesprogramm)
+                continue
+            # Nur eingreifen, wo der Anbieter an diesem Tag WIRKLICH zwei Listen
+            # liefert. Ist seine Liste einspurig, gibt es nichts zu reparieren —
+            # dann ist er schlicht aktueller als das Archiv, das den Vorab-Stand
+            # haelt. Ohne diese Bedingung verdraengte die alte Planung die
+            # Programmaenderung: Am 26.08.2026 verschwand so auf Eurosport 1 die
+            # Uebertragung "Mountainbike: Weltcup Haute-Savoie", weil das Archiv
+            # die Vuelta noch bis 19:00 angesetzt hatte statt bis 18:00.
+            if _spurzahl(((p.get("start") or "")[:14], (p.get("stop") or "")[:14])
+                         for p in tagesprogramm) < 2:
                 behalten.extend(tagesprogramm)
                 continue
             uebrig, weg = _tag_bereinigen(tagesprogramm, spannen, jetzt)
