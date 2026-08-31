@@ -1552,6 +1552,34 @@ class Database:
             cur = con.execute("DELETE FROM epg_archive")
             return cur.rowcount
 
+    def purge_archive_placeholders(self, ist_platzhalter) -> int:
+        """Füller-Einträge aus dem Archiv entfernen.
+
+        Bis v1.77 landeten Platzhalter wie „Keine Programminformationen
+        verfügbar" im Archiv. Seit v1.78 werden sie beim Lesen ignoriert — als
+        belegter Sendeplatz blockierten sie aber weiter: Mit „Erststand
+        schützen" wies das Einlagern die später gelieferten echten Sendungen ab,
+        weil der Platz besetzt war. Für Sender, die ihr Programm erst kurzfristig
+        liefern (DAZN), kam so nie ein brauchbarer Stand zustande. Deshalb werden
+        sie gelöscht statt nur übersprungen.
+
+        `ist_platzhalter(titel, beschr, start_key, stop_key)` entscheidet — die
+        Regel bleibt damit an einer einzigen Stelle im Code.
+        """
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT channel, start_key, stop_raw, title, descr <> '' AS hat_text "
+                "FROM epg_archive"
+            ).fetchall()
+            weg = [(r["channel"], r["start_key"], r["stop_raw"]) for r in rows
+                   if ist_platzhalter(r["title"] or "",
+                                      "x" if r["hat_text"] else "",
+                                      r["start_key"], (r["stop_raw"] or "")[:14])]
+            if weg:
+                con.executemany("DELETE FROM epg_archive "
+                                "WHERE channel = ? AND start_key = ? AND stop_raw = ?", weg)
+        return len(weg)
+
     def epg_archive_stats(self) -> dict:
         """Umfang des Archivs — für die Anzeige im Panel."""
         with self.conn() as con:

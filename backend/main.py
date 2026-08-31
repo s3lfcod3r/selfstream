@@ -3555,6 +3555,12 @@ def _archive_epg_from_disk() -> dict:
         return {"ok": False, "stored": 0}
 
     from bisect import bisect_left, insort
+    # Erst die Füller aus dem Altbestand werfen: Ein bis v1.77 archivierter
+    # Platzhalter gilt sonst weiter als belegter Sendeplatz und weist die später
+    # gelieferten echten Sendungen ab ("Erststand schützen"). Für Sender wie DAZN
+    # kam dadurch nie ein brauchbarer Stand zustande — belegt am 22.08. und
+    # 28.08.2026, wo der Vorrang deshalb nicht greifen konnte.
+    platzhalter_geloescht = db.purge_archive_placeholders(_ist_platzhalter)
     bestand = db.get_archive_slots() if schutz else {}
     puffer: list = []
     gespeichert = 0
@@ -3585,7 +3591,8 @@ def _archive_epg_from_disk() -> dict:
     entfernt = db.prune_epg_archive(_epg_archive_days())
     logger.info(f"EPG archive: {gespeichert} stored, {abgewiesen} rejected, "
                 f"{tage_uebersprungen} mixed days skipped, "
-                f"{platzhalter} placeholders ignored, {entfernt} pruned")
+                f"{platzhalter} placeholders ignored, "
+                f"{platzhalter_geloescht} stale placeholders purged, {entfernt} pruned")
     if tage_uebersprungen:
         diag_log("INFO", "epg",
                  f"EPG-Archiv: {tage_uebersprungen} vermischte Sendertage übersprungen "

@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.80 — Alte Platzhalter blockieren keine Sendeplätze mehr
+
+v1.78 hat Platzhalter wie „Keine Programminformationen verfügbar" beim **Lesen** ignoriert. Als
+belegter Sendeplatz wirkten sie aber weiter: Mit „Erststand schützen" wies das Einlagern die später
+gelieferten echten Sendungen ab, weil der Platz besetzt war. Für Sender, die ihr Programm erst
+kurzfristig liefern, konnte so nie ein brauchbarer Stand entstehen.
+
+Neu: `purge_archive_placeholders()` **löscht** solche Einträge zu Beginn jedes Sicherungslaufs,
+statt sie nur zu überspringen. Der Platz wird frei, die echten Sendungen kommen hinein. Die Regel,
+was ein Platzhalter ist, steht weiterhin nur an einer Stelle (`_ist_platzhalter`) und wird der
+Datenbankschicht als Funktion übergeben.
+
+Der Lauf ist selbstbegrenzend: Was einmal entfernt ist, bleibt entfernt, und seit v1.78 kommt nichts
+Neues dieser Art mehr hinein.
+
 ## v1.79 — Vorrang nur dort, wo der Anbieter wirklich zwei Listen liefert
 
 v1.78 hat das Löschen gestoppt, aber der Vorrang griff weiterhin an Tagen, an denen die Anbieterliste
