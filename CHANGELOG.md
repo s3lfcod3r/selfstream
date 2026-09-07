@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.81 — Große EPG-Quellen werden beim Laden eingedampft
+
+Bei Das Erste, ZDF, NDR, SAT1 HD und VOX HD fehlte ab dem 07.09.2026 das komplette Zukunftsprogramm.
+Ursache war nicht der Grabber, sondern das **Paket**: `epg.team/7.7.xml?pkg=262` liefert diese Sender
+nicht mehr aus. Die Vollversion ohne `pkg` hat sie lückenlos — wiegt aber rund **620 MB** (3.511
+Sender, 1,27 Mio. Sendungen) und lief damit gegen das Größenlimit; ohne Limit hätte sie den Container
+über den Arbeitsspeicher zerlegt.
+
+Neu: `_EpgKanalFilter` wirft schon **während des Downloads** weg, was uns nicht gehört, statt die
+Datei erst komplett zu laden. Das Limit `epg_max_mb` gilt jetzt für das, was nach dem Filtern übrig
+bleibt; für den Rohstrom greift `EPG_ROH_MAX_MB` (2 GB) als Notbremse.
+
+An der echten Datei gemessen: **622 MB → 27 MB, 33 Sekunden, Spitze 93 MB Arbeitsspeicher**, dabei
+**44.553 statt 23.565 Sendungen** — also fast doppelt so viel Programm wie aus dem defekten Paket.
+
+Ein Sender wird behalten, wenn seine **ID oder sein Anzeigename** passt. Ein reiner ID-Filter hätte
+beim Zusammenführen mehrerer Quellen die zweite Quelle komplett verworfen, weil `epg_merge` über den
+Namen zuordnet. gzip-Quellen werden im Strom entpackt.
+
+Voraussetzung ist die eingeschaltete Kanal-Filterung („Nur Kanäle aus Kanal-Manager"). Ohne sie
+bleibt der Abruf unverändert.
+
 ## v1.80 — Alte Platzhalter blockieren keine Sendeplätze mehr
 
 v1.78 hat Platzhalter wie „Keine Programminformationen verfügbar" beim **Lesen** ignoriert. Als
