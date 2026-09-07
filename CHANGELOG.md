@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.82 — Kanalfilter greift jetzt an allen Abrufwegen
+
+Nachtrag zu v1.81: Der streamende Filter war nur im automatischen Abruf eingebaut. Die beiden
+anderen Wege — der Live-Endpunkt `/iptv/epg.xml` und „Neu laden" im Panel — luden weiter ungefiltert
+und liefen damit unverändert in den 150-MB-Abbruch.
+
+Statt drei Aufrufstellen zu pflegen, holt `_fetch_epg_text` die eigenen Sender jetzt selbst, wenn
+ihr keine übergeben werden. Wer bewusst ungefiltert laden will, übergibt leere Mengen.
+
 ## v1.81 — Große EPG-Quellen werden beim Laden eingedampft
 
 Bei Das Erste, ZDF, NDR, SAT1 HD und VOX HD fehlte ab dem 07.09.2026 das komplette Zukunftsprogramm.

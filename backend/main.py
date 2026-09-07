@@ -367,11 +367,18 @@ async def _fetch_epg_text(source_url: str, ids: set = None, namen: set = None) -
     bleibt der vorhandene Cache erhalten, statt dass der Container beim
     Verarbeiten einer überdimensionierten Quelle am Arbeitsspeicher stirbt.
 
-    Sind `ids`/`namen` gesetzt, wird schon während des Downloads auf diese Sender
-    eingedampft (siehe `_EpgKanalFilter`). Das Limit gilt dann für das, was davon
-    übrig bleibt — nur so lassen sich Quellen nutzen, die roh ein Vielfaches davon
-    wiegen. Für den Rohstrom bleibt `EPG_ROH_MAX_MB` als Notbremse.
+    Es wird schon während des Downloads auf die eigenen Sender eingedampft (siehe
+    `_EpgKanalFilter`). Das Limit gilt dann für das, was davon übrig bleibt — nur
+    so lassen sich Quellen nutzen, die roh ein Vielfaches davon wiegen. Für den
+    Rohstrom bleibt `EPG_ROH_MAX_MB` als Notbremse.
+
+    Welche Sender das sind, holt die Funktion selbst: Es gibt mehrere Aufrufer
+    (Auto-Abruf, `/iptv/epg.xml`, „Neu laden" im Panel), und einer davon vergisst
+    den Filter sonst garantiert. Wer bewusst ungefiltert laden will, übergibt
+    leere Mengen.
     """
+    if ids is None and namen is None:
+        ids, namen = _eigene_sender()
     max_mb = _epg_max_mb()
     limit = max_mb * 1024 * 1024
     filtern = bool(ids or namen)
@@ -451,14 +458,9 @@ async def _fetch_and_cache_epg():
 
         # Alle aktiven Quellen holen. Die erste hat Vorrang, die weiteren füllen
         # nur, was dort fehlt — kein Anbieter ist für sich genommen vollständig.
-        # Große Quellen schon beim Laden auf die eigenen Sender eindampfen —
-        # sonst scheitert der Abruf am Größenlimit, bevor überhaupt gefiltert
-        # werden kann (die Vollversion von epg.team wiegt roh rund 620 MB).
-        ids, namen = _eigene_sender()
-
         dateien = []
         for e in aktive:
-            text = await _fetch_epg_text(e["url"], ids, namen)
+            text = await _fetch_epg_text(e["url"])
             pfad = f"/data/epg_src_{e['id']}.xml"
             with open(pfad, "w", encoding="utf-8") as f:
                 f.write(text)
