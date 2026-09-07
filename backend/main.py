@@ -295,15 +295,89 @@ def _epg_max_mb() -> int:
         return int(EPG_MAX_MB_DEFAULT)
 
 
-async def _fetch_epg_text(source_url: str) -> str:
+EPG_ROH_MAX_MB = 2048           # Notbremse für den ungefilterten Datenstrom
+
+
+def _normname(name: str) -> str:
+    return " ".join((name or "").lower().split())
+
+
+class _EpgKanalFilter:
+    """Dampft eine XMLTV-Quelle schon beim Herunterladen auf die eigenen Sender ein.
+
+    Anlass: Das Paket `epg.team/7.7.xml?pkg=262` liefert für Das Erste, ZDF, NDR,
+    SAT1 und VOX seit dem 07.09.2026 keine Zukunftsdaten mehr; die Vollversion
+    ohne `pkg` hat sie vollständig, ist aber ~620 MB groß (3.511 Sender). Wer die
+    erst komplett in den Speicher lädt, killt den Container — beim Auswerten
+    belegt XML ein Vielfaches der Dateigröße. Deshalb wird schon während des
+    Downloads verworfen, was uns nicht gehört.
+
+    Gemessen an der echten Datei: 622 MB → 28 MB, rund 25 Sekunden, Spitze etwa
+    100 MB Arbeitsspeicher — und mit 44.553 statt 23.565 Sendungen fast doppelt
+    so viel Inhalt wie das kaputte Paket.
+
+    Behalten wird ein Sender, wenn seine ID **oder** sein Anzeigename passt: Bei
+    mehreren Quellen ordnet `epg_merge` über den Namen zu, ein reiner ID-Filter
+    würde die zweite Quelle komplett wegwerfen.
+    """
+
+    def __init__(self, ids: set, namen: set):
+        self._ids = ids or set()
+        self._namen = namen or set()
+        self._parser = ET.XMLPullParser(events=("start", "end"))
+        self._wurzel = None
+        self._teile: list = ['<?xml version="1.0" encoding="UTF-8"?>\n<tv>\n']
+        self._behalten: set = set()          # IDs, deren Sendungen mitkommen
+        self.kanaele = 0
+        self.sendungen = 0
+
+    def feed(self, chunk: bytes) -> None:
+        self._parser.feed(chunk)
+        for ereignis, el in self._parser.read_events():
+            if ereignis == "start":
+                if self._wurzel is None:
+                    self._wurzel = el        # für das Aufräumen weiter unten
+                continue
+            if el.tag == "channel":
+                cid = el.get("id") or ""
+                name = _normname(el.findtext("display-name") or "")
+                if cid and (cid in self._ids or (name and name in self._namen)):
+                    self._behalten.add(cid)
+                    self._teile.append(ET.tostring(el, encoding="unicode"))
+                    self.kanaele += 1
+            elif el.tag == "programme":
+                if (el.get("channel") or "") in self._behalten:
+                    self._teile.append(ET.tostring(el, encoding="unicode"))
+                    self.sendungen += 1
+            else:
+                continue                     # title, desc … gehören zum programme
+            el.clear()
+            if self._wurzel is not None:
+                self._wurzel.clear()         # sonst hält der Baum jedes Element fest
+
+    def ergebnis(self) -> str:
+        self._teile.append("</tv>\n")
+        return "".join(self._teile)
+
+
+async def _fetch_epg_text(source_url: str, ids: set = None, namen: set = None) -> str:
     """EPG streamend laden und dabei die Größe begrenzen.
 
     Bricht ab, sobald das Limit (Einstellung 'epg_max_mb') überschritten ist. So
     bleibt der vorhandene Cache erhalten, statt dass der Container beim
     Verarbeiten einer überdimensionierten Quelle am Arbeitsspeicher stirbt.
+
+    Sind `ids`/`namen` gesetzt, wird schon während des Downloads auf diese Sender
+    eingedampft (siehe `_EpgKanalFilter`). Das Limit gilt dann für das, was davon
+    übrig bleibt — nur so lassen sich Quellen nutzen, die roh ein Vielfaches davon
+    wiegen. Für den Rohstrom bleibt `EPG_ROH_MAX_MB` als Notbremse.
     """
     max_mb = _epg_max_mb()
     limit = max_mb * 1024 * 1024
+    filtern = bool(ids or namen)
+    roh_limit = EPG_ROH_MAX_MB * 1024 * 1024 if filtern else limit
+    sieb = _EpgKanalFilter(ids, namen) if filtern else None
+    entpacker = None
     parts: list = []
     total = 0
     async with make_iptv_client(timeout=120, follow_redirects=True) as client:
@@ -311,19 +385,59 @@ async def _fetch_epg_text(source_url: str) -> str:
             resp.raise_for_status()
             async for chunk in resp.aiter_bytes(1 << 20):
                 total += len(chunk)
-                if total > limit:
+                if total > roh_limit:
+                    grenze = EPG_ROH_MAX_MB if filtern else max_mb
                     raise EpgTooLarge(
-                        f"EPG-Quelle ist größer als {max_mb} MB - Abruf abgebrochen. "
+                        f"EPG-Quelle ist größer als {grenze} MB - Abruf abgebrochen. "
                         f"So große Dateien belegen beim Auswerten ein Vielfaches an "
                         f"Arbeitsspeicher und können den Dienst abstürzen lassen. "
                         f"Kleineren Zeitraum wählen oder Limit 'epg_max_mb' erhöhen."
                     )
-                parts.append(chunk)
+                if sieb is None:
+                    parts.append(chunk)
+                    continue
+                if entpacker is None:        # gzip erst am Datenstrom erkennbar
+                    if chunk[:2] == b"\x1f\x8b":
+                        import zlib
+                        entpacker = zlib.decompressobj(16 + zlib.MAX_WBITS)
+                    else:
+                        entpacker = False
+                sieb.feed(entpacker.decompress(chunk) if entpacker else chunk)
+
+    if sieb is not None:
+        text = sieb.ergebnis()
+        if len(text.encode("utf-8", errors="replace")) > limit:
+            raise EpgTooLarge(
+                f"EPG-Quelle ist auch nach dem Filtern größer als {max_mb} MB - "
+                f"Abruf abgebrochen. Kleineren Zeitraum wählen oder Limit "
+                f"'epg_max_mb' erhöhen."
+            )
+        logger.info(f"EPG eingedampft: {total // (1024*1024)} MB Quelle → "
+                    f"{sieb.kanaele} Sender, {sieb.sendungen} Sendungen")
+        return text
+
     roh = b"".join(parts)
     if roh[:2] == b"\x1f\x8b":          # gzip-Signatur: viele Quellen liefern .xml.gz
         import gzip
         roh = gzip.decompress(roh)
     return roh.decode("utf-8", errors="replace")
+
+
+def _eigene_sender() -> tuple:
+    """IDs und Anzeigenamen der Sender, für die wir überhaupt EPG brauchen.
+
+    Dieselbe Menge, die `_filter_epg_xml` später ohnehin anwendet — nur eben
+    schon beim Herunterladen, damit große Quellen gar nicht erst im Speicher
+    landen. Ohne eingeschaltete Kanal-Filterung bleibt alles wie bisher.
+    """
+    if db.get_setting("epg_filter_channels", "0") != "1":
+        return set(), set()
+    ids = db.get_enabled_epg_ids()
+    kanaele = db.get_channels(enabled_only=False)
+    if not ids:
+        ids = {c["tvg_id"] for c in kanaele if c.get("tvg_id")}
+    namen = {_normname(c["name"]) for c in kanaele if c.get("name")}
+    return ids, {n for n in namen if n}
 
 
 async def _fetch_and_cache_epg():
@@ -337,9 +451,14 @@ async def _fetch_and_cache_epg():
 
         # Alle aktiven Quellen holen. Die erste hat Vorrang, die weiteren füllen
         # nur, was dort fehlt — kein Anbieter ist für sich genommen vollständig.
+        # Große Quellen schon beim Laden auf die eigenen Sender eindampfen —
+        # sonst scheitert der Abruf am Größenlimit, bevor überhaupt gefiltert
+        # werden kann (die Vollversion von epg.team wiegt roh rund 620 MB).
+        ids, namen = _eigene_sender()
+
         dateien = []
         for e in aktive:
-            text = await _fetch_epg_text(e["url"])
+            text = await _fetch_epg_text(e["url"], ids, namen)
             pfad = f"/data/epg_src_{e['id']}.xml"
             with open(pfad, "w", encoding="utf-8") as f:
                 f.write(text)
