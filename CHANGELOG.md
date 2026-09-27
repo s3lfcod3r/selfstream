@@ -8,7 +8,8 @@ Grundlage ist eine vollständige Durchsicht von v1.82. Der wichtigste Punkt zuer
 
 - `uvicorn` schrieb im Zugriffslog den vollen Pfad samt Query, also auch
   `/iptv/<nutzer-token>/segment?url=…token%3D…`. `server.py` hängt jetzt einen Filter
-  auf `uvicorn.access`, der Pfad-Token und Query-Zugangsdaten ersetzt.
+  auf `uvicorn.access`, der Pfad-Token (`/iptv/…`, `/s/…` und Kurzlinks
+  `/<kurz-token>.m3u`) und Query-Zugangsdaten ersetzt.
 - `httpx` loggte jeden ausgehenden Request mit vollständiger Anbieter-URL. `httpx` und
   `httpcore` stehen jetzt auf `WARNING`; Warnungen und Fehler bleiben sichtbar.
 - Die vorhandene Maskierung kannte nur `token=`/`token:`, nicht die URL-kodierte Form

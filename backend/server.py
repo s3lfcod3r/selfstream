@@ -19,7 +19,11 @@ _QUERY_CRED_RE = re.compile(
     r"(?i)(token|username|password|passwd|pwd|pw|api[_-]?key|auth|secret)"
     r"(=|:|%3D|%3d|%3a|%3A)([^&\s\"']+)"
 )
-_PATH_TOKEN_RE = re.compile(r"(/(?:iptv|s)/)[A-Za-z0-9_.\-]{6,}")
+# Nur mit folgendem "/": alle Token-Routen haben danach noch einen Pfadteil, öffentliche
+# Dateien wie /iptv/epg.xml oder /iptv/error-stream.jpg bleiben so lesbar.
+_PATH_TOKEN_RE = re.compile(r"(/(?:iptv|s)/)[A-Za-z0-9_.\-]{6,}(?=/)")
+# Kurzlink ohne Präfix: /<kurz-token>.m3u bzw. .m3u8 — der Token ist der ganze Pfad.
+_SHORT_M3U_RE = re.compile(r"^/[A-Za-z0-9]{6,}(\.m3u8?)(?=$|\?)")
 
 
 class _MaskCredsFilter(logging.Filter):
@@ -31,6 +35,7 @@ class _MaskCredsFilter(logging.Filter):
             args = record.args
             if isinstance(args, tuple) and len(args) >= 3:
                 pfad = _PATH_TOKEN_RE.sub(r"\1***", str(args[2]))
+                pfad = _SHORT_M3U_RE.sub(r"/***\1", pfad)
                 pfad = _QUERY_CRED_RE.sub(r"\1\2***", pfad)
                 record.args = args[:2] + (pfad,) + args[3:]
         except Exception:
