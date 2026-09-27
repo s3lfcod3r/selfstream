@@ -538,14 +538,19 @@ class Database:
             row = con.execute("SELECT * FROM users WHERE token = ?", (token,)).fetchone()
             return dict(row) if row else None
 
-    def create_user(self, name: str, token: str, m3u_source: str, notes: str = "", provider_id: int = None) -> Dict:
+    def create_user(self, name: str, token: str, m3u_source: str, notes: str = "",
+                    provider_id: int = None, max_streams: int = 1) -> Dict:
+        # max_streams gehört ins INSERT: vorher blieb es beim DB-Standard 1, egal was
+        # im Panel eingetragen wurde. Bereichsprüfung passiert im Endpunkt (main.py).
         with self.conn() as con:
             cur = con.execute(
-                "INSERT INTO users (name, token, m3u_source, notes, provider_id) VALUES (?, ?, ?, ?, ?)",
-                (name, token, m3u_source, notes, provider_id)
+                "INSERT INTO users (name, token, m3u_source, notes, provider_id, max_streams) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (name, token, m3u_source, notes, provider_id, max_streams)
             )
             return {"id": cur.lastrowid, "name": name, "token": token,
-                    "m3u_source": m3u_source, "active": 1, "provider_id": provider_id}
+                    "m3u_source": m3u_source, "active": 1, "provider_id": provider_id,
+                    "max_streams": max_streams}
 
     def update_user(self, user_id: int, data: Dict):
         allowed = {"name", "m3u_source", "provider_id", "active", "notes", "max_streams", "allowed_groups"}
@@ -564,8 +569,12 @@ class Database:
             ).fetchone()
             return dict(row) if row else None
 
+    SHORT_TOKEN_LEN = 12   # 12 Zeichen [A-Za-z0-9] = 71,4 Bit (vorher 8 = 47,6 Bit).
+                           # Bestehende 8-Zeichen-Token bleiben gültig, die Länge wird
+                           # beim Nachschlagen nicht geprüft (get_user_by_short_token).
+
     def generate_short_token(self, user_id: int) -> str:
-        """Generate a short 8-char alphanumeric token.
+        """Generate a short alphanumeric token (SHORT_TOKEN_LEN Zeichen).
 
         Nutzt secrets (kryptografisch sicher) statt random, da Short-Tokens als
         öffentliche Playlist-URLs ausgegeben werden. Bricht nach MAX_ATTEMPTS ab,
@@ -575,7 +584,7 @@ class Database:
         chars = string.ascii_letters + string.digits
         MAX_ATTEMPTS = 20
         for _ in range(MAX_ATTEMPTS):
-            short = ''.join(secrets.choice(chars) for _ in range(8))
+            short = ''.join(secrets.choice(chars) for _ in range(self.SHORT_TOKEN_LEN))
             with self.conn() as con:
                 exists = con.execute(
                     "SELECT id FROM users WHERE short_token = ?", (short,)

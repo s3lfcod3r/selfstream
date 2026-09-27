@@ -20,18 +20,23 @@ import xml.etree.ElementTree as ET
 from bisect import bisect_left, insort
 
 # Zusätze, die je nach Anbieter dranstehen oder fehlen und für die Zuordnung
-# unerheblich sind.
-_BALLAST = re.compile(r"\b(hd|uhd|fhd|sd|deutschland|germany|austria|de|at)\b")
+# unerheblich sind. Nur Bildqualität — Länderkennzeichen gehören NICHT hierher:
+# 'ProSieben Austria' und 'ProSieben Germany' sind verschiedene Sender mit
+# verschiedenem Programm. Wurden sie wegnormalisiert, ergaben beide 'prosieben',
+# und die Sendungen der Ostereich-Variante landeten beim deutschen Sender.
+# Der Preis dafür: ein Sender, der in einer Quelle 'ProSieben' und in der anderen
+# 'ProSieben.de' heißt, wird nicht mehr zusammengeführt. Eine fehlende Ergänzung
+# ist deutlich billiger als ein falsches Programm im Player.
+_BALLAST = re.compile(r"\b(hd|uhd|fhd|sd)\b")
 
 
 def normalisiere(name: str) -> str:
     """Sendernamen auf eine vergleichbare Form bringen.
 
-    'Sky Cinema Highlights HD' und 'Sky.Cinema.Highlights.HD.de' ergeben beide
-    'skycinemahighlights'.
+    'Sky Cinema Highlights HD' und 'Sky.Cinema.Highlights.HD' ergeben beide
+    'skycinemahighlights'. Länderkennzeichen bleiben Teil des Schlüssels.
     """
     n = (name or "").lower()
-    n = re.sub(r"\.(de|at)\b", "", n)
     n = n.replace(".", " ").replace("_", " ")
     n = _BALLAST.sub("", n)
     return re.sub(r"[^a-z0-9]+", "", n)
@@ -53,17 +58,35 @@ def lies_kanaele(pfad: str) -> dict:
     return namen
 
 
-def ordne_zu(haupt: dict, zweit: dict) -> dict:
-    """{kanal_id_der_zweitquelle: kanal_id_der_hauptquelle} über Namensgleichheit."""
-    nach_name = {}
+def ordne_zu(haupt: dict, zweit: dict) -> tuple:
+    """Zuordnung über Namensgleichheit.
+
+    Rückgabe: ({kanal_id_der_zweitquelle: kanal_id_der_hauptquelle}, anzahl_verworfen)
+
+    Mehrdeutige Namen werden NICHT zugeordnet — vorher gewann per setdefault
+    willkürlich der zuerst gelesene Kanal, und alle weiteren Kanäle mit gleichem
+    Schlüssel wurden auf ihn gemappt. Das mischte fremdes Programm in einen Sender.
+    Mehrdeutig ist ein Schlüssel, der in der Hauptquelle ODER in der Zweitquelle
+    mehr als einen Kanal hat.
+    """
+    haupt_nach_name: dict = {}
     for cid, name in haupt.items():
-        nach_name.setdefault(normalisiere(name), cid)
-    zuordnung = {}
+        haupt_nach_name.setdefault(normalisiere(name), []).append(cid)
+    zweit_nach_name: dict = {}
     for cid, name in zweit.items():
-        ziel = nach_name.get(normalisiere(name))
-        if ziel:
-            zuordnung[cid] = ziel
-    return zuordnung
+        zweit_nach_name.setdefault(normalisiere(name), []).append(cid)
+
+    zuordnung = {}
+    verworfen = 0
+    for key, cids in zweit_nach_name.items():
+        ziele = haupt_nach_name.get(key) or []
+        if not ziele:
+            continue                      # kein Gegenstück — kein Fund, nichts zu verwerfen
+        if len(ziele) > 1 or len(cids) > 1:
+            verworfen += len(cids)        # mehrdeutig — lieber nichts zuordnen
+            continue
+        zuordnung[cids[0]] = ziele[0]
+    return zuordnung, verworfen
 
 
 def _sendungen(pfad: str, erlaubt=None, umbenennen: dict = None):
@@ -118,14 +141,18 @@ def zusammenfuehren(quellen: list, ziel: str, erlaubt=None) -> dict:
             ET.SubElement(el, "display-name").text = name
             f.write(ET.tostring(el, encoding="unicode").strip() + "\n")
 
+        mehrdeutig_gesamt = 0
         for nr, pfad in enumerate(quellen):
+            verworfen = 0
             if nr == 0:
                 umbenennen = None
             else:
                 # Fremde Kanal-IDs auf die der Hauptquelle umschreiben
-                umbenennen = ordne_zu(haupt_kanaele, lies_kanaele(pfad))
+                umbenennen, verworfen = ordne_zu(haupt_kanaele, lies_kanaele(pfad))
+                mehrdeutig_gesamt += verworfen
                 if not umbenennen:
-                    beitrag.append({"source": pfad, "added": 0, "mapped": 0})
+                    beitrag.append({"source": pfad, "added": 0, "mapped": 0,
+                                    "ambiguous": verworfen})
                     continue
 
             hinzu = 0
@@ -143,10 +170,13 @@ def zusammenfuehren(quellen: list, ziel: str, erlaubt=None) -> dict:
                 "source": pfad,
                 "added": hinzu,
                 "mapped": len(umbenennen) if umbenennen is not None else len(haupt_kanaele),
+                # Kanäle, die wegen eines mehrdeutigen Namens bewusst nicht zugeordnet wurden
+                "ambiguous": verworfen,
             })
 
         f.write("</tv>\n")
 
     import os
     os.replace(tmp, ziel)
-    return {"channels": len(belegt), "programmes": gesamt, "sources": beitrag}
+    return {"channels": len(belegt), "programmes": gesamt, "sources": beitrag,
+            "ambiguous": mehrdeutig_gesamt}
