@@ -1,5 +1,92 @@
 # Changelog
 
+## v1.83 — Zugangsdaten raus aus dem Log, Sammelrunde aus der Code-Durchsicht
+
+Grundlage ist eine vollständige Durchsicht von v1.82. Der wichtigste Punkt zuerst:
+
+**Keine Zugangsdaten mehr im Log.** Drei Quellen, alle abgestellt:
+
+- `uvicorn` schrieb im Zugriffslog den vollen Pfad samt Query, also auch
+  `/iptv/<nutzer-token>/segment?url=…token%3D…`. `server.py` hängt jetzt einen Filter
+  auf `uvicorn.access`, der Pfad-Token und Query-Zugangsdaten ersetzt.
+- `httpx` loggte jeden ausgehenden Request mit vollständiger Anbieter-URL. `httpx` und
+  `httpcore` stehen jetzt auf `WARNING`; Warnungen und Fehler bleiben sichtbar.
+- Die vorhandene Maskierung kannte nur `token=`/`token:`, nicht die URL-kodierte Form
+  `token%3D` und nicht das Pfad-Muster `/iptv/<token>/`. Beides erkennt sie jetzt.
+
+**Nutzer- und Streamverwaltung**
+
+- `max_streams` wurde beim Anlegen eines Nutzers gelesen, aber nie gespeichert — es galt
+  immer der Standardwert 1. Der Wert landet jetzt im `INSERT`, geprüft als Ganzzahl 0–99.
+- Neue Kurz-Token haben 12 statt 8 Zeichen (47,6 → 71,4 Bit). Bestehende bleiben gültig.
+- Falsche Token auf den Proxy-Endpunkten werden pro IP gezählt; nach 30 Fehlversuchen in
+  5 Minuten antwortet der Proxy mit 429 und `Retry-After` statt beliebig oft mit 403.
+- Das Admin-Token wird nach der ersten erfolgreichen PBKDF2-Prüfung kurz im Speicher
+  gemerkt (3 Minuten, an den DB-Wert gebunden). Vorher rechnete jeder Panel-Request des
+  10-Sekunden-Auto-Refresh 600.000 Runden auf demselben Prozess, der die Segmente
+  ausliefert. Fehlversuche werden weiter voll gerechnet.
+- Mindestlänge für das Admin-Token im Setup: 12 statt 8 Zeichen, mit Knopf
+  „↻ Zufallstoken erzeugen" (20 Zeichen, ohne verwechselbare Zeichen).
+
+**EPG**
+
+- Die Namenszuordnung beim Zusammenführen zweier Quellen hat Landeskennzeichen
+  wegnormalisiert: „ProSieben Austria" und „ProSieben Germany" ergaben denselben
+  Schlüssel, und die österreichischen Sendungen landeten beim deutschen Sender. Jetzt
+  werden nur noch `hd/uhd/fhd/sd` entfernt, und mehrdeutige Namen werden gar nicht
+  zugeordnet, sondern als „verworfen" gezählt und geloggt.
+- Die Qualitätsprüfung hält nicht mehr alle Titel im Speicher: erst Sendezeiten sammeln,
+  Titel nur für die wirklich angezeigten Treffer nachladen, harte Grenze bei 400.000
+  Sendungen. Wurde abgeschnitten, sagt das Panel es jetzt auch. Das Prüfdatum ist
+  auf heute vorbelegt.
+- Das alte EPG-Archiv wird zusätzlich beim Start aufgeräumt, nicht nur im Archivlauf.
+
+**Playlist-Parser**
+
+- Ein Sendername mit Komma („RTL, aber anders") wurde abgeschnitten — getrennt wird
+  jetzt am ersten Komma außerhalb von Anführungszeichen.
+- Anführungszeichen in `tvg-id`, `tvg-logo`, `group-title` und `tvg-rec` zerlegten die
+  Attributliste der `#EXTINF`-Zeile; sie werden jetzt als `&quot;` geschrieben.
+
+**Admin-Panel**
+
+- Gespeichertes XSS im VPN-Bereich behoben. Die dortige Hilfsfunktion entfernte nur
+  Anführungszeichen, `<` und `>` gingen durch — ein Config-Dateiname mit HTML lief bei
+  jedem Aufruf der VPN-Seite als Code, auch für einen zweiten Admin. Angezeigt wird jetzt
+  echt maskiert, Werte in `onclick` laufen über Base64. An der Wurzel: der Server nimmt
+  Config-Dateinamen nur noch mit `[A-Za-z0-9._-]` an (max. 120 Zeichen), sonst 400 — das
+  deckt auch die Namen aus dem Mullvad-Import und jede künftige Anzeige ab.
+- CORS auf dem Admin-Panel ist auf lokale und LAN-Herkünfte begrenzt (sowie den in
+  `BASE_URL`/`PROXY_URL` eingetragenen Host). Vorher durfte jede beliebige Webseite die
+  Admin-API ansprechen. Der Proxy behält `*`, dort holen Player die Streams ab. Die
+  Desktop-App ist nicht betroffen, sie ruft aus dem Electron-Hauptprozess ab.
+
+**Betrieb**
+
+- Die Unraid-Vorlagen setzen `--restart=unless-stopped`. Ohne das legte Docker den
+  Container mit `restart=no` an, und Unraids „Autostart" startet nur beim Array-Start —
+  nach einem Absturz oder OOM-Kill blieb selfstream aus.
+- `update.sh` kopierte seit der Modulaufteilung nur sechs Dateien; `epg_merge.py`,
+  `epg_quality.py`, `security_util.py`, `hls.py` und `timeparse.py` fehlten. Ein Hotfix
+  erzeugte damit still einen Mischstand. Jetzt vollständig, mit Versionsanzeige aus dem
+  Container nach dem Einspielen und einer Warnung, wenn sich `requirements.txt` geändert
+  hat (das kann ein Live-Patch nicht lösen).
+- `setup.sh` schrieb den Proxy-Port in `BASE_URL`, wodurch der Admin-Link falsch war.
+  Jetzt `BASE_URL` auf `:8080` und `PROXY_URL` auf `:8000`; außerdem `docker compose` (v2)
+  mit Rückfall auf `docker-compose` (v1).
+- Nacktes `except:` beim Anlegen einer EPG-Quelle eingegrenzt auf `TypeError`/`ValueError`.
+- `SECURITY.md`: Versionstabelle nannte noch `1.1.x`, jetzt die aktuelle Release-Linie.
+
+**Offen, bewusst nicht in diesem Release**
+
+- Der Container läuft als `root` und braucht `CAP_NET_ADMIN` sowie `/dev/net/tun` für den
+  VPN-Tunnel; das Root-Dateisystem ist nicht schreibgeschützt. Rechte abzulegen ist kein
+  Einzeiler und muss mit echten VPN-Tests abgesichert werden — Reihenfolge: zuerst
+  `--read-only` plus `--tmpfs /tmp`, danach `USER` mit Capabilities auf den VPN-Binaries.
+  Bis dahin steht es als bekannte Einschränkung in `SECURITY.md`.
+- Kein `VACUUM` auf der SQLite-Datei: gelöschter Platz bleibt belegt, die Datei schrumpft
+  nicht. Kein Handlungsdruck, gehört in ein Wartungsfenster.
+
 ## v1.82 — Kanalfilter greift jetzt an allen Abrufwegen
 
 Nachtrag zu v1.81: Der streamende Filter war nur im automatischen Abruf eingebaut. Die beiden

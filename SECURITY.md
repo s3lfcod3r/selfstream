@@ -4,12 +4,12 @@
 
 ## Supported Versions
 
-Security fixes are provided for the latest release line only.
+Security fixes are provided for the current release line only.
 
 | Version | Supported |
 |---------|-----------|
-| 1.1.x   | ✅ |
-| < 1.1   | ❌ |
+| 1.8x (current release line) | ✅ |
+| everything older | ❌ |
 
 Always run the latest image (`ghcr.io/s3lfcod3r/selfstream:latest`) to receive security updates.
 
@@ -27,6 +27,11 @@ Please give us a reasonable window to ship a fix before any public disclosure (c
 
 selfstream is intended to run on a trusted home/lab network. The admin panel (port 8080) should **not** be exposed directly to the internet. Issues that require an already-compromised LAN or direct internet exposure of the admin panel are considered out of the normal threat model, but we still welcome reports.
 
+### Known limitations (open, as of v1.83)
+
+- **The container runs as `root`** and needs `CAP_NET_ADMIN` plus `/dev/net/tun` to bring up the WireGuard/OpenVPN tunnel. The root filesystem is not read-only. Dropping privileges is not a one-line change (the tunnel setup needs them) and requires VPN testing, so it is tracked as an open item rather than shipped untested.
+- **During setup over plain HTTP in the LAN** the new admin token travels unencrypted. That is accepted within the threat model above, but you should be aware of it — set the token on a network you trust.
+
 ---
 
 <a name="deutsch"></a>
@@ -39,10 +44,15 @@ Sicherheits-Updates gibt es nur für die aktuelle Release-Linie.
 
 | Version | Unterstützt |
 |---------|-------------|
-| 1.1.x   | ✅ |
-| < 1.1   | ❌ |
+| 1.8x (aktuelle Release-Linie) | ✅ |
+| alles Ältere | ❌ |
 
 Bitte immer das aktuelle Image (`ghcr.io/s3lfcod3r/selfstream:latest`) verwenden.
+
+### Bekannte Einschränkungen (offen, Stand v1.83)
+
+- **Der Container läuft als `root`** und braucht `CAP_NET_ADMIN` sowie `/dev/net/tun` für den WireGuard-/OpenVPN-Tunnel. Das Root-Dateisystem ist nicht schreibgeschützt. Die Rechte abzulegen ist kein Einzeiler (der Tunnelaufbau braucht sie) und muss mit echten VPN-Tests abgesichert werden — deshalb steht es hier als offener Punkt statt ungetestet im Release.
+- **Bei der Einrichtung über reines HTTP im LAN** geht das neue Admin-Token im Klartext über das Netz. Im oben beschriebenen Bedrohungsmodell ist das akzeptiert, sollte aber bekannt sein: Token nur in einem vertrauenswürdigen Netz setzen.
 
 ## Sicherheitslücke melden
 
