@@ -157,6 +157,12 @@
   }
   .btn:hover { background:rgba(0,229,200,.14); }
   .btn:disabled { opacity:.4;cursor:not-allowed; }
+  /* Nebenknopf (z.B. "Zufallstoken erzeugen") — schmaler und unauffaelliger */
+  .btn.sub {
+    padding:7px 12px;font-size:10px;border-color:var(--text3);color:var(--text2);
+    background:transparent;text-transform:none;letter-spacing:.04em;
+  }
+  .btn.sub:hover { background:rgba(255,255,255,.05);border-color:var(--teal);color:var(--teal); }
 
   .error-msg {
     color:var(--red);font-family:var(--mono);font-size:11px;
@@ -219,12 +225,16 @@
     <div class="step-label">Schritt 1 von 3 · Admin-Zugang</div>
     <div class="form-group">
       <label>Admin-Passwort</label>
-      <input type="password" id="s1-token" placeholder="Mindestens 8 Zeichen…" autocomplete="new-password">
+      <input type="password" id="s1-token" placeholder="Mindestens 12 Zeichen…" autocomplete="new-password">
       <div class="hint">Schützt das Admin-Panel. Wähle etwas Sicheres.</div>
     </div>
     <div class="form-group">
       <label>Passwort bestätigen</label>
       <input type="password" id="s1-token2" placeholder="Nochmals eingeben…" autocomplete="new-password">
+    </div>
+    <div class="form-group">
+      <button class="btn sub" type="button" onclick="zufallsToken()">↻ Zufallstoken erzeugen</button>
+      <div class="hint" id="s1-gen-hint" style="display:none;">Erzeugt und in beide Felder eingesetzt — <b>jetzt notieren</b>, es wird nicht gespeichert.</div>
     </div>
     <div class="error-msg" id="err-1"></div>
     <button class="btn" onclick="step1Next()">Weiter →</button>
@@ -274,7 +284,7 @@ function step1Next() {
   hideError('err-1');
   const t1 = document.getElementById('s1-token').value;
   const t2 = document.getElementById('s1-token2').value;
-  if (t1.length < 8) return showError('err-1', 'Passwort muss mindestens 8 Zeichen haben.');
+  if (t1.length < 12) return showError('err-1', 'Passwort muss mindestens 12 Zeichen haben.');
   if (t1 !== t2)     return showError('err-1', 'Passwörter stimmen nicht überein.');
   adminToken = t1;
   document.getElementById('step-1').classList.remove('active');
@@ -283,6 +293,30 @@ function step1Next() {
   const h = window.location.hostname, p = window.location.port;
   document.getElementById('s2-url').value       = `${window.location.protocol}//${h}:${p}`;
   document.getElementById('s2-proxy-url').value = `${window.location.protocol}//${h}:8000`;
+}
+
+function zufallsToken() {
+  // 20 Zeichen aus einem Alphabet ohne Verwechslungsgefahr (kein O/0, I/l/1).
+  // crypto.getRandomValues statt Math.random — das Token ist das einzige Geheimnis
+  // des Panels. Modulo-Rest wird verworfen, damit die Verteilung gleichmäßig bleibt.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_';
+  const bytes = new Uint8Array(64);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < bytes.length && out.length < 20; i++) {
+    if (bytes[i] < 256 - (256 % alphabet.length)) out += alphabet[bytes[i] % alphabet.length];
+  }
+  while (out.length < 20) {   // extrem selten: nachziehen
+    const b = new Uint8Array(1); crypto.getRandomValues(b);
+    if (b[0] < 256 - (256 % alphabet.length)) out += alphabet[b[0] % alphabet.length];
+  }
+  document.getElementById('s1-token').value  = out;
+  document.getElementById('s1-token2').value = out;
+  // Kurz sichtbar machen, damit es abgeschrieben werden kann.
+  document.getElementById('s1-token').type  = 'text';
+  document.getElementById('s1-token2').type = 'text';
+  document.getElementById('s1-gen-hint').style.display = 'block';
+  hideError('err-1');
 }
 
 async function step2Next() {
