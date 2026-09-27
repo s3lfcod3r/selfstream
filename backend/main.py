@@ -42,15 +42,64 @@ from security_util import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# httpx loggt JEDEN ausgehenden Request auf INFO-Ebene mit vollständiger URL
+# ("HTTP Request: GET https://anbieter/...?username=...&token=... 200 OK").
+# Über basicConfig(level=INFO) landete das im Container-Log — inklusive der
+# Anbieter-Zugangsdaten. Die App-eigene Maskierung (_mask_creds) greift dort nicht,
+# weil die Zeile aus der Bibliothek kommt. Darum die Bibliotheks-Logger anheben;
+# Warnungen und Fehler bleiben sichtbar.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 proxy_app = FastAPI(title="selfstream proxy")
 admin_app = FastAPI(title="selfstream admin")
 
-for a in (proxy_app, admin_app):
-    # allow_credentials=False: die App authentifiziert über den X-Admin-Token-Header
-    # bzw. Pfad-Token, nicht über Cookies. Die Kombination "*" + credentials=True ist
-    # laut CORS-Spec ungültig und wäre eine unnötige Angriffsfläche.
-    a.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
-                     allow_methods=["*"], allow_headers=["*"])
+# allow_credentials=False bleibt auf beiden Apps: authentifiziert wird über den
+# X-Admin-Token-Header bzw. das Pfad-Token, nicht über Cookies. "*" + credentials=True
+# ist laut CORS-Spec ohnehin ungültig.
+#
+# Der Proxy behaelt "*": dort holen Player, Browser-Player und fremde Web-Oberflaechen
+# Playlist, EPG und Segmente ab — eine Einschraenkung wuerde echte Nutzung brechen.
+proxy_app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
+                         allow_methods=["*"], allow_headers=["*"])
+
+# Das Admin-Panel dagegen wird von admin_app selbst ausgeliefert — dafuer braucht es
+# gar kein CORS. Bisher durfte jede beliebige Webseite die Admin-API ansprechen und die
+# Antworten lesen (Fund 11). Deshalb nur noch lokale und LAN-Herkuenfte erlauben:
+# localhost, 127.0.0.1, ::1, private Netze (10/8, 172.16/12, 192.168/16), .local-Namen
+# und der in BASE_URL/PROXY_URL eingetragene Host. Die Desktop-App ist nicht betroffen:
+# sie ruft aus dem Electron-Hauptprozess (Node) ab, dort gilt CORS nicht.
+_ADMIN_ORIGIN_RE = (
+    r"^https?://("
+    r"localhost|127(\.\d{1,3}){3}|\[::1\]|"
+    r"10(\.\d{1,3}){3}|"
+    r"172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|"
+    r"192\.168(\.\d{1,3}){2}|"
+    r"[A-Za-z0-9\-]+\.local"
+    r")(:\d+)?$"
+)
+
+
+def _admin_extra_origins() -> list:
+    """Zusaetzliche erlaubte Herkuenfte aus der Konfiguration (z. B. eine eigene Domain
+    hinter einem Reverse-Proxy). Ohne Pfad, nur Schema+Host+Port."""
+    out = []
+    for env in ("BASE_URL", "PROXY_URL"):
+        val = (os.getenv(env) or "").strip().rstrip("/")
+        if val.startswith("http"):
+            teile = val.split("/")
+            if len(teile) >= 3:
+                herkunft = f"{teile[0]}//{teile[2]}"
+                if herkunft not in out:
+                    out.append(herkunft)
+    return out
+
+
+admin_app.add_middleware(CORSMiddleware,
+                         allow_origins=_admin_extra_origins(),
+                         allow_origin_regex=_ADMIN_ORIGIN_RE,
+                         allow_credentials=False,
+                         allow_methods=["*"], allow_headers=["*"])
 
 
 @proxy_app.middleware("http")
@@ -137,20 +186,29 @@ def _fwd_client_ip(request) -> str:
 
 # Zugangsdaten in URLs/Strings maskieren, bevor sie in Logs/Diagnose landen.
 # Betrifft Query-/Pfad-Werte von username/password/token/pw (Provider-Credentials).
+# Das Trennzeichen deckt auch die URL-kodierten Formen ab: %3D = "=", %3A = ":",
+# %2F = "/". Die tauchen auf, sobald eine Anbieter-URL als Query-Parameter
+# weitergegeben wird (…/segment?url=https%3A%2F%2Fhost%2F…%3Ftoken%3DGEHEIM).
 _CRED_KEYS_RE = re.compile(
     r"(?i)\b(username|password|passwd|pwd|pw|token|api[_-]?key|auth|secret)"
-    r"(\s*[=:]\s*|/)"
+    r"(\s*(?:[=:]|%3[Dd]|%3[Aa])\s*|/|%2[Ff])"
     r"([^&\s/\"']+)"
 )
+
+# Pfad-Token der eigenen Routen: /iptv/<nutzer-token>/… und /s/<kurz-token>/…
+# Dort steht der Token ohne Schlüsselnamen, _CRED_KEYS_RE kann ihn nicht erkennen.
+_PATH_TOKEN_RE = re.compile(r"(/(?:iptv|s)/)[A-Za-z0-9_.\-]{6,}")
 
 
 def _mask_creds(s) -> str:
     """Ersetzt die Werte sensibler Parameter (username/password/token/pw/...) durch ***.
 
-    Deckt sowohl Query-Form (key=value / key:value) als auch Pfad-Form (/key/value)
-    ab, wie sie bei Xtream-/Stalker-Portalen üblich ist. Best-effort, wirft nie."""
+    Deckt Query-Form (key=value / key:value), URL-kodierte Form (key%3Dvalue),
+    Pfad-Form (/key/value) und die eigenen Pfad-Token (/iptv/<token>/) ab.
+    Best-effort, wirft nie."""
     try:
-        return _CRED_KEYS_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***", str(s))
+        masked = _PATH_TOKEN_RE.sub(r"\1***", str(s))
+        return _CRED_KEYS_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}***", masked)
     except Exception:
         return str(s)
 
@@ -473,8 +531,14 @@ async def _fetch_and_cache_epg():
             zusammen = await asyncio.to_thread(
                 epg_merge.zusammenfuehren, dateien, "/data/epg_cache.xml")
             for q in zusammen.get("sources", []):
+                _mehrdeutig = q.get("ambiguous", 0)
                 logger.info(f"EPG-Quelle {q['source']}: {q['added']} Sendungen, "
-                            f"{q['mapped']} Sender zugeordnet")
+                            f"{q['mapped']} Sender zugeordnet"
+                            + (f", {_mehrdeutig} wegen mehrdeutigem Namen verworfen"
+                               if _mehrdeutig else ""))
+            if zusammen.get("ambiguous"):
+                diag_log("INFO", "epg", f"EPG-Zusammenfuehrung: {zusammen['ambiguous']} Sender "
+                                        f"wegen mehrdeutigem Namen nicht zugeordnet")
             with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
                 content = f.read()
         else:
@@ -567,7 +631,9 @@ async def _m3u_watchdog():
                 url = p.get("source_url", "")
                 if not url or url.startswith("local://"):
                     continue
-                logger.info(f"M3U provider auto-refresh: {p['name']} ({url[:60]})")
+                # url NICHT roh loggen: 60 Zeichen reichen bei kurzen Domains bis in die
+                # Query, wo die Anbieter-Zugangsdaten stehen. Erst maskieren, dann kürzen.
+                logger.info(f"M3U provider auto-refresh: {p['name']} ({_mask_creds(url)[:80]})")
                 try:
                     async with make_iptv_client(timeout=60, follow_redirects=True) as client:
                         resp = await client.get(url)
@@ -611,6 +677,14 @@ async def startup():
         if moved:
             logger.info(f"Canary-Verlauf migriert: {moved} Messungen aus Settings → Tabelle")
         db.purge_canary_events(CANARY_RETENTION_DAYS)       # Canary-Verlauf max. 30 Tage
+        # epg_archive wurde bisher NUR im Archivlauf beschnitten (Fund 12). Steht das
+        # Archivieren still, wuchs die Tabelle weiter. Darum auch beim Start aufräumen.
+        # Kein VACUUM: das sperrt die DB und gehört in ein Wartungsfenster, nicht in den Start.
+        _archiv_tage = _epg_archive_days()
+        if _archiv_tage > 0:
+            _weg = db.prune_epg_archive(_archiv_tage)
+            if _weg:
+                logger.info(f"EPG-Archiv beim Start beschnitten: {_weg} Zeilen älter als {_archiv_tage} Tage")
     except Exception:
         pass
     _generate_error_video()
@@ -891,6 +965,64 @@ def make_headers(hls: dict) -> dict:
 # rewrite_hls_playlist liegt jetzt in hls.py und wird oben importiert.
 
 
+# ── Bremse für abgelehnte Proxy-Anfragen (Fund 10) ────────────────────────────
+# Die Brute-Force-Sperre in check_admin deckt nur das Admin-Panel ab. Die
+# Proxy-Endpunkte antworteten auf einen falschen Token beliebig oft mit 403.
+# Diese Bremse wird AUSSCHLIESSLICH im Fehlerfall aufgerufen: eine gültige
+# Anfrage berührt sie nie, laufende Streams können dadurch nicht ausgebremst
+# werden. Der Speicher ist doppelt begrenzt (Zeitfenster + harte Obergrenze).
+PROXY_DENY_MAX = 30            # erlaubte Fehlversuche je IP im Fenster
+PROXY_DENY_WINDOW = 300        # Fenster und Sperrdauer in Sekunden
+PROXY_DENY_MAX_IPS = 2000      # harte Obergrenze der beobachteten IPs
+_proxy_denied: dict = {}       # {ip: {"count": int, "ts": float, "blocked_until": float}}
+_proxy_deny_lock = threading.Lock()
+
+
+def _proxy_token_denied(request: Request = None) -> HTTPException:
+    """Zählt einen abgelehnten Token je IP und gibt die zu werfende Ausnahme zurück.
+
+    Normalfall 403 wie bisher; nach PROXY_DENY_MAX Fehlversuchen im Fenster 429 mit
+    Retry-After. Best-effort: ein Fehler hier darf die Antwort nicht kosten, deshalb
+    fällt alles auf das bisherige 403 zurück."""
+    fallback = HTTPException(status_code=403, detail="Invalid or disabled token")
+    try:
+        ip = request.client.host if (request and request.client) else ""
+    except Exception:
+        return fallback
+    if not ip:
+        return fallback
+    now = time.time()
+    try:
+        with _proxy_deny_lock:
+            # Abgelaufene Einträge wegwerfen (läuft nur bei Fehlversuchen, nicht im Stream-Pfad)
+            for _k in [k for k, v in _proxy_denied.items()
+                       if v.get("blocked_until", 0) <= now
+                       and (now - v.get("ts", 0)) > PROXY_DENY_WINDOW]:
+                _proxy_denied.pop(_k, None)
+            if len(_proxy_denied) >= PROXY_DENY_MAX_IPS and ip not in _proxy_denied:
+                # Tabelle voll (Streuangriff über viele IPs): nicht weiter wachsen lassen,
+                # lieber ungebremst 403 antworten als Speicher verbrauchen.
+                return fallback
+            eintrag = _proxy_denied.get(ip)
+            if not eintrag or (now - eintrag.get("ts", 0)) > PROXY_DENY_WINDOW:
+                eintrag = {"count": 0, "ts": now, "blocked_until": 0}
+            eintrag["count"] += 1
+            eintrag["ts"] = now
+            if eintrag["count"] == PROXY_DENY_MAX:
+                eintrag["blocked_until"] = now + PROXY_DENY_WINDOW
+                logger.warning(f"Proxy: {PROXY_DENY_MAX} ungueltige Token von {ip} — "
+                               f"{PROXY_DENY_WINDOW}s gebremst")
+            _proxy_denied[ip] = eintrag
+            gesperrt_bis = eintrag["blocked_until"]
+        if gesperrt_bis > now:
+            rest = int(gesperrt_bis - now) + 1
+            return HTTPException(status_code=429, detail="Too many invalid tokens",
+                                 headers={"Retry-After": str(rest)})
+    except Exception:
+        return fallback
+    return fallback
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PROXY APP  (port 8000)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -902,7 +1034,7 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
         _log_player_request("playlist:forbidden", request, token, {"reason": "invalid_or_disabled"}, level="WARNING")
-        raise HTTPException(status_code=403, detail="Invalid or disabled token")
+        raise _proxy_token_denied(request)
 
     channels = db.get_channels(enabled_only=True)
     proxy_url = db.get_proxy_url()
@@ -1019,10 +1151,10 @@ async def serve_playlist(token: str, local: str = None, request: Request = None)
 
 
 @proxy_app.get("/iptv/{token}/epg.xml")
-async def serve_epg(token: str):
+async def serve_epg(token: str, request: Request = None):
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
-        raise HTTPException(status_code=403, detail="Invalid or disabled token")
+        raise _proxy_token_denied(request)
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
     if not epg_sources:
         raise HTTPException(status_code=404, detail="No EPG source configured")
@@ -1199,7 +1331,7 @@ async def proxy_live(token: str, uid: str, utc: str = None, lutc: str = None, re
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
         _log_player_request("live:forbidden", request, token, {"reason": "invalid_or_disabled"}, level="WARNING")
-        raise HTTPException(status_code=403, detail="Invalid or disabled token")
+        raise _proxy_token_denied(request)
     ch = db.get_channel_by_stable_uid(uid)
     if not ch or not (ch.get("stream_url") or "").strip():
         _log_player_request("live:not_found", request, token, {"uid": uid}, level="WARNING")
@@ -1223,7 +1355,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     user = db.get_user_by_token(token)
     if not user:
         _log_player_request("stream:forbidden", request, token, {"reason": "invalid_token"}, level="WARNING")
-        raise HTTPException(status_code=403, detail="Invalid token")
+        raise _proxy_token_denied(request)
 
     if not user["active"]:
         # User is banned – return error image M3U
@@ -2995,7 +3127,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
     user = db.get_user_by_token(token)
     if not user:
         _log_player_request("segment:forbidden", request, token, {"reason": "invalid_token"}, level="WARNING")
-        raise HTTPException(status_code=403, detail="Invalid token")
+        raise _proxy_token_denied(request)
 
     if not user["active"]:
         proxy_url = db.get_proxy_url()
@@ -3426,7 +3558,7 @@ async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str 
     user = db.get_user_by_token(token)
     if not user or not user["active"]:
         _log_player_request("catchup:forbidden", request, token, {"channel_id": channel_id}, level="WARNING")
-        raise HTTPException(status_code=403, detail="Invalid or disabled token")
+        raise _proxy_token_denied(request)
     with db.conn() as con:
         row = con.execute(
             "SELECT * FROM channels WHERE tvg_id = ? LIMIT 1", (channel_id,)
@@ -4103,8 +4235,10 @@ def do_setup(body: dict):
     token = body.get("admin_token", "").strip()
     base_url = body.get("base_url", "").strip().rstrip("/")
     proxy_url = body.get("proxy_url", "").strip().rstrip("/")
-    if not token or len(token) < 8:
-        raise HTTPException(status_code=400, detail="Token must be at least 8 characters")
+    # Mindestens 12 Zeichen (Fund 16). Gilt nur bei der Neueinrichtung — bestehende,
+    # kürzere Token funktionieren weiter, hier wird kein Bestand geprüft.
+    if not token or len(token) < 12:
+        raise HTTPException(status_code=400, detail="Token must be at least 12 characters")
     if not base_url:
         raise HTTPException(status_code=400, detail="Base URL required")
     db.set_setting("admin_token", _hash_admin_token(token))
@@ -4117,6 +4251,24 @@ def do_setup(body: dict):
 _failed_attempts: dict = {}  # {ip: {"count": int, "blocked_until": float}}
 MAX_ATTEMPTS = 10
 BLOCK_SECONDS = 300  # 5 minutes
+
+# ── Kurzzeit-Cache für erfolgreich geprüfte Admin-Token (Fund 6) ───────────────
+# _verify_admin_token rechnet 600.000 PBKDF2-Runden. Für einen Login ist das richtig,
+# für eine API mit 10-Sekunden-Auto-Refresh im Panel ist es teuer — und zwar auf dem
+# gleichen Prozess, der die Segmente der Zuschauer ausliefert.
+# Gespeichert wird NICHT das Token, sondern sha256(prozess-salt + token); das Salt
+# lebt nur im Speicher und ist bei jedem Neustart neu. Zusätzlich hängt der Eintrag am
+# DB-Wert: wird das Admin-Token geändert, passt der hinterlegte Hash nicht mehr und es
+# wird wieder voll gerechnet. Fehlversuche landen NIE im Cache.
+ADMIN_CACHE_TTL = 180          # Sekunden — kurz genug, dass ein Tokenwechsel schnell greift
+ADMIN_CACHE_MAX = 32           # so viele verschiedene Token gleichzeitig (Panel-Sitzungen)
+_admin_cache_salt = secrets.token_bytes(16)
+_admin_token_cache: dict = {}  # {schluessel: {"stored": str, "until": float}}
+_admin_cache_lock = threading.Lock()
+
+
+def _admin_cache_key(token: str) -> str:
+    return hashlib.sha256(_admin_cache_salt + (token or "").encode("utf-8")).hexdigest()
 
 def check_admin(x_admin_token: str = Header(...), request: Request = None):
     # Echte Verbindungs-IP verwenden. X-Forwarded-For ist client-seitig fälschbar und
@@ -4141,7 +4293,19 @@ def check_admin(x_admin_token: str = Header(...), request: Request = None):
 
     admin_token = db.get_admin_token()
 
-    if not admin_token or not _verify_admin_token(x_admin_token, admin_token):
+    # Schnellweg: dieses Token wurde vor Kurzem schon voll geprüft und der DB-Wert
+    # ist unverändert. Vergleich zeitkonstant über hmac.compare_digest.
+    schluessel = _admin_cache_key(x_admin_token)
+    aus_cache = False
+    with _admin_cache_lock:
+        eintrag = _admin_token_cache.get(schluessel)
+        if eintrag:
+            if eintrag["until"] <= now:
+                _admin_token_cache.pop(schluessel, None)
+            elif admin_token and hmac.compare_digest(eintrag["stored"], admin_token):
+                aus_cache = True
+
+    if not aus_cache and (not admin_token or not _verify_admin_token(x_admin_token, admin_token)):
         attempt["count"] += 1
         attempt["ts"] = now
         if attempt["count"] >= MAX_ATTEMPTS:
@@ -4153,11 +4317,21 @@ def check_admin(x_admin_token: str = Header(...), request: Request = None):
 
     # Erfolg: alten Klartext-Token transparent auf einen Hash migrieren
     # (nur wenn er in der DB liegt – nicht bei festem ADMIN_TOKEN aus der Env).
-    if not os.getenv("ADMIN_TOKEN") and not admin_token.startswith("pbkdf2_sha256$"):
+    if not aus_cache and not os.getenv("ADMIN_TOKEN") and not admin_token.startswith("pbkdf2_sha256$"):
         try:
             db.set_setting("admin_token", _hash_admin_token(x_admin_token))
+            admin_token = db.get_admin_token()   # Cache am neuen DB-Wert festmachen
         except Exception:
             pass
+
+    # Erfolgreiche Prüfung für kurze Zeit merken (nur der Volle-Rechnung-Weg füllt den Cache)
+    if not aus_cache:
+        with _admin_cache_lock:
+            for _k in [k for k, v in _admin_token_cache.items() if v["until"] <= now]:
+                _admin_token_cache.pop(_k, None)
+            if len(_admin_token_cache) < ADMIN_CACHE_MAX:
+                _admin_token_cache[schluessel] = {"stored": admin_token,
+                                                  "until": now + ADMIN_CACHE_TTL}
 
     # Success – reset counter
     if ip in _failed_attempts:
@@ -4183,7 +4357,16 @@ def list_users(_=Depends(check_admin)):
 def create_user(body: dict, _=Depends(check_admin)):
     name = body.get("name", "").strip()
     notes = body.get("notes", "").strip()
-    max_streams = body.get("max_streams", 1)
+    # max_streams wurde bis v1.82 gelesen, aber nie gespeichert (Fund 4) — es galt
+    # immer der DB-Standard 1. 0 bedeutet "unbegrenzt" (so wertet es die Kapazitäts-
+    # rechnung in database.py:931), darum ist 0 erlaubt; Obergrenze als Schutz gegen
+    # Tippfehler wie 10000.
+    try:
+        max_streams = int(body.get("max_streams", 1))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="max_streams must be a number")
+    if max_streams < 0 or max_streams > 99:
+        raise HTTPException(status_code=400, detail="max_streams must be between 0 and 99")
     allowed_groups = body.get("allowed_groups", "").strip() if body.get("allowed_groups") else None
     if not name:
         raise HTTPException(status_code=400, detail="name required")
@@ -4198,7 +4381,8 @@ def create_user(body: dict, _=Depends(check_admin)):
         except Exception:
             provider_id = None
     token = secrets.token_hex(12)   # 96 Bit, kryptografisch sicher (öffentliche Stream-URL)
-    user = db.create_user(name=name, token=token, m3u_source=m3u_source, notes=notes, provider_id=provider_id)
+    user = db.create_user(name=name, token=token, m3u_source=m3u_source, notes=notes,
+                          provider_id=provider_id, max_streams=max_streams)
     if allowed_groups:
         db.update_user(user["id"], {"allowed_groups": allowed_groups})
     short_token = db.generate_short_token(user["id"])
@@ -4917,7 +5101,7 @@ def add_epg(body: dict, _=Depends(check_admin)):
     provider_id = body.get("provider_id")
     if provider_id is not None:
         try: provider_id = int(provider_id)
-        except: provider_id = None
+        except (TypeError, ValueError): provider_id = None
     if not name or not url:
         raise HTTPException(status_code=400, detail="name and url required")
     return db.add_epg_source(name, url, provider_id)
@@ -5691,6 +5875,11 @@ def _vpn_list_ovpn_files() -> list:
         )
     except Exception:
         return []
+
+
+# Erlaubte VPN-Config-Dateinamen (Fund 17): nur harmlose Zeichen, damit der Name
+# gefahrlos im Panel angezeigt werden kann. Gilt fuer Upload UND Mullvad-Import.
+_VPN_FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 
 
 def _vpn_list_all_configs() -> list:
@@ -6787,6 +6976,10 @@ async def mullvad_import(body: dict, _=Depends(check_admin)):
             "AllowedIPs = 0.0.0.0/0\n"
         )
         fn = f"mullvad-{host}.conf"
+        # hostname kommt von der Mullvad-API, also von einem Dritten (Fund 18):
+        # nicht passende Namen werden uebersprungen statt auf Platte geschrieben.
+        if not _VPN_FILENAME_RE.match(fn):
+            continue
         dest = os.path.join(VPN_OVPN_DIR, fn)
         if not os.path.realpath(dest).startswith(os.path.realpath(VPN_OVPN_DIR) + os.sep):
             continue   # Zweite Verteidigungslinie gegen Zip-Slip/Path-Traversal
@@ -6946,6 +7139,15 @@ async def vpn_upload_ovpn(request: Request, _=Depends(check_admin)):
         filename = os.path.basename(file.filename)
         if not filename.endswith(".conf"):
             raise HTTPException(status_code=400, detail="Nur .conf (WireGuard, z.B. Mullvad) erlaubt")
+        # Der Dateiname wird spaeter im Panel angezeigt. Bis v1.82 wurde nur
+        # basename+Endung geprueft, ein Name wie "<img src=x onerror=...>.conf" landete
+        # auf Platte und lief bei jedem Aufruf der VPN-Seite als Code (Fund 17).
+        # Hier ist die Wurzel: nur unverfaengliche Zeichen zulassen.
+        if not _VPN_FILENAME_RE.match(filename):
+            raise HTTPException(
+                status_code=400,
+                detail="Ungueltiger Dateiname — erlaubt sind nur Buchstaben, Ziffern, "
+                       "Punkt, Bindestrich und Unterstrich (max. 120 Zeichen).")
         dest = os.path.join(VPN_OVPN_DIR, filename)
         content = await file.read()
         # WireGuard-Configs sind winzig (wenige hundert Byte). 256 KB ist großzügig und

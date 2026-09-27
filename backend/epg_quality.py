@@ -13,6 +13,19 @@ Sender sauber. Werden mehrere Spuren gebraucht, sind Programmlisten vermischt.
 Das Modul liest die Datei streamend (iterparse + clear) und baut bewusst KEINEN
 ElementTree im Speicher auf — eine 600-MB-XMLTV-Datei würde als Objektbaum
 mehrere Gigabyte belegen.
+
+Ehrlich zum Speicher (bis v1.82 stand hier zu wenig): die Sendezeiten MUSS das
+Modul sammeln, sonst lassen sich die Spuren nicht bilden. Der Verbrauch wächst
+also mit der Zahl der Sendungen im gewählten Zeitraum. Zwei Bremsen dagegen:
+
+* Titel werden im ersten Durchlauf NICHT mitgenommen (sie waren der größte
+  Posten). Erst für die wenigen auffälligen Sender der Detailansicht liest ein
+  zweiter, gefilterter Durchlauf die Titel nach.
+* MAX_PROGRAMMES begrenzt die Gesamtzahl gesammelter Sendungen hart; wird die
+  Grenze erreicht, steht "truncated": true im Ergebnis.
+
+Mit `day="YYYY-MM-DD"` bleibt der Verbrauch in jedem Fall klein — das ist der
+empfohlene Weg bei sehr großen Quellen.
 """
 from __future__ import annotations
 
@@ -21,6 +34,13 @@ import xml.etree.ElementTree as ET
 
 # Titel werden nur für die Detailansicht gebraucht — gekürzt halten spart Speicher.
 _TITLE_MAX = 80
+
+# Obergrenze der gesammelten Sendungen (Start/Stop-Paare). 400.000 Paare sind
+# großzügig für jede realistische Tagesabfrage und liegen im zweistelligen
+# MB-Bereich; die Vollquelle aus v1.81 (1,27 Mio. Sendungen) läuft dagegen in
+# die Grenze und wird sauber als abgeschnitten gemeldet statt den Prozess zu
+# füllen — auf dem Board teilt sich die Prüfung den Speicher mit den Streams.
+MAX_PROGRAMMES = 400_000
 
 
 def _fmt(ts: str, offset_h: int) -> str:
@@ -54,10 +74,17 @@ def _tracks(programmes: list) -> list:
     return tracks
 
 
-def _collect(path: str, day_prefix: str):
-    """XMLTV streamend einlesen -> (namen{id:name}, sendungen{id:[(start,stop,titel)]})."""
+def _collect(path: str, day_prefix: str, max_programmes: int = MAX_PROGRAMMES):
+    """XMLTV streamend einlesen -> (namen{id:name}, zeiten{id:[(start,stop)]}, abgeschnitten).
+
+    OHNE Titel — die holt _collect_titles() später nur für die Sender der
+    Detailansicht nach. Bei mehr als max_programmes Sendungen wird abgebrochen
+    und das dritte Rückgabefeld ist True.
+    """
     names: dict = {}
     programmes: dict = {}
+    gezaehlt = 0
+    abgeschnitten = False
     for _event, elem in ET.iterparse(path, events=("end",)):
         tag = elem.tag
         if tag == "channel":
@@ -67,16 +94,45 @@ def _collect(path: str, day_prefix: str):
                 names[cid] = " ".join(disp.split())[:60]
             elem.clear()
         elif tag == "programme":
+            if abgeschnitten:
+                elem.clear()
+                continue
             cid = elem.get("channel") or ""
             start = (elem.get("start") or "")[:14]
             stop = (elem.get("stop") or "")[:14]
             if cid and len(start) == 14 and len(stop) == 14 and (
                 not day_prefix or start.startswith(day_prefix)
             ):
-                title = " ".join((elem.findtext("title") or "?").split())[:_TITLE_MAX]
-                programmes.setdefault(cid, []).append((start, stop, title))
+                programmes.setdefault(cid, []).append((start, stop))
+                gezaehlt += 1
+                if max_programmes and gezaehlt >= max_programmes:
+                    # Kanalnamen weiter einlesen (die sind billig), Sendungen nicht mehr.
+                    abgeschnitten = True
             elem.clear()
-    return names, programmes
+    return names, programmes, abgeschnitten
+
+
+def _collect_titles(path: str, day_prefix: str, cids: set) -> dict:
+    """Zweiter, gefilterter Durchlauf: {id: [(start, stop, titel)]} für wenige Sender."""
+    out: dict = {}
+    if not cids:
+        return out
+    for _event, elem in ET.iterparse(path, events=("end",)):
+        if elem.tag != "programme":
+            if elem.tag == "channel":
+                elem.clear()
+            continue
+        cid = elem.get("channel") or ""
+        if cid in cids:
+            start = (elem.get("start") or "")[:14]
+            stop = (elem.get("stop") or "")[:14]
+            if len(start) == 14 and len(stop) == 14 and (
+                not day_prefix or start.startswith(day_prefix)
+            ):
+                title = " ".join((elem.findtext("title") or "?").split())[:_TITLE_MAX]
+                out.setdefault(cid, []).append((start, stop, title))
+        elem.clear()
+    return out
 
 
 def analyze(path: str, *, tz_offset_h: int = 2, day: str = "",
@@ -89,7 +145,7 @@ def analyze(path: str, *, tz_offset_h: int = 2, day: str = "",
     detail_limit: für so viele der auffälligsten Sender die Spuren ausgeben
     """
     day_prefix = day.replace("-", "") if day else ""
-    names, programmes = _collect(path, day_prefix)
+    names, programmes, abgeschnitten = _collect(path, day_prefix)
 
     needle = name_filter.strip().lower()
     checked = 0
@@ -113,8 +169,13 @@ def analyze(path: str, *, tz_offset_h: int = 2, day: str = "",
     # Auffälligste zuerst: viele Spuren wiegen schwerer als viele Sendungen.
     hits.sort(key=lambda h: (-h["tracks"], -h["programmes"]))
 
+    # Titel erst jetzt nachladen — nur für die Sender, die in die Detailansicht kommen.
+    detail_hits = hits[:max(0, detail_limit)]
+    titel = _collect_titles(path, day_prefix, {h["tvg_id"] for h in detail_hits})
+
     details = []
-    for hit in hits[:max(0, detail_limit)]:
+    for hit in detail_hits:
+        mit_titel = _tracks(titel.get(hit["tvg_id"], []))
         details.append({
             "tvg_id": hit["tvg_id"],
             "name": hit["name"],
@@ -128,7 +189,7 @@ def analyze(path: str, *, tz_offset_h: int = 2, day: str = "",
                         for s, e, t in track[:sample_limit]
                     ],
                 }
-                for track in hit["_tracks"]
+                for track in mit_titel
             ],
         })
 
@@ -143,4 +204,6 @@ def analyze(path: str, *, tz_offset_h: int = 2, day: str = "",
         "tz_offset_h": tz_offset_h,
         "channels": hits,
         "details": details,
+        # True = die Quelle war großer als MAX_PROGRAMMES, es wurde nur ein Teil geprüft
+        "truncated": abgeschnitten,
     }
