@@ -28,11 +28,19 @@ fi
 
 echo "📥 Lade aktuelle Dateien von GitHub..."
 
+# WICHTIG: Hier muss JEDE Python-Datei aus backend/ stehen. Fehlt eine, entsteht ein
+# stiller Mischstand (neues main.py, altes security_util.py), der erst spaeter auffaellt.
+# Bis v1.82 fehlten epg_merge, epg_quality, security_util, hls und timeparse.
 FILES=(
     "backend/main.py"
     "backend/database.py"
     "backend/m3u_parser.py"
     "backend/server.py"
+    "backend/epg_merge.py"
+    "backend/epg_quality.py"
+    "backend/security_util.py"
+    "backend/hls.py"
+    "backend/timeparse.py"
     "frontend/index.html"
     "frontend/setup.html"
 )
@@ -66,12 +74,33 @@ for FILE in "${FILES[@]}"; do
     fi
 done
 
+# requirements.txt wird NICHT eingespielt: ein 'docker cp' installiert nichts.
+# Stattdessen vergleichen und warnen, wenn sich die Abhaengigkeiten geaendert haben —
+# dann hilft nur ein echtes Image-Update (docker pull + recreate).
+if curl -sf -o "${TMP}/requirements.txt" "${BASE_URL}/backend/requirements.txt"; then
+    if docker exec "$CONTAINER" cat /app/requirements.txt > "${TMP}/requirements.container" 2>/dev/null; then
+        if ! diff -q "${TMP}/requirements.txt" "${TMP}/requirements.container" > /dev/null; then
+            echo ""
+            echo "⚠️  requirements.txt hat sich geaendert – Live-Patch reicht NICHT."
+            echo "   Bitte ein echtes Image-Update fahren (docker pull + Container neu anlegen)."
+        fi
+    fi
+fi
+
 rm -rf "$TMP"
 
 echo ""
 if [ $UPDATED -gt 0 ]; then
     echo "🔄 $UPDATED Datei(en) aktualisiert – starte Container neu..."
     docker restart "$CONTAINER"
+    echo ""
+    # Versionszeile aus dem Container lesen: so faellt ein Mischstand sofort auf.
+    VERSION=$(docker exec "$CONTAINER" sh -c "grep -o 'selfstream v[0-9.]*' /app/frontend/index.html | head -1" 2>/dev/null || true)
+    if [ -n "$VERSION" ]; then
+        echo "   Version im Container: ${VERSION}"
+    else
+        echo "   ⚠️  Versionszeile im Container nicht gefunden – bitte Logs pruefen."
+    fi
     echo ""
     echo "✅ selfstream wurde aktualisiert!"
     echo "   Logs: docker logs ${CONTAINER} --tail 20"

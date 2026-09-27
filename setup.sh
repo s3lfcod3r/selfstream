@@ -25,9 +25,13 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
   echo ""
   read -p "   Deine Unraid IP (z.B. 192.168.1.100):  " UNRAID_IP
 
+  # BASE_URL ist die Admin-Panel-Adresse (Port 8080), PROXY_URL die Stream-Adresse
+  # (Port 8000). Bis v1.82 stand hier faelschlich der Proxy-Port in BASE_URL, dadurch
+  # zeigte der Admin-Link im Panel auf :8000.
   cat > "$INSTALL_DIR/.env" << EOF
 ADMIN_TOKEN=$ADMIN_TOKEN
-BASE_URL=http://$UNRAID_IP:8000
+BASE_URL=http://$UNRAID_IP:8080
+PROXY_URL=http://$UNRAID_IP:8000
 EOF
   chmod 600 "$INSTALL_DIR/.env"   # enthält das Admin-Token → nur für den Besitzer lesbar
   echo "   ✅ .env gespeichert (Rechte 600)"
@@ -50,16 +54,27 @@ fi
 echo ""
 echo "🐳 Docker Container wird geladen und gestartet..."
 cd "$INSTALL_DIR"
-# Image-basiertes Compose (kein lokaler Build-Kontext) -> Image ziehen und starten
-docker-compose pull
-docker-compose up -d
+# Image-basiertes Compose (kein lokaler Build-Kontext) -> Image ziehen und starten.
+# docker compose (v2) zuerst, docker-compose (v1) nur als Rueckfallebene:
+# v1 ist auf aktuellen Systemen nicht mehr installiert.
+if docker compose version > /dev/null 2>&1; then
+  COMPOSE="docker compose"
+elif command -v docker-compose > /dev/null 2>&1; then
+  COMPOSE="docker-compose"
+else
+  echo "❌ Weder 'docker compose' (v2) noch 'docker-compose' (v1) gefunden."
+  exit 1
+fi
+echo "   (verwende: $COMPOSE)"
+$COMPOSE pull
+$COMPOSE up -d
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  ✅  selfstream läuft!                               ║"
 echo "║                                                      ║"
 
-UNRAID_IP_DISPLAY=$(grep BASE_URL "$INSTALL_DIR/.env" | cut -d'/' -f3 | cut -d':' -f1)
+UNRAID_IP_DISPLAY=$(grep '^BASE_URL=' "$INSTALL_DIR/.env" | cut -d'/' -f3 | cut -d':' -f1)
 echo "║  Admin Panel:  http://$UNRAID_IP_DISPLAY:8080/admin        ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
