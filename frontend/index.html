@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.82</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.83</div>
       </div>
     </div>
 
@@ -660,6 +660,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
               <strong style="color:var(--text);font-size:12px;">Qualität prüfen</strong>
+              <!-- value wird beim Laden auf heute gesetzt (setzeEpgPruefTag): ein einzelner
+                   Tag haelt die Pruefung im Server klein. Feld leeren = alle Tage. -->
               <input class="form-input" id="epg-q-day" type="date" style="width:150px;font-size:11px;padding:4px 6px;">
               <input class="form-input" id="epg-q-channel" placeholder="Sender filtern (optional)" style="width:180px;font-size:11px;padding:4px 6px;">
               <button class="btn sm" id="epg-q-btn" onclick="runEpgQuality()">🔎 Prüfen</button>
@@ -1179,7 +1181,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.82</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.83</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -3409,6 +3411,8 @@ async function forceEpgRefresh() {
 async function runEpgQuality() {
   const btn = document.getElementById('epg-q-btn');
   const out = document.getElementById('epg-q-result');
+  // Ohne Datum wird die ganze Quelle geprueft; bei grossen Quellen bricht der Server
+  // bei MAX_PROGRAMMES ab (siehe epg_quality.py). Darum ist das Feld mit heute vorbelegt.
   const day = document.getElementById('epg-q-day').value || '';
   const ch  = document.getElementById('epg-q-channel').value.trim();
   const label = btn.textContent;
@@ -3425,6 +3429,13 @@ async function runEpgQuality() {
       + '<strong style="color:' + col + ';">' + r.affected + ' von ' + r.checked + ' Sendern betroffen</strong>'
       + ' <span style="color:var(--text2);">(' + pct + '% · ' + r.clean + ' sauber · ' + r.size_mb + ' MB'
       + (r.day ? ' · ' + esc(r.day) : '') + ')</span></div>';
+    if (r.truncated) {
+      // Der Server hat bei MAX_PROGRAMMES abgebrochen, damit die Pruefung den
+      // Speicher des Containers nicht fuellt. Mit einem Tag bleibt sie vollstaendig.
+      h += '<div style="font-size:11px;color:var(--yellow,#d29922);margin-bottom:8px;">'
+        + 'Die Quelle ist sehr gross – es wurde nur ein Teil geprüft. Für ein vollständiges '
+        + 'Ergebnis oben ein Datum wählen.</div>';
+    }
     if (!r.affected) {
       h += '<div style="font-size:11px;color:var(--green);">Keine Überlappungen gefunden – die Quelle ist in Ordnung.</div>';
     } else {
@@ -4034,7 +4045,18 @@ function _updateProxyPreview(url) {
 document.addEventListener('DOMContentLoaded', () => {
   const inp = document.getElementById('cfg-short-domain');
   if (inp) inp.addEventListener('input', () => _updateProxyPreview(inp.value.trim()));
+  setzeEpgPruefTag();
 });
+
+// Datum der EPG-Qualitaetspruefung auf heute vorbelegen. Ohne Datum liest der Server
+// die ganze Quelle und bricht bei sehr grossen Quellen bei MAX_PROGRAMMES ab.
+function setzeEpgPruefTag() {
+  const f = document.getElementById('epg-q-day');
+  if (!f || f.value) return;
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  f.value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
 
 function isRetentionTightened(oldVal, nextVal) {
   if (nextVal === oldVal) return false;
@@ -4400,10 +4422,10 @@ function renderOvpnList(files, activePath) {
       ? '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:#14b8a6;color:#04211d;font-weight:700;">WireGuard</span>'
       : '<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:#3b4048;color:var(--text2);font-weight:700;">OpenVPN</span>';
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-      <span style="color:${isActive ? 'var(--teal)' : 'var(--text2)'};">${isActive ? '✅' : '○'} ${_esc(f)}</span>
+      <span style="color:${isActive ? 'var(--teal)' : 'var(--text2)'};">${isActive ? '✅' : '○'} ${esc(f)}</span>
       ${badge}
-      ${!isActive ? `<button class="btn sm" onclick="vpnSetActive('${_esc(f)}')">Aktivieren</button>` : ''}
-      <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn('${_esc(f)}')">🗑</button>
+      ${!isActive ? `<button class="btn sm" onclick="vpnSetActive(b64d('${b64e(f)}'))">Aktivieren</button>` : ''}
+      <button class="btn sm" style="color:#ef4444;" onclick="vpnDeleteOvpn(b64d('${b64e(f)}'))">🗑</button>
     </div>`;
   }).join('');
 }
@@ -4421,7 +4443,7 @@ async function wgAutobestLoad() {
   let txt = r.auto ? '🟢 Auto-Best aktiv' : '⚪ Auto-Best aus';
   if (r.status && r.status.to) {
     const ago = r.last_switch_ago_s != null ? _agoText(r.last_switch_ago_s) : '';
-    txt += `\nLetzter Wechsel${ago ? ' (' + ago + ')' : ''}: ${_esc(r.status.from || '?')} → ${_esc(r.status.to)}`
+    txt += `\nLetzter Wechsel${ago ? ' (' + ago + ')' : ''}: ${esc(r.status.from || '?')} → ${esc(r.status.to)}`
          + ` · ${r.status.latency_ms} ms · Grund: ${r.status.reason === 'bad' ? 'ruckelte' : r.status.reason}`
          + (r.status.mbps != null ? ` (war ${r.status.mbps} Mbit/s)` : '');
   } else {
@@ -4462,7 +4484,7 @@ function mullvadFillSources(files) {
   const keep = sel.value;
   const confs = (files || []).filter(f => /\.conf$/i.test(f));
   sel.innerHTML = '<option value="">– Quelle (.conf) wählen –</option>'
-    + confs.map(f => `<option value="${_esc(f)}">${_esc(f)}</option>`).join('');
+    + confs.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
   if (keep) sel.value = keep;
   else if (confs.length === 1) sel.value = confs[0];  // einzige .conf vorwählen
   mullvadLoadCountries();
@@ -4476,7 +4498,9 @@ async function mullvadLoadCountries() {
     const cs = (r && r.countries) || [];
     if (!cs.length) return;
     sel.innerHTML = '<option value="">Alle Länder</option>'
-      + cs.map(c => `<option value="${_esc(c.code)}">${_esc(c.name)}</option>`).join('');
+      // country_name kommt von der Mullvad-API, also von einem Dritten (Fund 18) —
+      // deshalb hier ebenfalls echte HTML-Maskierung.
+      + cs.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('');
     if (cs.some(c => c.code === 'de')) sel.value = 'de';  // Deutschland vorwählen
     _mvCountriesLoaded = true;
   } catch(e) {}
@@ -4935,7 +4959,12 @@ async function canaryLoad() {
 }
 
 // Ein-Klick-Umschalten (④) — bewusster manueller Server-Wechsel (Tunnel-Neustart)
-function _esc(s) { return String(s).replace(/['"\\]/g, ''); }
+// _esc entfernte bis v1.82 nur Anfuehrungszeichen und Backslash — "<" und ">" gingen
+// durch, ein Config-Dateiname wie <img src=x onerror=...>.conf lief also als Code
+// (Fund 17/18). Jetzt die echte HTML-Maskierung. Fuer Werte, die in einen
+// onclick-Javascript-String muessen, NICHT _esc benutzen, sondern b64e/b64d —
+// HTML-Entities wuerden dort vor dem JS-Parser zurueckverwandelt.
+function _esc(s) { return esc(s); }
 async function vpnSwitchTo(ovpn) {
   if (!confirm(`Auf diesen Server wechseln?\n\n${ovpn}\n\nBei WireGuard nahtlos – nur der Server wird getauscht, das Interface bleibt oben (praktisch keine Unterbrechung, auch mit Zuschauern).`)) return;
   if (typeof showToast === 'function') showToast('🔀 Wechsle…');
