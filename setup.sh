@@ -24,6 +24,15 @@ if [ ! -f "$INSTALL_DIR/.env" ]; then
   read -s -p "   Admin Token (Passwort für Admin Panel): " ADMIN_TOKEN
   echo ""
   read -p "   Deine Unraid IP (z.B. 192.168.1.100):  " UNRAID_IP
+  # IP muss gültig sein, sonst bricht der Setup ab (leeres/ungültiges Feld -> ungültige BASE_URL)
+  if ! echo "$UNRAID_IP" | grep -qE "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"; then
+    echo "   ❌ Ungültige oder leere IP-Adresse. Bitte neu eingeben (z.B. 192.168.1.100)."
+    read -p "   Deine Unraid IP:  " UNRAID_IP
+    if ! echo "$UNRAID_IP" | grep -qE "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"; then
+      echo "   ❌ IP-Adresse ist weiterhin ungültig. Setup abgebrochen." >&2
+      exit 1
+    fi
+  fi
 
   # BASE_URL ist die Admin-Panel-Adresse (Port 8080), PROXY_URL die Stream-Adresse
   # (Port 8000). Bis v1.82 stand hier faelschlich der Proxy-Port in BASE_URL, dadurch

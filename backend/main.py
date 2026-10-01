@@ -4453,6 +4453,15 @@ def update_user(user_id: int, body: dict, _=Depends(check_admin)):
                 body["provider_id"] = None
         else:
             body["provider_id"] = None
+    # max_streams wie bei create_user validieren (0-99)
+    if "max_streams" in body:
+        try:
+            ms = int(body.get("max_streams"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="max_streams must be a number")
+        if ms < 0 or ms > 99:
+            raise HTTPException(status_code=400, detail="max_streams must be between 0 and 99")
+        body["max_streams"] = ms
     db.update_user(user_id, body)
     return {"ok": True}
 
@@ -5550,8 +5559,8 @@ def update_settings(body: dict, _=Depends(check_admin)):
 @admin_app.post("/api/settings/change-password")
 def change_password(body: dict, _=Depends(check_admin)):
     new_token = body.get("new_token", "").strip()
-    if len(new_token) < 8:
-        raise HTTPException(status_code=400, detail="Min 8 characters")
+    if len(new_token) < 12:
+        raise HTTPException(status_code=400, detail="Min 12 characters")
     if os.getenv("ADMIN_TOKEN"):
         raise HTTPException(status_code=400, detail="Password set via environment variable")
     db.set_setting("admin_token", _hash_admin_token(new_token))
