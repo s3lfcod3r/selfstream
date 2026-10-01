@@ -64,7 +64,7 @@ copy_file() {
 # Backend: alle .py-Dateien (dynamisch – neue Module fallen nicht auf)
 while IFS= read -r f; do
     [ -n "$f" ] || continue
-    rel="${f#${SRC}/}"
+    rel="${f#${SRC}/backend/}"
     copy_file "$f" "$rel"
 done < <(find "${SRC}/backend" -name '*.py' -type f | sort)
 
