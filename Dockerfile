@@ -22,9 +22,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 COPY frontend/ ./frontend/
 
+# Optionaler Non-Root-Modus (SELFSTREAM_UID), s. README. Default bleibt
+# root — erforderlich für den VPN (NET_ADMIN + /dev/net/tun).
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+
 EXPOSE 8000 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')" || exit 1
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python", "server.py"]
