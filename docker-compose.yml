@@ -18,6 +18,9 @@ services:
       - ADMIN_TOKEN=${ADMIN_TOKEN:-}
       - BASE_URL=${BASE_URL:-}
       - PROXY_URL=${PROXY_URL:-}
+      # Optional: SELFSTREAM_UID=<uid> -> läuft als Nicht-Root-User
+      # (nur ohne VPN). UID muss zum Host-User des /data-Volume passen.
+      # - SELFSTREAM_UID=${SELFSTREAM_UID:-}
       # ── Hinweise ──────────────────────────────────────────────────────────────
       # BASE_URL  = Admin-Panel-URL, z.B. http://192.168.1.69:8080
       # PROXY_URL = URL über die Streams erreichbar sind:

@@ -330,6 +330,25 @@ Then open `http://YOUR-IP:8080/admin` and follow the Setup Wizard.
 
 > **Note:** `--cap-add=NET_ADMIN` and `--device=/dev/net/tun` are only required if you want to use the built-in VPN feature. You can omit them if you don't need VPN.
 
+> **Optional non-root mode (no VPN):** To reduce the attack surface, you can run
+> selfstream as a non-root user by setting the `SELFSTREAM_UID` environment
+> variable to the UID of the host user that owns the `/data` volume. This is
+> only for setups **without** the VPN (no `NET_ADMIN` / `/dev/net/tun` needed).
+>
+> ```bash
+> docker run -d \
+>   -e SELFSTREAM_UID=1000 \
+>   -p 8000:8000 \
+>   -p 8080:8080 \
+>   -v /mnt/user/appdata/selfstream/data:/data \
+>   ghcr.io/s3lfcod3r/selfstream:latest
+> ```
+>
+> The UID must match the host user that owns the `/data` volume (on Unraid,
+> that is the UID of the user running the container, e.g. 1000 or 101). If it
+> does not match, the container cannot write to the database and will fail to
+> start.
+
 ### Option 3 – docker-compose
 
 ```bash
