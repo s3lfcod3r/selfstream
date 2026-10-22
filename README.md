@@ -2,8 +2,6 @@
 
 <img src="assets/logo.png" width="240" alt="SelfStream logo" />
 
-# SelfStream
-
 **Self-hosted IPTV proxy — with user management, stream protection, EPG, a built-in WireGuard VPN and traffic analysis.**<br>
 *Selbstgehosteter IPTV-Proxy — mit Benutzerverwaltung, Stream-Schutz, EPG, integriertem WireGuard-VPN und Traffic-Analyse.*
 
