@@ -7,7 +7,7 @@
 
 [![Build](https://github.com/s3lfcod3r/selfstream/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/s3lfcod3r/selfstream/actions/workflows/docker-publish.yml)
 ![Version](https://img.shields.io/badge/version-1.83-33A78C)
-![License](https://img.shields.io/badge/license-GPL--3.0-8A9CAA)
+![License](https://img.shields.io/badge/license-All%20rights%20reserved-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-1F7763)
 ![Web](https://img.shields.io/badge/web-Vanilla%20JS-43D3AD)
 ![Deploy](https://img.shields.io/badge/deploy-Docker%20%7C%20Unraid-6F95AD)
@@ -439,7 +439,7 @@ Security update history → [CHANGELOG.md](CHANGELOG.md) (entries marked 🔒).
 | Web | Vanilla HTML · CSS · JS (no framework) |
 | VPN | WireGuard (wireguard-tools in the container) · OpenVPN (legacy fallback) |
 | Deploy | Docker (`python:3.12-slim`, ~200 MB) · GHCR (amd64 + arm64) · Unraid |
-| License | GPL-3.0 — private, homelab and commercial use, modify and share allowed; forks must stay GPL-3.0 and open source ([LICENSE](LICENSE)) |
+| License | All rights reserved — private, non-commercial use only; no copying, modifying, redistributing or selling ([LICENSE](LICENSE)) |
 
 <a id="en-development"></a>
 
@@ -898,7 +898,7 @@ Verlauf der Sicherheitsupdates → [CHANGELOG.md](CHANGELOG.md) (Einträge mit �
 | Web | Vanilla HTML · CSS · JS (kein Framework) |
 | VPN | WireGuard (wireguard-tools im Container) · OpenVPN (Altbestand als Rückfall) |
 | Deploy | Docker (`python:3.12-slim`, ~200 MB) · GHCR (amd64 + arm64) · Unraid |
-| Lizenz | GPL-3.0 — privat, im Homelab und kommerziell nutzbar, verändern und weitergeben erlaubt; Forks müssen GPL-3.0 und quelloffen bleiben ([LICENSE](LICENSE)) |
+| Lizenz | Alle Rechte vorbehalten — nur private, nicht-kommerzielle Nutzung; kein Kopieren, Verändern, Weitergeben oder Verkaufen ([LICENSE](LICENSE)) |
 
 <a id="de-entwicklung"></a>
 
@@ -934,6 +934,26 @@ black --check --diff backend/ tests/                                          # 
 - [ ] `main.py` in Routen-Module aufteilen
 
 <p align="right"><a href="#-deutsch">⬆ nach oben</a></p>
+
+---
+
+## ⚖️ Lizenz / License
+
+**🇩🇪 Alle Rechte vorbehalten.** © 2026 s3lfcod3r / SelfCoder
+
+Du darfst die Software **privat und nicht-kommerziell** installieren und benutzen (z. B. im Homelab, über Docker oder Unraid).
+
+**Ohne schriftliche Erlaubnis verboten:** kommerzielle Nutzung · Kopieren · Verändern · Weitergeben · Einbauen in eigene Projekte (auch Closed Source) · Verkaufen.
+
+Details: [LICENSE](LICENSE)
+
+**🇬🇧 All rights reserved.** © 2026 s3lfcod3r / SelfCoder
+
+You may install and use the software **privately and non-commercially** (e.g. in your home lab, via Docker or Unraid).
+
+**Not permitted without written permission:** commercial use · copying · modifying · redistributing · incorporating into other projects (including closed source) · selling.
+
+Details: [LICENSE](LICENSE)
 
 ---
 
