@@ -11,6 +11,7 @@
 ![Backend](https://img.shields.io/badge/backend-FastAPI-1F7763)
 ![Web](https://img.shields.io/badge/web-Vanilla%20JS-43D3AD)
 ![Deploy](https://img.shields.io/badge/deploy-Docker%20%7C%20Unraid-6F95AD)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support%20me-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/s3lfcod3r)
 
 **[🇬🇧 English](#-english) · [🇩🇪 Deutsch](#-deutsch)**
 
@@ -934,6 +935,16 @@ black --check --diff backend/ tests/                                          # 
 - [ ] `main.py` in Routen-Module aufteilen
 
 <p align="right"><a href="#-deutsch">⬆ nach oben</a></p>
+
+---
+
+## ☕ Support / Unterstützen
+
+**🇬🇧** This project is free for private use and built in my spare time. If it saves you time, a coffee keeps the next update coming. No pressure, a ⭐ on the repo helps too!
+
+**🇩🇪** Dieses Projekt ist für private Nutzung kostenlos und entsteht in meiner Freizeit. Wenn es dir Zeit spart, hält ein Kaffee das nächste Update am Laufen. Kein Muss, ein ⭐ auf dem Repo hilft auch!
+
+<a href="https://ko-fi.com/s3lfcod3r"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi" /></a>
 
 ---
 
