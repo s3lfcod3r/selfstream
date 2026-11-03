@@ -2,6 +2,42 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-84"></a>
+
+## v1.84 — EPG-Abruf beendet den Container nicht mehr
+
+Der Container wurde alle paar Tage vom Kernel per OOM-Kill beendet (Limit 1 GB). Auslöser war
+jedes Mal der EPG-Abruf alle 6 Stunden: Er las die neue EPG als Text ein, baute daraus einen
+vollständigen XML-Baum und daraus den Ausgabetext — während der alte Text und der alte Baum noch
+im Speicher lagen. Bei 24 MB EPG waren das rund 370 MB zusätzlich auf einen Schlag. Weil glibc
+den freigegebenen Speicher nicht ans System zurückgab, stieg die Grundlast außerdem mit jedem Lauf.
+
+**Was sich ändert**
+
+- Die EPG liegt nur noch auf der Platte. `_epg_cache` merkt sich Zeitpunkt, Quelle und Größe,
+  nicht mehr den Text.
+- `_filter_epg_file` filtert von Datei zu Datei: `ET.parse` liest blockweise, der Zielbaum wird
+  direkt in die Datei geschrieben. Der alte Baum wird vor dem Filtern verworfen.
+- Der Baum für Programmanzeige und Catchup-Titel ist schlank: nur Sender-ID, Anzeigename, Zeiten,
+  Titel und eine auf 120 Zeichen gekürzte Beschreibung. Schlüssel ist Änderungszeit und Größe der
+  Datei statt eines MD5 über den kompletten Text bei jedem Aufruf.
+- Alle vier Ladewege (Auto-Abruf, `/iptv/epg.xml`, „Neu laden“, Download im Panel) laufen über
+  `_epg_neu_laden`. Der Download lud die Quelle vorher ungefiltert per `resp.text` komplett in den
+  Speicher. `/iptv/epg.xml` und „Neu laden“ berücksichtigen jetzt auch weitere EPG-Quellen.
+- Höchstens ein Abruf und ein Filterlauf gleichzeitig, damit sich Spitzen nicht addieren.
+- Nach jedem großen EPG-Lauf gibt `malloc_trim(0)` den freien Speicher zurück;
+  `MALLOC_ARENA_MAX=2` im Image verhindert eine eigene 64-MB-Arena pro Worker-Thread.
+
+**Gemessen** an derselben echten EPG (164 Sender, 46.584 Sendungen, Inhalt identisch):
+
+| | v1.83 | v1.84 |
+|---|---|---|
+| Grundlast mit EPG | 197 MB | 93 MB |
+| Spitze beim Abruf | +369 MB | +148 MB |
+| Nach dem Abruf | 279 MB | 95 MB |
+
+Im Speicher-Monitor (`/api/memstats`) steht statt `epg_cache_kb` jetzt `epg_tree_programmes`.
+
 <a id="v1-83"></a>
 
 ## v1.83 — Zugangsdaten raus aus dem Log, Sammelrunde aus der Code-Durchsicht
