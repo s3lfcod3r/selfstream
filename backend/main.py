@@ -13,6 +13,7 @@ import threading
 import subprocess
 import urllib.parse
 import re
+import shutil
 import json
 import io
 import csv
@@ -355,6 +356,28 @@ def _epg_max_mb() -> int:
 
 EPG_ROH_MAX_MB = 2048           # Notbremse für den ungefilterten Datenstrom
 
+# Höchstens ein EPG-Abruf und ein Filterlauf gleichzeitig – sonst addieren sich
+# die Speicherspitzen (Auto-Abruf, /iptv/epg.xml, „Neu laden“, Download).
+_epg_lade_sperre = asyncio.Lock()
+_epg_filter_sperre = threading.Lock()
+
+
+def _speicher_freigeben() -> None:
+    """Nach großen EPG-Läufen freien Heap an das System zurückgeben.
+
+    Python gibt freigegebene Objekte an glibc zurück, glibc den Speicher aber
+    nicht ans System: Der RSS blieb nach jeder Spitze oben und wuchs von Lauf zu
+    Lauf (gemessen: +85 MB pro EPG-Abruf). malloc_trim(0) gibt die freien
+    Bereiche aller Arenen zurück.
+    """
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
 
 def _normname(name: str) -> str:
     return " ".join((name or "").lower().split())
@@ -491,7 +514,7 @@ async def _fetch_epg_text(source_url: str, ids: set = None, namen: set = None) -
 def _eigene_sender() -> tuple:
     """IDs und Anzeigenamen der Sender, für die wir überhaupt EPG brauchen.
 
-    Dieselbe Menge, die `_filter_epg_xml` später ohnehin anwendet — nur eben
+    Dieselbe Menge, die `_filter_epg_root` später ohnehin anwendet — nur eben
     schon beim Herunterladen, damit große Quellen gar nicht erst im Speicher
     landen. Ohne eingeschaltete Kanal-Filterung bleibt alles wie bisher.
     """
@@ -505,13 +528,31 @@ def _eigene_sender() -> tuple:
     return ids, {n for n in namen if n}
 
 
-async def _fetch_and_cache_epg():
-    """Fetch EPG from source, update memory + disk cache."""
+async def _epg_neu_laden() -> int:
+    """EPG aus allen aktiven Quellen holen und /data/epg_cache.xml neu schreiben.
+
+    Einziger Abrufweg: Auto-Abruf, /iptv/epg.xml, „Neu laden“ und der Download im
+    Panel laufen alle hierüber. Vorher hatte jeder Weg seine eigene Kopie, und
+    zwei davon zogen die Quelle ungefiltert komplett in den Speicher.
+
+    Speicher: Die EPG liegt nur noch auf der Platte. Gefiltert wird von Datei zu
+    Datei im Threadpool, der alte Baum wird vorher verworfen statt neben der
+    neuen Fassung weiterzuleben (das war der OOM-Kill alle paar Tage).
+
+    Gibt die Größe der neuen Datei in Bytes zurück (0 ohne aktive Quelle) und
+    wirft bei Fehlern – der bisherige Plattencache bleibt dann stehen.
+    """
     global _epg_cache
-    try:
+    if _epg_lade_sperre.locked():
+        # Läuft schon – auf das Ergebnis warten statt ein zweites Mal zu laden.
+        async with _epg_lade_sperre:
+            pass
+        if _epg_cache.get("fetched_at") and os.path.exists("/data/epg_cache.xml"):
+            return _epg_cache.get("size", 0)
+    async with _epg_lade_sperre:
         aktive = [e for e in db.get_epg_sources() if e["active"]]
         if not aktive:
-            return False
+            return 0
         source_url = aktive[0]["url"]
 
         # Alle aktiven Quellen holen. Die erste hat Vorrang, die weiteren füllen
@@ -524,6 +565,10 @@ async def _fetch_and_cache_epg():
                 f.write(text)
             dateien.append(pfad)
             del text
+
+        # Alten Baum jetzt schon verwerfen, nicht erst nach dem Filtern.
+        _epg_tree_cache["root"] = None
+        _tvg_id_cache.clear()
 
         now = int(time.time())
         if len(dateien) > 1:
@@ -539,25 +584,31 @@ async def _fetch_and_cache_epg():
             if zusammen.get("ambiguous"):
                 diag_log("INFO", "epg", f"EPG-Zusammenfuehrung: {zusammen['ambiguous']} Sender "
                                         f"wegen mehrdeutigem Namen nicht zugeordnet")
-            with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
-                content = f.read()
+        elif db.get_setting("epg_filter_channels", "0") == "1":
+            await asyncio.to_thread(_filter_epg_file, dateien[0], "/data/epg_cache.xml", 7)
         else:
-            with open(dateien[0], "r", encoding="utf-8") as f:
-                content = f.read()
-            if db.get_setting("epg_filter_channels", "0") == "1":
-                content = _filter_epg_xml(content, days_back=7)
-            with open("/data/epg_cache.xml", "w", encoding="utf-8") as f:
-                f.write(content)
+            await asyncio.to_thread(shutil.copyfile, dateien[0], "/data/epg_cache.xml.tmp")
+            os.replace("/data/epg_cache.xml.tmp", "/data/epg_cache.xml")
 
-        _epg_cache = {"content": content, "fetched_at": now, "url": source_url}
-        logger.info(f"EPG auto-fetched and cached ({len(content)//1024}KB)")
+        groesse = os.path.getsize("/data/epg_cache.xml")
+        _epg_cache = {"fetched_at": now, "url": source_url, "size": groesse}
+        _epg_tree_cache["root"] = None
+        _tvg_id_cache.clear()
+        logger.info(f"EPG auto-fetched and cached ({groesse//1024}KB)")
         # Mitschreiben, solange die Sendungen noch geliefert werden — das Fenster
         # des Anbieters wandert weiter, das eigene Archiv bleibt.
         try:
-            _archive_epg_from_disk()
+            await asyncio.to_thread(_archive_epg_from_disk)
         except Exception as _ea:
             logger.warning(f"EPG archive after fetch failed: {_ea}")
-        return True
+        await asyncio.to_thread(_speicher_freigeben)
+        return groesse
+
+
+async def _fetch_and_cache_epg():
+    """Wie _epg_neu_laden, aber ohne Ausnahme: True bei Erfolg, sonst False."""
+    try:
+        return await _epg_neu_laden() > 0
     except Exception as e:
         logger.warning(f"EPG auto-fetch failed: {e}")
         diag_log("WARNING", "epg", f"EPG auto-fetch failed: {e}")
@@ -575,17 +626,20 @@ async def _epg_watchdog():
             refresh_secs = refresh_hours * 3600
             now = int(time.time())
             cache_age = now - _epg_cache.get("fetched_at", 0)
-            cache_ok = _epg_cache.get("content") and cache_age < refresh_secs
+            cache_ok = os.path.exists("/data/epg_cache.xml") and cache_age < refresh_secs
 
             if not cache_ok:
-                # Try memory cache missing → load from disk first
-                if not _epg_cache.get("content"):
+                # Nach dem Start: Alter der Plattendatei übernehmen, statt sofort neu
+                # zu laden. Der Text selbst bleibt auf der Platte.
+                if not _epg_cache.get("fetched_at"):
                     try:
-                        with open("/data/epg_cache.xml", "r", encoding="utf-8") as f:
-                            content = f.read()
-                        if content:
-                            _epg_cache["content"] = content
-                            _epg_cache["fetched_at"] = int(os.path.getmtime("/data/epg_cache.xml"))
+                        if os.path.getsize("/data/epg_cache.xml") > 0:
+                            aktive = [e for e in db.get_epg_sources() if e["active"]]
+                            _epg_cache = {
+                                "fetched_at": int(os.path.getmtime("/data/epg_cache.xml")),
+                                "url": aktive[0]["url"] if aktive else "",
+                                "size": os.path.getsize("/data/epg_cache.xml"),
+                            }
                             logger.info("EPG loaded from disk cache")
                             cache_age = now - _epg_cache["fetched_at"]
                             cache_ok = cache_age < refresh_secs
@@ -3578,11 +3632,13 @@ async def proxy_catchup(token: str, channel_id: str, utc: str = None, lutc: str 
     return RedirectResponse(url=redirect_url)
 
 
-# EPG cache: (content, fetched_at_timestamp, source_url)
-_epg_cache: dict = {"content": None, "fetched_at": 0, "url": ""}
+# EPG cache: Zeitpunkt, Quelle und Größe von /data/epg_cache.xml. Der Text selbst
+# liegt nur auf der Platte (24 MB EPG ≈ 45 MB als Python-Text).
+_epg_cache: dict = {"fetched_at": 0, "url": "", "size": 0}
 
 # Parsed EPG tree cache — avoid re-parsing XML on every channel switch
-_epg_tree_cache: dict = {"root": None, "content_hash": None}
+_epg_tree_cache: dict = {"root": None, "key": None}
+_epg_baum_sperre = threading.Lock()
 
 # Schutz gegen DoS über wiederholten Zwangs-Refresh (?force=1): die EPG-Endpunkte sind
 # ohne Token erreichbar. Ein erzwungener Frisch-Abruf ist darum höchstens 1×/60 s erlaubt;
@@ -3603,25 +3659,24 @@ def _epg_force_ok(force) -> bool:
 @proxy_app.get("/iptv/epg.xml")
 async def global_epg(force: str = None):
     """Global EPG URL – no token needed, same for all users. Cached."""
-    global _epg_cache
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
     if not epg_sources:
         raise HTTPException(status_code=404, detail="No EPG source configured")
 
+    from fastapi.responses import FileResponse
     source_url = epg_sources[0]
     refresh_hours = int(db.get_setting("epg_refresh_hours", "6"))
     refresh_secs = refresh_hours * 3600
     now = int(time.time())
     _forced = _epg_force_ok(force)   # force=1 nur max. 1×/60 s (DoS-Schutz)
     cache_valid = (
-        _epg_cache["content"] is not None and
-        _epg_cache["url"] == source_url and
+        _epg_cache.get("fetched_at") and
+        _epg_cache.get("url") == source_url and
         (now - _epg_cache["fetched_at"]) < refresh_secs and
         not _forced
     )
 
     if cache_valid and os.path.exists("/data/epg_cache.xml"):
-        from fastapi.responses import FileResponse
         age_min = (now - _epg_cache["fetched_at"]) // 60
         logger.info(f"EPG served from cache (age: {age_min}min)")
         # Von der Platte streamen statt den kompletten Text pro Abruf im
@@ -3632,36 +3687,14 @@ async def global_epg(force: str = None):
             headers={"X-EPG-Cache": "HIT", "X-EPG-Age-Minutes": str(age_min)}
         )
 
-    try:
-        logger.info(f"Fetching EPG from {_mask_creds(source_url)}")
-        content_text = await _fetch_epg_text(source_url)
-
-        # Filter EPG to only include channels we have in DB
-        filter_epg = db.get_setting("epg_filter_channels", "0") == "1"
-        if filter_epg:
-            content_text = _filter_epg_xml(content_text, days_back=7)
-
-        _epg_cache = {"content": content_text, "fetched_at": now, "url": source_url}
-        _epg_tree_cache["root"] = None  # invalidate parsed tree
-        _tvg_id_cache.clear()           # invalidate tvg_id lookup cache
-        logger.info(f"EPG cached ({len(content_text)//1024}KB)")
-        # Write to disk so admin-app thread can read it too
-        try:
-            with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
-                _f.write(content_text)
-        except Exception as _e:
-            logger.warning(f"EPG disk cache write failed: {_e}")
-            diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
-        return HTMLResponse(content=content_text, media_type="application/xml",
-                           headers={"X-EPG-Cache": "MISS"})
-    except Exception as e:
-        _e_epg = _mask_creds(e)
-        if _epg_cache["content"]:
-            logger.warning(f"EPG fetch failed, serving stale cache: {_e_epg}")
-            diag_log("WARNING", "epg", f"EPG fetch failed, serving stale cache: {_e_epg}")
-            return HTMLResponse(content=_epg_cache["content"], media_type="application/xml",
-                               headers={"X-EPG-Cache": "STALE"})
-        raise HTTPException(status_code=502, detail="EPG fetch failed")
+    logger.info(f"Fetching EPG from {_mask_creds(source_url)}")
+    ok = await _fetch_and_cache_epg()
+    if os.path.exists("/data/epg_cache.xml"):
+        if not ok:
+            logger.warning("EPG fetch failed, serving stale cache")
+        return FileResponse("/data/epg_cache.xml", media_type="application/xml",
+                            headers={"X-EPG-Cache": "MISS" if ok else "STALE"})
+    raise HTTPException(status_code=502, detail="EPG fetch failed")
 
 
 EPG_ARCHIVE_DAYS_DEFAULT = "30"
@@ -4033,124 +4066,139 @@ def _archiv_vorrang(progs_by_ch: dict, archiv_rows: list, now) -> int:
     return verworfen
 
 
-def _filter_epg_xml(xml_content: str, days_back: int = 1, days_forward: int = 7) -> str:
-    """Filter EPG XML – channel whitelist + time window [now−days_back, now+days_forward] + channel order."""
+def _filter_epg_file(src: str, out: str, days_back: int = 1, days_forward: int = 7) -> None:
+    """EPG-Datei filtern und als neue Datei schreiben – von Platte zu Platte.
+
+    Früher lief das über den kompletten Text: Text + Quellbaum + Zielbaum +
+    Ausgabetext lagen gleichzeitig im Speicher (gemessen bei 24 MB EPG: +323 MB
+    Spitze) – genug, um den Container beim 6-Stunden-Abruf per OOM-Kill zu
+    beenden. Jetzt liest ET.parse die Datei blockweise, und der Zielbaum wird
+    direkt in die Datei geschrieben. Schlägt das Filtern fehl, wird die Quelle
+    ungefiltert übernommen (wie bisher). Blockierend – via to_thread rufen.
+    """
+    tmp = out + ".tmp"
     try:
-        import xml.etree.ElementTree as ET
-        from datetime import datetime, timezone, timedelta
-
-        known_ids = db.get_enabled_epg_ids()
-        if not known_ids:
-            chs = db.get_channels(enabled_only=False)
-            known_ids = {c["tvg_id"] for c in chs if c.get("tvg_id")}
-
-        epg_order = {ch["tvg_id"]: ch["sort_order"] for ch in db.get_epg_channels() if ch["enabled"]}
-
-        root = ET.fromstring(xml_content)
-        new_root = ET.Element("tv")
-        new_root.set("generator-info-name", "selfstream")
-
-        now = datetime.now(timezone.utc)
-        t_from = now - timedelta(days=days_back)
-        t_to = now + timedelta(days=days_forward)
-
-        ch_map = {ch.get("id"): ch for ch in root.findall("channel")}
-        sorted_ids = sorted(
-            [cid for cid in known_ids if cid in ch_map],
-            key=lambda x: epg_order.get(x, 9999)
-        )
-        for cid in sorted_ids:
-            new_root.append(ch_map[cid])
-
-        # Nach Kanal sammeln, damit vermischte Programmlisten aufgelöst werden können.
-        progs_by_ch: dict = {}
-        for prog in root.findall("programme"):
-            ch_id = prog.get("channel", "")
-            if known_ids and ch_id not in known_ids:
-                continue
-            start_str = prog.get("start", "")
-            if start_str:
-                dt = _parse_xmltv_datetime(start_str)
-                if dt is not None and not (t_from <= dt <= t_to):
-                    continue
-            progs_by_ch.setdefault(ch_id, []).append(prog)
-
-        # Aus dem eigenen Archiv ergänzen, was der Anbieter nicht mehr liefert.
-        # Sein Fenster wandert mit; alte Sendungen fallen heraus und fehlen dann
-        # beim Catchup. Ergänzt wird nur, was noch keine Sendung überdeckt.
-        vorrang = db.get_setting("epg_archive_override", "0") == "1"
-        # Vorrang ohne Auffüllen ergäbe Löcher: das Entfernen setzt das Ergänzen voraus.
-        if vorrang or db.get_setting("epg_archive_fill", "1") == "1":
-            try:
-                archiv_rows = db.get_archived_programmes(
-                    t_from.strftime("%Y%m%d%H%M%S"),
-                    t_to.strftime("%Y%m%d%H%M%S"),
-                    known_ids or None)
-                # Auch beim Lesen filtern, nicht nur beim Einlagern: In bereits
-                # bestehenden Archiven stecken Platzhalter aus der Zeit vor v1.78,
-                # und die würden das echte Programm weiter verdrängen.
-                archiv_rows = [r for r in archiv_rows
-                               if not _ist_platzhalter(r["title"], r["descr"],
-                                                       r["start_key"],
-                                                       (r["stop_raw"] or "")[:14])]
-                if vorrang:
-                    _archiv_vorrang(progs_by_ch, archiv_rows, now)
-                from bisect import bisect_left, insort
-
-                # Belegte Sendeplaetze je Sender, nicht nur exakte Zeitstempel: Der
-                # Anbieter verschiebt Sendungen um ein paar Minuten, das Archiv haelt den
-                # alten Stand. Ein Vergleich auf Gleichheit liesse dann BEIDE Fassungen
-                # durch - und erzeugte genau die vermischten Listen, die wir bekaempfen.
-                belegt: dict = {}
-                for cid, plist in progs_by_ch.items():
-                    belegt[cid] = sorted(((p.get("start") or "")[:14],
-                                          (p.get("stop") or "")[:14]) for p in plist)
-                nachgetragen = 0
-                for row in archiv_rows:
-                    cid = row["channel"]
-                    start = row["start_key"]
-                    stop = (row["stop_raw"] or "")[:14]
-                    spannen = belegt.setdefault(cid, [])
-                    i = bisect_left(spannen, (start, ""))
-                    if ((i > 0 and spannen[i - 1][1] > start)
-                            or (i < len(spannen) and spannen[i][0] < stop)):
-                        continue                      # Sendeplatz ist schon besetzt
-                    el = ET.Element("programme", {
-                        "channel": cid,
-                        "start": row["start_raw"],
-                        "stop": row["stop_raw"],
-                    })
-                    if row["title"]:
-                        ET.SubElement(el, "title").text = row["title"]
-                    if row["descr"]:
-                        ET.SubElement(el, "desc").text = row["descr"]
-                    progs_by_ch.setdefault(cid, []).append(el)
-                    insort(spannen, (start, stop))
-                    nachgetragen += 1
-                if nachgetragen:
-                    logger.info(f"EPG: {nachgetragen} Sendungen aus dem Archiv ergänzt")
-            except Exception as _e:
-                logger.warning(f"EPG archive fill failed: {_e}")
-
-        if db.get_setting("epg_dedupe_overlaps", "0") == "1":
-            for cid in list(progs_by_ch):
-                progs_by_ch[cid] = _dominant_track(progs_by_ch[cid])
-
-        for plist in progs_by_ch.values():
-            plist.sort(key=lambda p: (p.get("start") or ""))
-
-        for cid in sorted_ids:                       # erst in der eingestellten Reihenfolge
-            for prog in progs_by_ch.pop(cid, []):
-                new_root.append(prog)
-        for rest in progs_by_ch.values():            # dann alles Übrige
-            for prog in rest:
-                new_root.append(prog)
-
-        return ET.tostring(new_root, encoding="unicode", xml_declaration=True)
+        root = ET.parse(src).getroot()
+        new_root = _filter_epg_root(root, days_back, days_forward)
+        del root                     # Nicht übernommene Sendungen sofort freigeben
+        ET.ElementTree(new_root).write(tmp, encoding="utf-8", xml_declaration=True)
+        del new_root
     except Exception as e:
         logger.error(f"EPG filter failed: {e}")
         diag_log("ERROR", "epg", f"EPG filter failed: {e}")
-        return xml_content
+        shutil.copyfile(src, tmp)
+    os.replace(tmp, out)
+
+
+def _filter_epg_root(root, days_back: int = 1, days_forward: int = 7):
+    """Filter EPG tree – channel whitelist + time window [now−days_back, now+days_forward] + channel order."""
+    known_ids = db.get_enabled_epg_ids()
+    if not known_ids:
+        chs = db.get_channels(enabled_only=False)
+        known_ids = {c["tvg_id"] for c in chs if c.get("tvg_id")}
+
+    epg_order = {ch["tvg_id"]: ch["sort_order"] for ch in db.get_epg_channels() if ch["enabled"]}
+
+    new_root = ET.Element("tv")
+    new_root.set("generator-info-name", "selfstream")
+
+    now = datetime.now(timezone.utc)
+    t_from = now - timedelta(days=days_back)
+    t_to = now + timedelta(days=days_forward)
+
+    ch_map = {ch.get("id"): ch for ch in root.findall("channel")}
+    sorted_ids = sorted(
+        [cid for cid in known_ids if cid in ch_map],
+        key=lambda x: epg_order.get(x, 9999)
+    )
+    for cid in sorted_ids:
+        new_root.append(ch_map[cid])
+
+    # Nach Kanal sammeln, damit vermischte Programmlisten aufgelöst werden können.
+    progs_by_ch: dict = {}
+    for prog in root.findall("programme"):
+        ch_id = prog.get("channel", "")
+        if known_ids and ch_id not in known_ids:
+            continue
+        start_str = prog.get("start", "")
+        if start_str:
+            dt = _parse_xmltv_datetime(start_str)
+            if dt is not None and not (t_from <= dt <= t_to):
+                continue
+        progs_by_ch.setdefault(ch_id, []).append(prog)
+
+    # Aus dem eigenen Archiv ergänzen, was der Anbieter nicht mehr liefert.
+    # Sein Fenster wandert mit; alte Sendungen fallen heraus und fehlen dann
+    # beim Catchup. Ergänzt wird nur, was noch keine Sendung überdeckt.
+    vorrang = db.get_setting("epg_archive_override", "0") == "1"
+    # Vorrang ohne Auffüllen ergäbe Löcher: das Entfernen setzt das Ergänzen voraus.
+    if vorrang or db.get_setting("epg_archive_fill", "1") == "1":
+        try:
+            archiv_rows = db.get_archived_programmes(
+                t_from.strftime("%Y%m%d%H%M%S"),
+                t_to.strftime("%Y%m%d%H%M%S"),
+                known_ids or None)
+            # Auch beim Lesen filtern, nicht nur beim Einlagern: In bereits
+            # bestehenden Archiven stecken Platzhalter aus der Zeit vor v1.78,
+            # und die würden das echte Programm weiter verdrängen.
+            archiv_rows = [r for r in archiv_rows
+                           if not _ist_platzhalter(r["title"], r["descr"],
+                                                   r["start_key"],
+                                                   (r["stop_raw"] or "")[:14])]
+            if vorrang:
+                _archiv_vorrang(progs_by_ch, archiv_rows, now)
+            from bisect import bisect_left, insort
+
+            # Belegte Sendeplaetze je Sender, nicht nur exakte Zeitstempel: Der
+            # Anbieter verschiebt Sendungen um ein paar Minuten, das Archiv haelt den
+            # alten Stand. Ein Vergleich auf Gleichheit liesse dann BEIDE Fassungen
+            # durch - und erzeugte genau die vermischten Listen, die wir bekaempfen.
+            belegt: dict = {}
+            for cid, plist in progs_by_ch.items():
+                belegt[cid] = sorted(((p.get("start") or "")[:14],
+                                      (p.get("stop") or "")[:14]) for p in plist)
+            nachgetragen = 0
+            for row in archiv_rows:
+                cid = row["channel"]
+                start = row["start_key"]
+                stop = (row["stop_raw"] or "")[:14]
+                spannen = belegt.setdefault(cid, [])
+                i = bisect_left(spannen, (start, ""))
+                if ((i > 0 and spannen[i - 1][1] > start)
+                        or (i < len(spannen) and spannen[i][0] < stop)):
+                    continue                      # Sendeplatz ist schon besetzt
+                el = ET.Element("programme", {
+                    "channel": cid,
+                    "start": row["start_raw"],
+                    "stop": row["stop_raw"],
+                })
+                if row["title"]:
+                    ET.SubElement(el, "title").text = row["title"]
+                if row["descr"]:
+                    ET.SubElement(el, "desc").text = row["descr"]
+                progs_by_ch.setdefault(cid, []).append(el)
+                insort(spannen, (start, stop))
+                nachgetragen += 1
+            if nachgetragen:
+                logger.info(f"EPG: {nachgetragen} Sendungen aus dem Archiv ergänzt")
+        except Exception as _e:
+            logger.warning(f"EPG archive fill failed: {_e}")
+
+    if db.get_setting("epg_dedupe_overlaps", "0") == "1":
+        for cid in list(progs_by_ch):
+            progs_by_ch[cid] = _dominant_track(progs_by_ch[cid])
+
+    for plist in progs_by_ch.values():
+        plist.sort(key=lambda p: (p.get("start") or ""))
+
+    for cid in sorted_ids:                       # erst in der eingestellten Reihenfolge
+        for prog in progs_by_ch.pop(cid, []):
+            new_root.append(prog)
+    for rest in progs_by_ch.values():            # dann alles Übrige
+        for prog in rest:
+            new_root.append(prog)
+
+    return new_root
 
 
 def _build_filtered_epg(days: int) -> str:
@@ -4162,29 +4210,26 @@ def _build_filtered_epg(days: int) -> str:
     50-MB-Quelle knapp ein Gigabyte pro Anfrage. Jetzt landet das Ergebnis auf
     der Platte und wird nur neu gebaut, wenn die Quelle frischer ist oder das
     Zeitfenster spürbar weitergewandert ist.
+
+    Die Sperre sorgt dafür, dass gleichzeitige Abrufe (mehrere Geräte, 1d und 7d)
+    nicht mehrere Filterläufe parallel starten und ihre Spitzen addieren.
     """
     src = "/data/epg_cache.xml"
     out = f"/data/epg_filtered_{days}d.xml"
-    try:
-        src_mtime = os.path.getmtime(src)
-    except OSError:
-        return ""
-    try:
-        out_mtime = os.path.getmtime(out)
-        if out_mtime >= src_mtime and (time.time() - out_mtime) < 3600:
-            return out
-    except OSError:
-        pass
-    with open(src, "r", encoding="utf-8", errors="replace") as f:
-        raw = f.read()
-    # „7d“ = gleiches Fenster nach hinten und vorn (Catchup braucht Historie).
-    filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
-    del raw
-    tmp = out + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(filtered)
-    del filtered
-    os.replace(tmp, out)
+    with _epg_filter_sperre:
+        try:
+            src_mtime = os.path.getmtime(src)
+        except OSError:
+            return ""
+        try:
+            out_mtime = os.path.getmtime(out)
+            if out_mtime >= src_mtime and (time.time() - out_mtime) < 3600:
+                return out
+        except OSError:
+            pass
+        # „7d“ = gleiches Fenster nach hinten und vorn (Catchup braucht Historie).
+        _filter_epg_file(src, out, days_back=days, days_forward=days)
+    _speicher_freigeben()
     return out
 
 
@@ -4816,7 +4861,6 @@ async def refresh_channels(_=Depends(check_admin)):
 @admin_app.get("/api/epg/download")
 async def download_epg_xml(days: int = 0, _=Depends(check_admin)):
     """Download the filtered EPG XML. days=0 means all, days=1/3/7 filters by day range."""
-    global _epg_cache
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
     if not epg_sources:
         raise HTTPException(status_code=404, detail="No active EPG source configured")
@@ -4825,42 +4869,40 @@ async def download_epg_xml(days: int = 0, _=Depends(check_admin)):
     now_ts = int(time.time())
     refresh_hours = int(db.get_setting("epg_refresh_hours", "6"))
     cache_valid = (
-        _epg_cache.get("content") and
+        _epg_cache.get("fetched_at") and
         _epg_cache.get("url") == source_url and
-        (now_ts - _epg_cache.get("fetched_at", 0)) < refresh_hours * 3600
+        (now_ts - _epg_cache.get("fetched_at", 0)) < refresh_hours * 3600 and
+        os.path.exists("/data/epg_cache.xml")
     )
 
     if not cache_valid:
+        # Über den gemeinsamen Abrufweg: vorher zog dieser Endpunkt die Quelle
+        # ungefiltert per resp.text komplett in den Speicher.
         try:
-            async with make_iptv_client(timeout=120, follow_redirects=True) as client:
-                resp = await client.get(source_url)
-                resp.raise_for_status()
-                raw = resp.text
-            _epg_cache = {"content": raw, "fetched_at": now_ts, "url": source_url}
-            try:
-                with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
-                    _f.write(raw)
-            except Exception as _e:
-                logger.warning(f"EPG disk cache write failed: {_e}")
-                diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
+            await _epg_neu_laden()
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"EPG fetch failed: {e}")
-    else:
-        raw = _epg_cache["content"]
+        if not os.path.exists("/data/epg_cache.xml"):
+            raise HTTPException(status_code=502, detail="EPG fetch failed")
 
+    from fastapi.responses import FileResponse
     if days in (1, 3, 7):
-        filtered = _filter_epg_xml(raw, days_back=days, days_forward=days)
+        path = await asyncio.to_thread(_build_filtered_epg, days)
         fname = f"epg-{days}d.xml"
     else:
-        filtered = _filter_epg_xml(raw)
+        path = "/data/epg_download.xml"
+        await asyncio.to_thread(_epg_download_bauen, path)
         fname = "epg.xml"
+    if not path:
+        raise HTTPException(status_code=503, detail="Kein EPG vorhanden")
+    return FileResponse(path, media_type="application/xml", filename=fname)
 
-    from fastapi.responses import Response
-    return Response(
-        content=filtered.encode("utf-8"),
-        media_type="application/xml",
-        headers={"Content-Disposition": f"attachment; filename={fname}"}
-    )
+
+def _epg_download_bauen(path: str) -> None:
+    """Gesamt-Download (1 Tag zurück, 7 vor) – unter derselben Sperre wie die Tagesdateien."""
+    with _epg_filter_sperre:
+        _filter_epg_file("/data/epg_cache.xml", path)
+    _speicher_freigeben()
 
 @admin_app.get("/api/epg/channels")
 def list_epg_channels(_=Depends(check_admin)):
@@ -4953,8 +4995,7 @@ def list_epg(_=Depends(check_admin)):
 @admin_app.get("/api/epg/status")
 def epg_status(_=Depends(check_admin)):
     fetched_at = _epg_cache.get("fetched_at", 0)
-    content = _epg_cache.get("content", "")
-    size_kb = len(content) // 1024 if content else 0
+    size_kb = _epg_cache.get("size", 0) // 1024
     return {
         "fetched_at": fetched_at,
         "size_kb": size_kb,
@@ -5071,31 +5112,14 @@ async def refresh_epg(_=Depends(check_admin)):
     button fetched proxy_app (port 8000) cross-origin, which browsers block
     ('Failed to fetch') even though the server-side reload succeeds.
     """
-    global _epg_cache
     epg_sources = [e["url"] for e in db.get_epg_sources() if e["active"]]
     if not epg_sources:
         raise HTTPException(status_code=404, detail="Keine aktive EPG-Quelle konfiguriert")
 
-    source_url = epg_sources[0]
-    now = int(time.time())
     try:
-        content_text = await _fetch_epg_text(source_url)
-
-        if db.get_setting("epg_filter_channels", "0") == "1":
-            content_text = _filter_epg_xml(content_text, days_back=7)
-
-        _epg_cache = {"content": content_text, "fetched_at": now, "url": source_url}
-        _epg_tree_cache["root"] = None  # invalidate parsed tree
-        _tvg_id_cache.clear()           # invalidate tvg_id lookup cache
-        size_kb = len(content_text) // 1024
+        size_kb = await _epg_neu_laden() // 1024
         logger.info(f"EPG manually refreshed ({size_kb}KB)")
-        try:
-            with open("/data/epg_cache.xml", "w", encoding="utf-8") as _f:
-                _f.write(content_text)
-        except Exception as _e:
-            logger.warning(f"EPG disk cache write failed: {_e}")
-            diag_log("WARNING", "epg", f"EPG disk cache write failed: {_e}")
-        return {"ok": True, "size_kb": size_kb, "fetched_at": now}
+        return {"ok": True, "size_kb": size_kb, "fetched_at": _epg_cache.get("fetched_at", 0)}
     except HTTPException:
         raise
     except Exception as e:
@@ -5125,34 +5149,75 @@ def delete_epg(epg_id: int, _=Depends(check_admin)):
     db.delete_epg_source(epg_id)
     return {"ok": True}
 
+_EPG_DESC_MAX = 120   # mehr zeigt _get_now_playing nicht an
+
+
+def _epg_schlank_einlesen(pfad: str):
+    """EPG-Datei streamend einlesen und nur behalten, was die Nachschlage-Funktionen
+    brauchen: Sender (id, display-name) und Sendungen (channel, start, stop, title,
+    desc gekürzt). Langbeschreibungen, Kategorien, Bilder, Credits fallen weg – das
+    ist der größte Teil der Datei. Der volle Baum einer 24-MB-EPG belegte dauerhaft
+    rund 100 MB. Aufrufer arbeiten weiter mit der gewohnten Element-API.
+    """
+    wurzel = ET.Element("tv")
+    quelle = None
+    for ereignis, el in ET.iterparse(pfad, events=("start", "end")):
+        if ereignis == "start":
+            if quelle is None:
+                quelle = el
+            continue
+        if el.tag == "programme":
+            attr = {k: el.get(k) for k in ("channel", "start", "stop") if el.get(k) is not None}
+            neu = ET.SubElement(wurzel, "programme", attr)
+            titel = el.findtext("title")
+            if titel:
+                ET.SubElement(neu, "title").text = titel
+            beschr = el.findtext("desc")
+            if beschr:
+                ET.SubElement(neu, "desc").text = beschr[:_EPG_DESC_MAX]
+        elif el.tag == "channel":
+            neu = ET.SubElement(wurzel, "channel", {"id": el.get("id", "")})
+            name = el.findtext("display-name")
+            if name is not None:
+                ET.SubElement(neu, "display-name").text = name
+        else:
+            continue                 # title, desc … gehören zum programme
+        el.clear()
+        if quelle is not None:
+            quelle.clear()           # sonst hält der Quellbaum jedes Element fest
+    return wurzel
+
+
 def _get_epg_root():
-    """Get parsed EPG XML root, using cached version if content unchanged."""
-    content = _epg_cache.get("content")
-    if not content:
+    """Schlanken EPG-Baum liefern, gecacht bis sich /data/epg_cache.xml ändert.
+
+    Schlüssel ist Änderungszeit + Größe der Datei. Vorher wurde bei jedem Aufruf
+    ein MD5 über den kompletten EPG-Text gerechnet, und der Text lag dafür
+    dauerhaft im Speicher.
+    """
+    pfad = "/data/epg_cache.xml"
+    try:
+        st = os.stat(pfad)
+    except OSError:
+        return None
+    if not st.st_size:
+        return None
+    key = (st.st_mtime_ns, st.st_size)
+    if _epg_tree_cache["root"] is not None and _epg_tree_cache["key"] == key:
+        return _epg_tree_cache["root"]
+    # Nur ein Aufbau gleichzeitig (Event-Loop und Admin-Threads fragen parallel).
+    with _epg_baum_sperre:
+        if _epg_tree_cache["root"] is not None and _epg_tree_cache["key"] == key:
+            return _epg_tree_cache["root"]
+        _epg_tree_cache["root"] = None   # alten Baum freigeben, bevor der neue entsteht
         try:
-            with open("/data/epg_cache.xml", "r", encoding="utf-8") as _f:
-                content = _f.read()
+            root = _epg_schlank_einlesen(pfad)
         except Exception:
             return None
-    if not content:
-        return None
-    # Must reflect content bytes, not only length (same-size EPG updates used to leave a stale tree).
-    # Blockweise, weil content.encode() sonst bei jedem Aufruf eine komplette
-    # zweite Kopie der EPG-Datei im Speicher anlegt.
-    _md5 = hashlib.md5()
-    _step = 4 << 20
-    for _pos in range(0, len(content), _step):
-        _md5.update(content[_pos:_pos + _step].encode("utf-8", errors="replace"))
-    content_hash = _md5.hexdigest()
-    if _epg_tree_cache["root"] is not None and _epg_tree_cache["content_hash"] == content_hash:
-        return _epg_tree_cache["root"]
-    try:
-        root = ET.fromstring(content)
         _epg_tree_cache["root"] = root
-        _epg_tree_cache["content_hash"] = content_hash
-        return root
-    except Exception:
-        return None
+        _epg_tree_cache["key"] = key
+    _speicher_freigeben()
+    return root
 
 
 # Channel name → tvg_id lookup cache
@@ -5267,10 +5332,11 @@ def get_memstats(deep: int = 0, _=Depends(check_admin)):
         except Exception:
             return None
 
-    def _epg_kb():
+    def _epg_programme():
+        # Sendungen im schlanken Baum (der EPG-Text liegt nicht mehr im Speicher).
         try:
-            content = (g.get("_epg_cache") or {}).get("content")
-            return round(len(content) / 1024, 1) if content else 0
+            root = (g.get("_epg_tree_cache") or {}).get("root")
+            return len(root.findall("programme")) if root is not None else 0
         except Exception:
             return None
 
@@ -5311,7 +5377,7 @@ def get_memstats(deep: int = 0, _=Depends(check_admin)):
             "background_tasks": _count("_background_tasks"),
             "segment_events": _count("_segment_events"),
             "vpn_log_lines": _count("_vpn_log"),
-            "epg_cache_kb": _epg_kb(),
+            "epg_tree_programmes": _epg_programme(),
         },
     }
 

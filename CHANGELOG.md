@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.84 · November 2026
+- 🇬🇧 Fixes the **container being killed for running out of memory** every few days: refreshing the EPG no longer keeps the old and new EPG in memory side by side, filtering goes file to file, and memory is returned to the system afterwards (measured: refresh peak +369 → +148 MB, idle 197 → 93 MB). All four EPG load paths now use the same memory-safe route.
+- 🇩🇪 Behebt den **Speicher-Abbruch des Containers** alle paar Tage: Beim EPG-Abruf liegen alte und neue EPG nicht mehr gleichzeitig im Speicher, gefiltert wird von Datei zu Datei, und der Speicher geht danach ans System zurück (gemessen: Spitze beim Abruf +369 → +148 MB, Grundlast 197 → 93 MB). Alle vier EPG-Ladewege nutzen jetzt denselben speichersicheren Weg.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-84)
+
 ## 1.83 · September 2026 🔒
 - 🇬🇧 Security update after a full code review: **no credentials in the logs** any more (uvicorn access log, httpx, URL-encoded tokens), stored XSS in the VPN area fixed, CORS limited to LAN origins, rate limit on wrong tokens, `max_streams` is saved again, longer short tokens, EPG merge and playlist-parser fixes, Unraid templates with `--restart=unless-stopped`.
 - 🇩🇪 Sicherheitsupdate nach vollständiger Code-Durchsicht: **keine Zugangsdaten mehr im Log** (uvicorn-Zugriffslog, httpx, URL-kodierte Token), gespeichertes XSS im VPN-Bereich behoben, CORS auf LAN-Herkünfte begrenzt, Sperre bei falschen Token, `max_streams` wird wieder gespeichert, längere Kurz-Token, Korrekturen an EPG-Zusammenführung und Playlist-Parser, Unraid-Vorlagen mit `--restart=unless-stopped`.

@@ -7,6 +7,10 @@ LABEL org.opencontainers.image.licenses="GPL-3.0"
 
 WORKDIR /app
 
+# Wenige malloc-Arenen: Jeder Worker-Thread (EPG-Filter, Admin-Endpunkte) bekäme
+# sonst eine eigene 64-MB-Arena, deren freier Speicher nie ans System zurückgeht.
+ENV MALLOC_ARENA_MAX=2
+
 # Install WireGuard (aktiv) + OpenVPN (Legacy-Fallback, gehärtet: script-security 0).
 # microsocks/iptables/git/build-essential entfernt — waren ungenutzt (kleinere Angriffsfläche,
 # kein ungepinnter git-clone-Build im Image).
