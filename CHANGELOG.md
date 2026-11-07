@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.86 · November 2026
+- 🇬🇧 **Auto-Best measures for real:** SelfStream now measures the actual speed of the active WireGuard server and its alternatives through a separate measuring tunnel (running streams are not touched) and switches seamlessly to the fastest. It searches when segments load slowly or stall – not only when playback stutters – and also runs a routine check while nobody is watching. The choice is based on measured speed, no longer on ping.
+- 🇩🇪 **Auto-Best misst wirklich:** SelfStream misst jetzt das echte Tempo des aktiven WireGuard-Servers und der Alternativen über einen eigenen Mess-Tunnel (laufende Streams bleiben unberührt) und schaltet nahtlos auf den schnellsten. Gesucht wird, sobald Segmente langsam laden oder hängen – nicht erst bei Ruckeln – und zusätzlich per Routine-Check, wenn niemand schaut. Entschieden wird nach gemessenem Tempo statt nach Ping.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-86)
+
 ## 1.85 · November 2026
 - 🇬🇧 **Reworked e-mail alerts:** fewer false alarms (the idle check tries up to three channels instead of only the first, a fair latency limit, stream quality judged by load time versus segment length), every mail says what, since when and how long, no more silently swallowed outages, at most 5 alarm mails per day. New: mail when the EPG or a channel list fails for 30 min and after an unexpected restart (e.g. out of memory), daily heartbeat at a fixed time, mail history in the panel.
 - 🇩🇪 **E-Mail-Alarm überarbeitet:** weniger Fehlalarme (der Leerlauf-Check probiert bis zu drei Sender statt nur den ersten, faire Antwortzeit-Grenze, Stream-Qualität nach Ladezeit im Verhältnis zur Segmentlänge), jede Mail sagt was, seit wann und wie lange, keine verschluckten Störungen mehr, höchstens 5 Störungs-Mails pro Tag. Neu: Mail, wenn EPG oder eine Senderliste 30 Min lang fehlschlägt und nach einem unerwarteten Neustart (z. B. Speicher voll), Lebenszeichen zur festen Uhrzeit, Mail-Verlauf im Panel.

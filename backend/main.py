@@ -36,6 +36,7 @@ from timeparse import (
 )
 from hls import rewrite_hls_playlist, segment_durations
 import alerting
+import vpnwahl
 from security_util import (
     _host_is_internal, assert_safe_upstream_url,
     _PBKDF2_ITERATIONS, _hash_admin_token, _verify_admin_token,
@@ -6887,12 +6888,227 @@ async def _measure_server_latency(path: str, gw, dev, active_ip: str = None):
     return (ip, lat)
 
 
-async def _wg_autobest_watch():
-    """WireGuard-Auto-Best: schaltet bei anhaltend schlechter Qualität NAHTLOS auf einen
-    schnelleren Server – auch während Zuschauer schauen (kein Tunnel-Abriss). Reagiert nur
-    auf echtes Ruckeln (passive Messung aus echten Zuschauer-Segmenten) und hält einen
-    Cooldown ein, damit er nicht ständig hin- und herspringt."""
+# ── Tempo-Messung über einen ZWEITEN WireGuard-Tunnel (Streams bleiben unberührt) ──
+# Für jeden Kandidaten kommt kurz ein eigenes Interface (wg9) hoch. Nur Verbindungen
+# mit der Markierung WG_MESS_MARK laufen per Policy-Routing durch wg9 – alles andere,
+# auch die laufenden Streams, bleibt auf wg0. Gleicher Mullvad-Schlüssel auf einem
+# ANDEREN Server stört den aktiven Tunnel nicht (gemessen 07.11.2026). Den aktiven
+# Server selbst misst der Check direkt über wg0.
+WG_MESS_IFACE = "wg9"
+WG_MESS_TABLE = 202
+WG_MESS_MARK = 0x5302
+WG_MESS_PRIO = 1000
+WG_MESS_MAX = 5                  # so viele Kandidaten (nach Ping vorsortiert) werden vermessen
+WG_MESS_HOST = "speed.cloudflare.com"
+WG_MESS_BYTES = 5_000_000
+WG_MESS_PFAD = f"/__down?bytes={WG_MESS_BYTES}"
+WG_MESS_FRIST = 10.0             # s je Download; länger = Hänger
+_SO_MARK = getattr(socket, "SO_MARK", 36)
+_wg_autobest_last_check = 0.0    # time.monotonic() der letzten Suche (Notfall + Routine)
+
+
+def _wg_mess_ab(server_ip: Optional[str] = None) -> None:
+    """Mess-Tunnel samt Regel/Route garantiert abräumen (blockierend, wirft nie)."""
+    for _ in range(5):
+        r = _dual_sh(["ip", "rule", "del", "fwmark", hex(WG_MESS_MARK), "lookup", str(WG_MESS_TABLE)])
+        if r is None or r.returncode != 0:
+            break
+    _dual_sh(["ip", "route", "flush", "table", str(WG_MESS_TABLE)])
+    if server_ip:
+        _dual_sh(["ip", "route", "del", f"{server_ip}/32"])
+    _dual_sh(["ip", "link", "del", WG_MESS_IFACE])
+
+
+def _wg_mess_auf(conf_path: str, active_ip: Optional[str]) -> dict:
+    """Mess-Tunnel zu EINEM Kandidaten aufbauen (blockierend). {"ok", "ip"|"error"}."""
+    try:
+        with open(conf_path, "r") as f:
+            iface, peer = _wg_parse_conf(f.read())
+    except Exception as e:
+        return {"ok": False, "error": f"Config lesen: {e}"}
+    priv = iface.get("privatekey", "")
+    addr = iface.get("address", "").split(",")[0].strip().split("/")[0]
+    pub, ep = peer.get("publickey", ""), peer.get("endpoint", "")
+    if not (priv and addr and pub and ep):
+        return {"ok": False, "error": "Config unvollständig"}
+    ip = ep.rsplit(":", 1)[0].strip("[]")
+    try:
+        ipaddress.ip_address(ip)
+        ipaddress.ip_address(addr)
+    except ValueError:
+        return {"ok": False, "error": "Endpoint/Adresse ungültig"}
+    if ip == active_ip:
+        return {"ok": False, "error": "ist der aktive Server"}   # dessen Route NIE anfassen
+    gw, dev = (_wg_saved_default or _wg_default_gw())
+    if not gw:
+        return {"ok": False, "error": "LAN-Gateway nicht gefunden"}
+    _wg_mess_ab()   # Reste eines abgebrochenen Laufs
+    keyfile = os.path.join(VPN_OVPN_DIR, ".mess.key")
+    try:
+        fd = os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(priv + "\n")
+        schritte = [
+            ["ip", "link", "add", WG_MESS_IFACE, "type", "wireguard"],
+            ["wg", "set", WG_MESS_IFACE, "private-key", keyfile, "peer", pub,
+             "endpoint", ep, "allowed-ips", "0.0.0.0/0"],
+            ["ip", "link", "set", WG_MESS_IFACE, "up"],
+            ["ip", "route", "replace", f"{ip}/32", "via", gw, "dev", dev],
+        ]
+        lokal = _dual_sh(["ip", "-o", "addr"])
+        if not (lokal and f" {addr}/" in lokal.stdout):
+            schritte.append(["ip", "addr", "add", f"{addr}/32", "dev", WG_MESS_IFACE])
+        schritte += [
+            ["ip", "route", "replace", "default", "dev", WG_MESS_IFACE, "src", addr,
+             "table", str(WG_MESS_TABLE)],
+            ["ip", "rule", "add", "fwmark", hex(WG_MESS_MARK), "lookup", str(WG_MESS_TABLE),
+             "priority", str(WG_MESS_PRIO)],
+        ]
+        for cmd in schritte:
+            r = _dual_sh(cmd, timeout=8)
+            if r is None or r.returncode != 0:
+                fehler = ((r.stderr or r.stdout).strip() if r else "Zeitüberschreitung")[:200]
+                _wg_mess_ab(ip)
+                return {"ok": False, "error": f"{cmd[0]} {cmd[1]}: {fehler}"}
+    finally:
+        try:
+            os.remove(keyfile)
+        except OSError:
+            pass
+    return {"ok": True, "ip": ip}
+
+
+def _wg_ein_download(markiert: bool) -> Optional[float]:
+    """Ein Mess-Download (blockierend) → Mbit/s oder None (Fehler/Hänger).
+
+    Bewusst ohne httpx: httpx setzt Socket-Optionen erst NACH dem Verbindungsaufbau,
+    der Aufbau liefe dann noch über wg0 und die Verbindung risse beim Umrouten ab.
+    Hier wird SO_MARK vor connect() gesetzt."""
+    import ssl
+    host, pfad = WG_MESS_HOST, WG_MESS_PFAD
+    s = None
+    try:
+        ip = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if markiert:
+            s.setsockopt(socket.SOL_SOCKET, _SO_MARK, WG_MESS_MARK)
+        s.settimeout(5)
+        t0 = time.monotonic()
+        s.connect((ip, 443))
+        s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
+        s.sendall(f"GET {pfad} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: selfstream\r\n"
+                  f"Connection: close\r\n\r\n".encode())
+        gesamt, frist = 0, t0 + WG_MESS_FRIST
+        while time.monotonic() < frist:
+            teil = s.recv(65536)
+            if not teil:
+                break
+            gesamt += len(teil)
+        dt = time.monotonic() - t0
+        if gesamt < WG_MESS_BYTES or dt <= 0:
+            return None   # nicht fertig geworden = Hänger
+        return round(gesamt * 8 / dt / 1e6, 1)
+    except (OSError, ValueError, IndexError):
+        return None
+    finally:
+        if s is not None:
+            try:
+                s.close()
+            except OSError:
+                pass
+
+
+async def _wg_tempo_proben(markiert: bool) -> list:
+    """MESS_PROBEN Downloads (Mbit/s, None = Abbruch/Hänger) – über wg9 oder wg0."""
+    werte = []
+    for _ in range(vpnwahl.MESS_PROBEN):
+        werte.append(await asyncio.to_thread(_wg_ein_download, markiert))
+    return werte
+
+
+async def _wg_kandidat_messen(conf_path: str, active_ip: Optional[str]) -> dict:
+    auf = await asyncio.to_thread(_wg_mess_auf, conf_path, active_ip)
+    if not auf.get("ok"):
+        return {"ok": False, "error": auf.get("error"), "werte": []}
+    try:
+        werte = await _wg_tempo_proben(markiert=True)
+    finally:
+        await asyncio.to_thread(_wg_mess_ab, auf.get("ip"))
+    return {"ok": True, "werte": werte}
+
+
+async def _wg_autobest_suchen(active_fn: str, grund: str, notfall: bool) -> dict:
+    """Aktuellen Server und die besten Kandidaten nach echtem Tempo vergleichen und
+    bei Bedarf nahtlos wechseln. Ergebnis landet in _wg_autobest_status (Panel)."""
     global _wg_autobest_last_switch, _wg_autobest_status
+    country = db.get_setting("wg_autobest_country", "").strip().lower()
+    cands = _wg_autobest_candidates(active_fn, country)
+    gw, dev = (_wg_saved_default or _wg_default_gw())
+    active_ip = await _active_endpoint_ip()
+    status = {"zeit": int(time.time()), "grund": grund, "notfall": notfall,
+              "aktuell": active_fn, "gemessen": [], "to": None}
+    if not cands:
+        status["ergebnis"] = "keine Alternativ-Server vorhanden"
+        _wg_autobest_status = status
+        return status
+
+    # 1) Vorsortieren nach Ping (schnell, ohne Tunnel) – nur die Besten werden vermessen
+    pings = []
+    for fn in cands:
+        _ip, lat = await _measure_server_latency(os.path.join(VPN_OVPN_DIR, fn), gw, dev, active_ip)
+        if lat is not None:
+            pings.append((lat, fn))
+    pings.sort()
+    auswahl = [fn for _lat, fn in pings[:WG_MESS_MAX]]
+
+    # 2) Echtes Tempo: aktueller Server über wg0, Kandidaten je über den Mess-Tunnel
+    _vpn_log_add(f"🏆 Auto-Best: {grund} – messe {active_fn} und {len(auswahl)} Alternativen…")
+    aktuell_werte = await _wg_tempo_proben(markiert=False)
+    aktuell = vpnwahl.messung_werten(aktuell_werte)
+    status["gemessen"].append({"server": active_fn, "mbps": aktuell, "werte": aktuell_werte,
+                               "aktiv": True})
+    punkte = {}
+    for fn in auswahl:
+        m = await _wg_kandidat_messen(os.path.join(VPN_OVPN_DIR, fn), active_ip)
+        wert = vpnwahl.messung_werten(m["werte"]) if m.get("ok") else 0.0
+        punkte[fn] = wert
+        status["gemessen"].append({"server": fn, "mbps": wert, "werte": m.get("werte") or [],
+                                   "fehler": m.get("error")})
+
+    # 3) Entscheiden + nahtlos wechseln
+    ziel = vpnwahl.besten_waehlen(aktuell, punkte, notfall)
+    if not ziel:
+        status["ergebnis"] = "aktueller Server ist gut genug" if aktuell > 0 else \
+            "kein erreichbarer Server schneller"
+        _vpn_log_add(f"🏆 Auto-Best: bleibe auf {active_fn} ({aktuell} Mbit/s).")
+        _wg_autobest_status = status
+        return status
+    res = await asyncio.to_thread(_wg_switch_seamless, os.path.join(VPN_OVPN_DIR, ziel))
+    if res.get("ok"):
+        db.set_setting("vpn_ovpn_path", os.path.join(VPN_OVPN_DIR, ziel))
+        await _reset_iptv_client()
+        _wg_autobest_last_switch = time.monotonic()
+        status.update({"to": ziel, "ergebnis": f"gewechselt ({aktuell} → {punkte[ziel]} Mbit/s)"})
+        _vpn_log_add(f"🏆 Auto-Best: nahtlos {active_fn} → {ziel} "
+                     f"({aktuell} → {punkte[ziel]} Mbit/s).")
+        diag_log("INFO", "vpn", f"WG Auto-Best: {active_fn} → {ziel} "
+                                f"({aktuell} → {punkte[ziel]} Mbit/s, {grund})")
+    else:
+        status["ergebnis"] = f"Wechsel fehlgeschlagen ({res.get('error')})"
+        _vpn_log_add(f"🏆 Auto-Best: Wechsel fehlgeschlagen ({res.get('error')}).")
+    _wg_autobest_status = status
+    return status
+
+
+async def _wg_autobest_watch():
+    """WireGuard-Auto-Best: misst selbst und wechselt NAHTLOS auf den schnellsten Server.
+
+    - Schaut jemand und der Server bremst (vpnwahl.suche_noetig), wird sofort gesucht.
+    - Schaut niemand, prüft er alle ``wg_autobest_idle_h`` Stunden routinemäßig
+      (0 = aus) – so ist abends schon der gute Server aktiv, bevor jemand umschaltet.
+    Die Wahl fällt nach gemessenem TEMPO, nicht nach Ping. Zwischen zwei Suchen liegt
+    mindestens der Cooldown, damit nicht ständig gemessen oder gesprungen wird."""
+    global _wg_autobest_last_check
     await asyncio.sleep(150)   # Startup abwarten
     while True:
         try:
@@ -6906,53 +7122,34 @@ async def _wg_autobest_watch():
                 continue   # nur bei aktivem WireGuard-Tunnel
             if _vpn_sweep_active or _dual_lock.locked():
                 continue
+            jetzt = time.monotonic()
             cooldown = _int_setting("wg_autobest_cooldown_min", 30, 5, 720) * 60
-            if _wg_autobest_last_switch and (time.monotonic() - _wg_autobest_last_switch) < cooldown:
+            if _wg_autobest_last_check and (jetzt - _wg_autobest_last_check) < cooldown:
                 continue
             health = _passive_health()
-            if health.get("level") is None:
-                continue   # niemand schaut → nichts zu reparieren
-            min_mbps = _int_setting("wg_autobest_min_mbps", 12, 1, 500)
-            mbps = health.get("mbps")
-            bad = (health.get("level") == "bad") or \
-                  (mbps is not None and mbps < min_mbps and health.get("samples", 0) >= 4)
-            if not bad:
-                continue
-            # Aktueller Server schwächelt → schnellsten erreichbaren Alternativ-Server finden.
-            gw, dev = (_wg_saved_default or _wg_default_gw())
-            country = db.get_setting("wg_autobest_country", "").strip().lower()
-            cands = _wg_autobest_candidates(active_fn, country)
-            if not cands:
-                continue
-            active_ip = await _active_endpoint_ip()   # dessen Route NIE anfassen (Tunnel-Schutz)
-            _vpn_log_add(f"🏆 Auto-Best: Server schwächelt ({health.get('level')}, {mbps} Mbit/s) – "
-                         f"prüfe {len(cands)} Alternativen…")
-            best_fn, best_lat = None, None
-            for fn in cands:
-                _ip, lat = await _measure_server_latency(os.path.join(VPN_OVPN_DIR, fn), gw, dev, active_ip)
-                if lat is not None and (best_lat is None or lat < best_lat):
-                    best_fn, best_lat = fn, lat
-            if not best_fn:
-                _vpn_log_add("🏆 Auto-Best: keine Alternative erreichbar – bleibe auf aktuellem Server.")
-                continue
-            res = await asyncio.to_thread(_wg_switch_seamless, os.path.join(VPN_OVPN_DIR, best_fn))
-            if res.get("ok"):
-                db.set_setting("vpn_ovpn_path", os.path.join(VPN_OVPN_DIR, best_fn))
-                await _reset_iptv_client()
-                _wg_autobest_last_switch = time.monotonic()
-                _wg_autobest_status = {"from": active_fn, "to": best_fn, "latency_ms": best_lat,
-                                       "reason": health.get("level"), "mbps": mbps,
-                                       "checked": len(cands)}
-                _vpn_log_add(f"🏆 Auto-Best: nahtlos auf {best_fn} umgeschaltet ({best_lat} ms).")
-                diag_log("INFO", "vpn",
-                         f"WG Auto-Best: {active_fn} → {best_fn} ({best_lat} ms, "
-                         f"war {health.get('level')}/{mbps} Mbit/s)")
+            if health.get("level") is not None:
+                min_mbps = _int_setting("wg_autobest_min_mbps", 20, 1, 500)
+                noetig, grund = vpnwahl.suche_noetig(health, min_mbps)
+                if not noetig:
+                    continue
+                notfall = True
             else:
-                _vpn_log_add(f"🏆 Auto-Best: Wechsel fehlgeschlagen ({res.get('error')}).")
+                idle_h = _int_setting("wg_autobest_idle_h", 6, 0, 168)
+                if not idle_h or (_wg_autobest_last_check
+                                  and (jetzt - _wg_autobest_last_check) < idle_h * 3600):
+                    continue
+                grund, notfall = "Routine-Check", False
+            _wg_autobest_last_check = jetzt
+            async with _dual_lock:
+                await _wg_autobest_suchen(active_fn, grund, notfall)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.warning(f"WG autobest watch error: {e}")
+            try:
+                await asyncio.to_thread(_wg_mess_ab)
+            except Exception:
+                pass
 
 
 # ── Mullvad: alle Server automatisch importieren ───────────────────────────────
@@ -8586,8 +8783,9 @@ def get_wg_autobest(_=Depends(check_admin)):
     return {
         "ok": True,
         "auto": db.get_setting("wg_autobest", "0") == "1",
-        "min_mbps": _int_setting("wg_autobest_min_mbps", 12, 1, 500),
+        "min_mbps": _int_setting("wg_autobest_min_mbps", 20, 1, 500),
         "cooldown_min": _int_setting("wg_autobest_cooldown_min", 30, 5, 720),
+        "idle_h": _int_setting("wg_autobest_idle_h", 6, 0, 168),
         "country": db.get_setting("wg_autobest_country", ""),
         "last_switch_ago_s": ago,
         "status": _wg_autobest_status or None,
@@ -8609,6 +8807,11 @@ def set_wg_autobest(body: dict, _=Depends(check_admin)):
             db.set_setting("wg_autobest_cooldown_min", str(max(5, min(720, int(float(body["cooldown_min"]))))))
         except (TypeError, ValueError):
             raise HTTPException(status_code=400, detail="Cooldown 5–720 Minuten")
+    if "idle_h" in body:
+        try:
+            db.set_setting("wg_autobest_idle_h", str(max(0, min(168, int(float(body["idle_h"]))))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Routine-Check 0–168 Stunden")
     if "country" in body:
         db.set_setting("wg_autobest_country", str(body.get("country", "")).strip().lower()[:5])
     return {"ok": True}

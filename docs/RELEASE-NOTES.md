@@ -2,6 +2,33 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-86"></a>
+
+## v1.86 — Auto-Best misst selbst und nimmt den wirklich schnellsten Server
+
+**Anlass (07.11.2026):** Umschalten dauerte abends ~10 s. Gemessen: Die Berliner
+Mullvad-Server lieferten im Tunnel nur 3–8 Mbit/s oder hingen sekundenlang, Frankfurt
+lief stabil mit 270–560 Mbit/s. Auto-Best hat nicht gewechselt, weil
+
+- es nur bei „Ruckeln“ suchte – 3,5 s Ladezeit für ein 6-s-Segment ruckelt nicht, macht
+  aber jeden Senderwechsel zäh (seit 1.85 zählt das für den Alarm als „ok“),
+- es den neuen Server nach **Ping** wählte – und Berlin hat den kleineren Ping.
+
+**Neu**
+
+- **Eigene Regel fürs Suchen** (`vpnwahl.suche_noetig`): Segmente laden im Median ≥ 2 s,
+  ≥ 10 % Fehler, Ruckeln oder weniger als die Schwelle (Standard jetzt 20 Mbit/s).
+  Die Alarm-Regel bleibt davon unberührt.
+- **Echte Tempo-Messung:** Für jeden Kandidaten baut SelfStream kurz einen zweiten
+  WireGuard-Tunnel (`wg9`) auf. Nur markierte Mess-Verbindungen laufen per
+  Policy-Routing hindurch, die Streams bleiben auf `wg0`. Je Server 3 Downloads à 5 MB;
+  es zählt der **schwächste** Wert, damit ein Server mit Hängern nicht gewinnt.
+  Vorsortiert wird nach Ping, vermessen werden die 5 besten.
+- **Routine-Check**, wenn niemand schaut (Standard alle 6 Std, im Panel einstellbar,
+  0 = aus). Dort wird nur bei deutlichem Vorsprung gewechselt (≥ 1,5× und der aktuelle
+  unter 80 Mbit/s – ein Stream braucht ~10).
+- Panel zeigt die letzte Prüfung mit allen Messwerten je Server.
+
 <a id="v1-85"></a>
 
 ## v1.85 — E-Mail-Alarm: weniger Fehlalarme, klarere Mails, keine Lücken
