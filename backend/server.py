@@ -1,10 +1,12 @@
 """Entrypoint: runs proxy on 8000 and admin on 8080 in one process."""
 import copy
 import logging
+import os
 import re
+import signal
 import uvicorn
 import threading
-from main import proxy_app, admin_app
+from main import proxy_app, admin_app, markiere_sauberes_ende
 from uvicorn.config import LOGGING_CONFIG
 
 
@@ -61,7 +63,18 @@ def run_admin():
                 log_config=_LOG_CONFIG)
 
 
+def _beenden(signum, frame):
+    """docker stop / Unraid-Stopp schickt SIGTERM. Vermerken, dass das ein gewolltes
+    Ende ist – sonst meldet der nächste Start einen Absturz (siehe main._neustart_melden).
+    Als PID 1 im Container hatte SIGTERM vorher gar keinen Handler: Docker wartete
+    10 s und beendete dann per SIGKILL."""
+    markiere_sauberes_ende()
+    os._exit(0)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _beenden)
+    signal.signal(signal.SIGINT, _beenden)
     t1 = threading.Thread(target=run_proxy, daemon=True)
     t2 = threading.Thread(target=run_admin, daemon=True)
     t1.start()

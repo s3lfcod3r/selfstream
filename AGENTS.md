@@ -1,6 +1,6 @@
 # AGENTS.md — selfstream
 
-Kurze Orientierung fuer KI-Assistenten (Bonsai/Claude). **Diese Datei zuerst lesen, nicht die grosse README.**
+Kurze Orientierung fuer Code-Assistenten. **Diese Datei zuerst lesen, nicht die grosse README.**
 Zum Finden: `rg -n "BEGRIFF"`. Fuer Symbole: Serena `get_symbols_overview`/`find_symbol`. Grosse Dateien nur zeilenweise (`sed -n`).
 
 ## Typ & Stack

@@ -34,7 +34,8 @@ from timeparse import (
     _epg_programme_contains_instant, _epg_programme_contains_instant_half_open,
     _DVR_PATH_RE, _dvr_wall_time_from_url,
 )
-from hls import rewrite_hls_playlist
+from hls import rewrite_hls_playlist, segment_durations
+import alerting
 from security_util import (
     _host_is_internal, assert_safe_upstream_url,
     _PBKDF2_ITERATIONS, _hash_admin_token, _verify_admin_token,
@@ -606,13 +607,19 @@ async def _epg_neu_laden() -> int:
 
 
 async def _fetch_and_cache_epg():
-    """Wie _epg_neu_laden, aber ohne Ausnahme: True bei Erfolg, sonst False."""
+    """Wie _epg_neu_laden, aber ohne Ausnahme: True bei Erfolg, sonst False.
+    Meldet Dauerfehler per Mail (siehe _alarm_ereignis)."""
     try:
-        return await _epg_neu_laden() > 0
+        groesse = await _epg_neu_laden()
     except Exception as e:
-        logger.warning(f"EPG auto-fetch failed: {e}")
-        diag_log("WARNING", "epg", f"EPG auto-fetch failed: {e}")
+        _e = _mask_creds(e)
+        logger.warning(f"EPG auto-fetch failed: {_e}")
+        diag_log("WARNING", "epg", f"EPG auto-fetch failed: {_e}")
+        await _alarm_ereignis("epg", "EPG-Abruf", False, str(e))
         return False
+    if groesse:
+        await _alarm_ereignis("epg", "EPG-Abruf", True)
+    return groesse > 0
 
 
 async def _epg_watchdog():
@@ -676,9 +683,12 @@ async def _m3u_watchdog():
                         db.upsert_channels(channels)
                         db.set_m3u_last_refresh()
                         logger.info(f"M3U global auto-refresh: {len(channels)} channels updated")
+                        await _alarm_ereignis("m3u", "Senderliste", True)
                     except Exception as e:
-                        logger.warning(f"M3U global auto-refresh failed: {e}")
-                        diag_log("WARNING", "m3u", f"M3U global auto-refresh failed: {e}")
+                        _e = _mask_creds(e)
+                        logger.warning(f"M3U global auto-refresh failed: {_e}")
+                        diag_log("WARNING", "m3u", f"M3U global auto-refresh failed: {_e}")
+                        await _alarm_ereignis("m3u", "Senderliste", False, str(e))
             # Per-provider refresh
             due_providers = db.get_providers_due_refresh()
             for p in due_providers:
@@ -696,9 +706,13 @@ async def _m3u_watchdog():
                     db.upsert_channels(channels, provider_id=p["id"])
                     db.set_provider_last_refresh(p["id"])
                     logger.info(f"M3U provider auto-refresh OK: {p['name']} → {len(channels)} channels")
+                    await _alarm_ereignis(f"m3u:{p['id']}", f"Senderliste „{p['name']}“", True)
                 except Exception as e:
-                    logger.warning(f"M3U provider auto-refresh failed ({p['name']}): {e}")
-                    diag_log("WARNING", "m3u", f"M3U provider auto-refresh failed ({p.get('name')}): {e}")
+                    # httpx-Fehler enthalten die URL samt Zugangsdaten → maskieren
+                    _e = _mask_creds(e)
+                    logger.warning(f"M3U provider auto-refresh failed ({p['name']}): {_e}")
+                    diag_log("WARNING", "m3u", f"M3U provider auto-refresh failed ({p.get('name')}): {_e}")
+                    await _alarm_ereignis(f"m3u:{p['id']}", f"Senderliste „{p.get('name')}“", False, str(e))
         except Exception as e:
             logger.warning(f"M3U watchdog error: {e}")
             diag_log("WARNING", "m3u", f"M3U watchdog error: {e}")
@@ -716,12 +730,15 @@ async def startup():
     je eigenem Event-Loop. Ohne diesen Guard würden alle Watchdogs (EPG, M3U,
     Catchup-EPG, Live-EPG, VPN) in BEIDEN Loops laufen → konkurrierende Splits
     beim Sendungswechsel → doppelte watch_logs-Einträge / doppelte VPN-Neustarts."""
-    global _startup_done
+    global _startup_done, _neustart_vorher
     with _startup_lock:
         if _startup_done:
             logger.info("startup already ran in another event loop — skipping")
             return
         _startup_done = True
+    # Wie endete der vorige Lauf? (Neustart-Mail, siehe _neustart_melden)
+    _neustart_vorher = _laufzustand_lesen()
+    _laufzustand_schreiben(neu=True, start=_prozess_start, lebt=_prozess_start, sauber=False)
     db.init()
     db.migrate_watch_logs()
     try:
@@ -1861,6 +1878,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         _ip2 = _fwd2 or (request.client.host if request.client else "")
         _ua2 = request.headers.get("user-agent","")[:60]
         sid = hashlib.md5(f"{token}::{_ip2}::{_ua2}".encode()).hexdigest()[:16]
+        _segment_dauern_merken(playlist_content, decoded_url)
         rewritten = rewrite_hls_playlist(playlist_content, decoded_url, public_url, token, sid=sid)
         logger.info(f"HLS playlist served: {user['name']} → {channel_name}")
 
@@ -2001,16 +2019,30 @@ _segment_cache_elapsed: dict = {}  # {url: elapsed_seconds} – original downloa
 # erlebte Qualität – ohne den Anbieter zusätzlich zu belasten.
 PASSIVE_WINDOW_SEC = 300      # Signal aus den letzten 5 min echter Abrufe
 PASSIVE_MAX = 600             # Ringgröße (roh)
-PASSIVE_SLOW_SEC = 1.5        # Segment-Ladezeit ab hier "träge" (Warnung)
-PASSIVE_BAD_SEC = 3.0         # ab hier "kritisch" (Stall-Gefahr / Alarm)
-_passive_samples: list = []   # [{"ts","elapsed","bytes","ok"}]
+_passive_samples: list = []   # [{"ts","elapsed","bytes","ok","dur"}]
+
+# Spielzeit je Segment-URL aus den #EXTINF-Zeilen der durchgereichten Playlists.
+# Grenzen der Bewertung: alerting.passiv_bewerten (Ladezeit ÷ Spielzeit).
+_segment_dauer: dict = {}     # {abs_url: sekunden}, Einfügereihenfolge = Alter
+SEGMENT_DAUER_MAX = 3000
 
 
-def _passive_record(elapsed: float, nbytes: int, ok: bool):
+def _segment_dauern_merken(content: str, playlist_url: str) -> None:
+    """Segmentlängen einer Live-Playlist merken (Hot Path, wirft nie)."""
+    try:
+        _segment_dauer.update(segment_durations(content, playlist_url))
+        while len(_segment_dauer) > SEGMENT_DAUER_MAX:
+            _segment_dauer.pop(next(iter(_segment_dauer)))
+    except Exception:
+        pass
+
+
+def _passive_record(elapsed: float, nbytes: int, ok: bool, dur: float = None):
     """Einen ECHTEN Anbieter-Segment-Abruf als passive Probe festhalten (O(1), hot path)."""
     try:
         _passive_samples.append({"ts": time.time(), "elapsed": round(float(elapsed), 3),
-                                 "bytes": int(nbytes), "ok": bool(ok)})
+                                 "bytes": int(nbytes), "ok": bool(ok),
+                                 "dur": float(dur) if dur else None})
         if len(_passive_samples) > PASSIVE_MAX:
             del _passive_samples[:len(_passive_samples) - PASSIVE_MAX]
     except Exception:
@@ -2084,26 +2116,7 @@ def _passive_health(window_sec: int = PASSIVE_WINDOW_SEC) -> dict:
     """Erlebte Qualität aus echten Segment-Abrufen der letzten window_sec.
     level=None → zu wenig echter Verkehr (niemand schaut) → unbekannt."""
     now = time.time()
-    recent = [s for s in _passive_samples if now - s["ts"] <= window_sec]
-    if len(recent) < 3:
-        return {"level": None, "samples": len(recent)}
-    good = [s for s in recent if s["ok"]]
-    err_rate = 1.0 - (len(good) / len(recent))
-    lat = [s["elapsed"] for s in good]
-    median = _passive_pct(lat, 50)
-    p90 = _passive_pct(lat, 90)
-    tb = sum(s["bytes"] for s in good)
-    tt = sum(s["elapsed"] for s in good) or 0.001
-    mbps = round((tb * 8) / (tt * 1_000_000), 1)
-    level = "ok"
-    if err_rate >= 0.30 or (median is not None and median >= PASSIVE_BAD_SEC):
-        level = "bad"
-    elif err_rate >= 0.10 or (median is not None and median >= PASSIVE_SLOW_SEC) \
-            or (p90 is not None and p90 >= PASSIVE_BAD_SEC):
-        level = "slow"
-    return {"level": level, "samples": len(recent), "err_rate": round(err_rate, 2),
-            "median_s": round(median, 2) if median is not None else None,
-            "p90_s": round(p90, 2) if p90 is not None else None, "mbps": mbps}
+    return alerting.passiv_bewerten([s for s in _passive_samples if now - s["ts"] <= window_sec])
 
 
 # Obergrenze pro Segment-Download (Schutz vor Speicher-Überlastung). Normale HLS-Segmente
@@ -2193,7 +2206,8 @@ async def _get_segment(url: str, hls: dict, _depth: int = 0) -> tuple:
                     raise
         elapsed = time.time() - t_start
         data = bytes(buf)
-        _passive_record(elapsed, len(data), len(data) > 100)   # echter Abruf → passive Probe
+        _passive_record(elapsed, len(data), len(data) > 100,     # echter Abruf → passive Probe
+                        _segment_dauer.get(url))
         if len(data) > 100:
             _segment_cache[url] = data
             _segment_cache_time[url] = now
@@ -3571,6 +3585,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             ) as client:
                 resp = await client.get(decoded_url)
                 resp.raise_for_status()
+                _segment_dauern_merken(resp.text, decoded_url)
                 rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token)
                 yield rewritten.encode()
                 return
@@ -7702,10 +7717,15 @@ async def _iptv_dl_segment(seg_url: str) -> Optional[dict]:
         return None
 
 
-def _iptv_channel_pool(limit: int = 40) -> list:
+def _iptv_channel_pool_named(limit: int = 40) -> list:
+    """[(Sendername, Stream-URL)] – Namen für Meldungen, die URL enthält Zugangsdaten."""
     channels = db.get_channels(enabled_only=True)
-    return [c["stream_url"] for c in channels
+    return [(c.get("name") or "?", c["stream_url"]) for c in channels
             if (c.get("stream_url") or "").startswith("http")][:limit]
+
+
+def _iptv_channel_pool(limit: int = 40) -> list:
+    return [url for _, url in _iptv_channel_pool_named(limit)]
 
 
 async def _iptv_segment_list(ch_url: str, n: int = 3) -> list:
@@ -7768,14 +7788,16 @@ async def _iptv_latency_jitter(url: str, samples: int = 6) -> dict:
     return {"latency_ms": round(avg, 1), "jitter_ms": round(jitter, 1)}
 
 
-async def _iptv_measure_provider(streams: int = 5, per_stream_segments: int = 3) -> dict:
+async def _iptv_measure_provider(streams: int = 5, per_stream_segments: int = 3,
+                                 kanaele: list = None) -> dict:
     """Zentrale IPTV-Anbieter-Messung durch das aktuelle VPN.
 
     Nachhaltiger Parallel-Durchsatz (mehrere Segmente je Stream) + Latenz/Jitter.
     Wird von Speedtest, VPN-Server-Vergleich und dem Hintergrund-Sampler genutzt.
+    kanaele: feste Stream-URLs statt der ersten aus der Senderliste.
     """
     import time
-    pool = _iptv_channel_pool(max(streams * 4, 20))
+    pool = kanaele or _iptv_channel_pool(max(streams * 4, 20))
     if not pool:
         return {"ok": False, "error": "Kein Kanal verfügbar"}
     chs = pool[:streams]
@@ -7807,6 +7829,29 @@ async def _iptv_measure_provider(streams: int = 5, per_stream_segments: int = 3)
             "server": chs[0].split("/")[2], **lat}
 
 
+LEERLAUF_KANAELE = 3   # so viele Sender probiert der Leerlauf-Check, bevor er meldet
+
+
+async def _leerlauf_stichprobe(latenz_grenze_ms: float) -> dict:
+    """Leichter Anbieter-Check, wenn niemand schaut – nacheinander bis zu
+    LEERLAUF_KANAELE Sender, bis einer sauber antwortet.
+
+    Vorher nahm der Check immer nur den ERSTEN Sender der Liste. Hing genau der,
+    meldete SelfStream „Anbieter nicht erreichbar“, obwohl alle anderen liefen.
+    """
+    pool = _iptv_channel_pool_named(LEERLAUF_KANAELE)
+    if not pool:
+        return {"ok": False, "error": "Kein Kanal verfügbar", "kanaele": []}
+    geprueft, prov = [], {}
+    for name, url in pool:
+        prov = await _iptv_measure_provider(streams=1, per_stream_segments=1, kanaele=[url])
+        geprueft.append(name)
+        lat = prov.get("latency_ms")
+        if prov.get("ok") and (lat is None or lat <= latenz_grenze_ms):
+            break
+    return {**prov, "kanaele": geprueft}
+
+
 # ── Hintergrund-Verlauf (Gesundheits-Stichproben) ───────────────────────────
 # Intermittierende Probleme (Anbieter zickt abends, Tunnel schwaechelt) sieht ein
 # einzelner Handtest nie. Deshalb nimmt SelfStream alle paar Minuten eine LEICHTE
@@ -7814,24 +7859,159 @@ async def _iptv_measure_provider(streams: int = 5, per_stream_segments: int = 3)
 HEALTH_SAMPLE_INTERVAL = 300     # Sekunden zwischen Stichproben (5 min)
 HEALTH_HISTORY_MAX = 288         # ~24 h Verlauf bei 5-min-Takt
 _health_history: list = []
-_health_problem_streak = 0
 
 # ── Selbst-Check + E-Mail-Alarm ─────────────────────────────────────────────
 # Der Nutzer schaut nicht ständig ins Panel. Deshalb prüft SelfStream sich selbst
-# und schickt bei anhaltenden Problemen EINE E-Mail (plus Entwarnung, wenn wieder
-# gut) – kein Spam. Optional täglich ein "alles ok"-Lebenszeichen.
-_alert_active = False            # unbehobene, bereits gemeldete Störung
-_alert_last_heartbeat = 0.0      # time.monotonic() der letzten Lebenszeichen-Mail
-ALERT_HEARTBEAT_INTERVAL = 86400 # täglich
-# Anti-Flatter: verhindert Mail-Spam, wenn das Signal kurz über die Schwelle wackelt
-# (z.B. ein einzelnes langsames Segment). Es braucht MEHRERE schlechte Stichproben am
-# Stück für einen Alarm, MEHRERE gute für die Entwarnung, und höchstens alle 2 h eine
-# NEUE Problem-Mail.
-ALERT_BAD_STREAK = 3             # so viele schlechte am Stück (~15 min) → Alarm
-ALERT_GOOD_STREAK = 3            # so viele gute am Stück (~15 min) → Entwarnung
-ALERT_MIN_INTERVAL = 7200        # frühestens alle 2 h eine neue Problem-Mail
-_health_good_streak = 0
-_alert_last_sent = 0.0           # time.monotonic() der letzten Problem-Mail
+# und meldet per Mail: anhaltende Störung (plus Entwarnung), Dauerfehler beim
+# EPG-Abruf oder der Senderliste, einen unerwarteten Neustart und auf Wunsch ein
+# tägliches Lebenszeichen. WANN gemeldet wird und WAS drinsteht, steht in
+# alerting.py; hier wird gemessen, gespeichert und verschickt.
+# Der Zustand liegt in den Settings ("alert_state"), damit eine offene Störung
+# einen Neustart übersteht – vorher kam die Entwarnung danach nie.
+_alarm = alerting.AlarmZustand()
+_alarm_ereignisse: dict = {}       # {"epg": {...}, "m3u:3": {...}}, siehe alerting.ereignis_schritt
+_alarm_lock = threading.Lock()     # EPG/M3U melden aus anderen Event-Loops als der Sampler
+LAUFZUSTAND_PFAD = "/data/.laufzustand.json"
+_prozess_start = time.time()
+_neustart_vorher = None            # Laufzustand des vorigen Prozesses (für die Neustart-Mail)
+
+
+def _alarm_an() -> bool:
+    return db.get_setting("alert_enabled", "0") == "1"
+
+
+def _alarm_zeitzone():
+    """Zeitzone für Mailtexte: die Diagnose-Zeitzone aus den Einstellungen."""
+    from zoneinfo import ZoneInfo
+    tz = _sanitize_diagnostic_timezone(db.get_setting("diagnostic_timezone", "Europe/Berlin"))
+    try:
+        return ZoneInfo("Europe/Berlin" if tz == "browser" else tz)
+    except Exception:
+        return timezone.utc
+
+
+def _alarm_zeit(ts: float) -> str:
+    return datetime.fromtimestamp(ts, _alarm_zeitzone()).strftime("%d.%m.%Y %H:%M")
+
+
+def _alarm_panel() -> str:
+    return (db.get_setting("alert_panel_url", "") or "").strip()
+
+
+def _alarm_latenz_grenze() -> int:
+    return _int_setting("alert_latency_ms", alerting.LATENZ_GRENZE_STANDARD, 200, 10000)
+
+
+def _alarm_zustand_laden() -> None:
+    global _alarm, _alarm_ereignisse
+    try:
+        d = json.loads(db.get_setting("alert_state", "") or "{}")
+    except (TypeError, ValueError):
+        d = {}
+    if not isinstance(d, dict):
+        d = {}
+    ev = d.get("ereignisse")
+    with _alarm_lock:
+        _alarm = alerting.AlarmZustand.aus_dict(d.get("alarm"))
+        _alarm_ereignisse = ev if isinstance(ev, dict) else {}
+
+
+def _alarm_zustand_speichern() -> None:
+    try:
+        with _alarm_lock:
+            d = {"alarm": _alarm.als_dict(), "ereignisse": dict(_alarm_ereignisse)}
+        db.set_setting("alert_state", json.dumps(d))
+    except Exception as e:
+        logger.warning(f"alert state save failed: {e}")
+
+
+def _laufzustand_lesen():
+    try:
+        with open(LAUFZUSTAND_PFAD, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _laufzustand_schreiben(neu: bool = False, **werte) -> None:
+    """Laufzustand auf der Platte: Start, letztes Lebenszeichen, sauber beendet?"""
+    try:
+        d = {} if neu else (_laufzustand_lesen() or {})
+        d.update(werte)
+        tmp = LAUFZUSTAND_PFAD + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        os.replace(tmp, LAUFZUSTAND_PFAD)
+    except OSError:
+        pass
+
+
+def markiere_sauberes_ende() -> None:
+    """Von server.py beim Stopp (SIGTERM) gerufen: der nächste Start ist kein Absturz.
+    Ein OOM-Kill (SIGKILL) kommt hier nie an – genau daran erkennt der nächste Start ihn."""
+    _laufzustand_schreiben(sauber=True, lebt=time.time())
+
+
+def _alarm_mail(art: str, mail: tuple) -> bool:
+    """Mail verschicken und im Mail-Verlauf festhalten. Blockierend – via to_thread rufen."""
+    betreff, text = mail
+    ok, err = _send_email(betreff, text)
+    try:
+        db.add_alert_mail(art, betreff, ok, _mask_creds(err or ""))
+    except Exception as e:
+        logger.warning(f"alert mail history failed: {e}")
+    if not ok:
+        logger.warning(f"alert email failed ({art}): {err}")
+        diag_log("WARNING", "alert", f"Mail fehlgeschlagen ({art}): {err}")
+    return ok
+
+
+def _alarm_messwerte(p: dict) -> list:
+    """Messwerte der auslösenden Stichprobe als (Name, Wert) für die Mail."""
+    vpn = p.get("vpn_up")
+    werte = [("VPN", "ok" if vpn else ("unten" if vpn is False else "aus"))]
+    if p.get("source") == "passiv":
+        werte.append(("Grundlage", "echte Streams der letzten 5 Minuten"))
+        if p.get("quote") is not None:
+            werte.append(("Ladezeit ÷ Spielzeit", f"{p['quote']:.2f} (unter 1 = flüssig)"))
+        if p.get("median_s") is not None:
+            werte.append(("Ladezeit je Segment", f"{p['median_s']} s"))
+        if p.get("err_rate") is not None:
+            werte.append(("Fehlgeschlagen", f"{int(p['err_rate'] * 100)} %"))
+    else:
+        werte.append(("Grundlage", "Test-Abruf beim Anbieter (gerade schaut niemand)"))
+        if p.get("kanaele"):
+            werte.append(("Geprüfte Sender", ", ".join(p["kanaele"])))
+        if p.get("latency_ms") is not None:
+            werte.append(("Antwortzeit", f"{p['latency_ms']:.0f} ms"))
+    if p.get("mbps_total") is not None:
+        werte.append(("Durchsatz", f"{p['mbps_total']} Mbit/s"))
+    return werte
+
+
+async def _alarm_ereignis(schluessel: str, was: str, ok: bool, fehler: str = "") -> None:
+    """Dauerfehler beim EPG-Abruf oder bei der Senderliste melden (und die Behebung).
+    Wirft nie – ein Fehler hier darf keinen Abruf stören."""
+    global _alarm_ereignisse
+    try:
+        fehler = _mask_creds(fehler)[:300]
+        jetzt = time.time()
+        with _alarm_lock:
+            vorher = _alarm_ereignisse.get(schluessel)
+            _alarm_ereignisse, aktion, eintrag = alerting.ereignis_schritt(
+                _alarm_ereignisse, schluessel, ok, jetzt, fehler)
+            geaendert = vorher != _alarm_ereignisse.get(schluessel)
+        if geaendert:
+            await asyncio.to_thread(_alarm_zustand_speichern)
+        if not aktion or not _alarm_an():
+            return
+        mail = alerting.ereignis_mail(
+            was, eintrag.get("fehler", ""), _alarm_zeit(eintrag["seit"]), aktion == "behoben",
+            alerting.dauer_text(jetzt - eintrag["seit"]), _alarm_panel())
+        await asyncio.to_thread(_alarm_mail, schluessel.split(":")[0], mail)
+    except Exception as e:
+        logger.warning(f"alert event error: {e}")
 
 
 def _mail_direct_routes_add(host: str) -> list:
@@ -7950,63 +8130,83 @@ def _selfcheck_status() -> dict:
     return {"level": level, "issues": issues, "vpn_enabled": vpn_on, "passive": ph}
 
 
-def _maybe_send_alert(problem: bool, sample: dict):
-    """Alarm-/Entwarnungs-Mail mit Dedup (eine Mail je Störung). Blockierend."""
-    global _alert_active
-    if db.get_setting("alert_enabled", "0") != "1":
+async def _neustart_melden() -> None:
+    """Mail, wenn der vorige Lauf nicht sauber endete (OOM-Kill, Absturz, Stromausfall)."""
+    vorher = _neustart_vorher
+    if not alerting.neustart_unerwartet(vorher):
         return
-    if problem and _alert_active:
+    lebte = vorher.get("lebt") or vorher.get("start")
+    diag_log("WARNING", "alert", f"Unerwarteter Neustart – letztes Lebenszeichen {_alarm_zeit(lebte)}")
+    if _alarm_an():
+        mail = alerting.neustart_mail(_alarm_zeit(lebte), _alarm_zeit(_prozess_start), _alarm_panel())
+        await asyncio.to_thread(_alarm_mail, "neustart", mail)
+
+
+async def _lebenszeichen_pruefen() -> None:
+    """Tägliches Lebenszeichen zur eingestellten Stunde (Standard 8 Uhr)."""
+    if not _alarm_an() or db.get_setting("alert_heartbeat", "0") != "1":
         return
-    if not problem and not _alert_active:
+    lokal = datetime.now(_alarm_zeitzone())
+    stunde = _int_setting("alert_heartbeat_hour", 8, 0, 23)
+    if not alerting.lebenszeichen_faellig(lokal, stunde, db.get_setting("alert_heartbeat_day", "") or ""):
         return
-    if problem:
-        # Grund aus der auslösenden Stichprobe (nicht aus einem frischen Check, der
-        # bei Flattern schon wieder "ok" sein könnte).
-        lines = []
-        if sample.get("vpn_up") is False:
-            lines.append("VPN-Tunnel unten")
-        if sample.get("level") == "bad" or not sample.get("ok"):
-            lines.append("Streams laufen schlecht (langsame oder fehlende Segmente)")
-        if not lines:
-            lines = ["Anhaltend schwache Anbieter/VPN-Werte"]
-        body = (
-            "SelfStream hat ein Problem erkannt:\n\n- " + "\n- ".join(lines) +
-            "\n\nAktuelle Messwerte:\n"
-            f"  VPN: {'ok' if sample.get('vpn_up') else ('unten' if sample.get('vpn_up') is False else 'aus')}\n"
-            f"  Anbieter erreichbar: {'ja' if sample.get('ok') else 'nein'}\n"
-            f"  Durchsatz: {sample.get('mbps_total')} Mbit/s\n"
-            f"  Antwortzeit: {sample.get('latency_ms')} ms\n\n"
-            "Du bekommst eine Entwarnung, sobald es wieder läuft.\n"
-        )
-        ok, err = _send_email("🔴 SelfStream: Problem erkannt", body)
-        if ok:
-            _alert_active = True
-        else:
-            logger.warning(f"alert email failed: {err}")
-            diag_log("WARNING", "alert", f"Alarm-Mail fehlgeschlagen: {err}")
-    else:
-        ok, err = _send_email(
-            "✅ SelfStream: wieder in Ordnung",
-            "Die zuvor gemeldete Störung ist behoben – SelfStream läuft wieder normal.\n")
-        _alert_active = False
+    db.set_setting("alert_heartbeat_day", lokal.date().isoformat())
+    st = _selfcheck_status()
+    n = db.count_alert_mails("alarm", time.time() - 86400)
+    mail = alerting.lebenszeichen_mail(st["level"], st["issues"], n, _alarm_panel())
+    await asyncio.to_thread(_alarm_mail, "lebenszeichen", mail)
+
+
+async def _alarm_auswerten(sample: dict, schlecht: bool, gruende: list) -> None:
+    """Stichprobe in den Alarm-Zustand einarbeiten und fällige Mails verschicken."""
+    global _alarm
+    jetzt = time.time()
+    vorher = _alarm
+    neu, aktion = alerting.alarm_schritt(
+        vorher, schlecht, gruende, jetzt, datetime.now(_alarm_zeitzone()).date().isoformat())
+    if neu.aktiv and not vorher.aktiv:
+        diag_log("WARNING", "health", f"Anhaltende Störung ({sample.get('source')}): " + "; ".join(gruende))
+    if aktion in ("alarm", "alarm_letzter"):
+        ok = False
+        if _alarm_an():
+            mail = alerting.alarm_mail(gruende, _alarm_messwerte(sample), _alarm_zeit(neu.seit),
+                                       _alarm_panel(), letzter=(aktion == "alarm_letzter"))
+            ok = await asyncio.to_thread(_alarm_mail, "alarm", mail)
         if not ok:
-            logger.warning(f"recovery email failed: {err}")
+            neu = alerting.alarm_mail_gescheitert(neu)   # nächste Runde erneut versuchen
+    elif aktion == "entwarnung":
+        diag_log("INFO", "health", "Qualität wieder normal")
+        if _alarm_an():
+            mail = alerting.entwarnung_mail(_alarm_zeit(vorher.seit), _alarm_zeit(jetzt),
+                                            alerting.dauer_text(jetzt - vorher.seit), _alarm_panel())
+            await asyncio.to_thread(_alarm_mail, "entwarnung", mail)
+    with _alarm_lock:
+        _alarm = neu
+    if neu != vorher:
+        await asyncio.to_thread(_alarm_zustand_speichern)
 
 
 async def _health_sampler():
     """Periodische, schonende Gesundheits-Stichprobe fuer den Verlauf + Fruehwarnung.
     Laeuft (wie die anderen Waechter) nur in EINEM Event-Loop dank Startup-Guard."""
-    global _health_problem_streak, _alert_last_heartbeat, _health_good_streak, _alert_last_sent
     import time as _t
-    await asyncio.sleep(90)   # Startup abwarten
+    await asyncio.sleep(90)   # Startup abwarten (SMTP, VPN)
+    await asyncio.to_thread(_alarm_zustand_laden)
+    try:
+        await _neustart_melden()
+    except Exception as e:
+        logger.warning(f"restart alert error: {e}")
     while True:
         try:
             await asyncio.sleep(HEALTH_SAMPLE_INTERVAL)
+            await asyncio.to_thread(_laufzustand_schreiben, lebt=_t.time())
+            await _lebenszeichen_pruefen()
             if _vpn_sweep_active:
                 continue   # VPN-Server-Vergleich läuft (absichtliches Trennen) → nicht messen,
                            # sonst löst die Stichprobe einen Fehlalarm für einen gewollten Test aus.
             vpn_on = db.get_setting("vpn_enabled", "0") == "1"
             vpn_up = (bool(_vpn_link_connected) and bool(vpn_get_tun_ip())) if vpn_on else None
+            grenze = _alarm_latenz_grenze()
 
             ph = _passive_health()
             if ph.get("level") is not None:
@@ -8018,75 +8218,30 @@ async def _health_sampler():
                     "mbps_total": ph.get("mbps"),
                     "latency_ms": round((ph.get("median_s") or 0) * 1000, 1),
                     "jitter_ms": None, "failed": None,
-                    "source": "passiv", "level": ph["level"],
+                    "source": "passiv", "level": ph["level"], "quote": ph.get("quote"),
+                    "median_s": ph.get("median_s"), "err_rate": ph.get("err_rate"),
                 }
-                bad = (vpn_up is False) or (ph["level"] == "bad")
             else:
-                # Leerlauf (niemand schaut) → EIN leichter aktiver Mini-Check, damit die
-                # Kurve nicht leer bleibt und ein toter Anbieter auch ohne Zuschauer auffällt.
+                # Leerlauf (niemand schaut) → leichter aktiver Check, damit die Kurve nicht
+                # leer bleibt und ein toter Anbieter auch ohne Zuschauer auffällt.
                 # Bei fast vollem Verbindungslimit auslassen.
-                try:
-                    _cleanup_sessions()
-                    active = len(_sessions)
-                except Exception:
-                    active = 0
-                cap = 0
-                try:
-                    provs = db.get_m3u_providers()
-                    cap = max([int(p.get("line_capacity") or 0) for p in provs], default=0)
-                except Exception:
-                    cap = 0
-                if cap and active >= cap - 1:
+                if _near_capacity():
                     continue
-                prov = await _iptv_measure_provider(streams=1, per_stream_segments=1)
+                prov = await _leerlauf_stichprobe(grenze)
                 sample = {
                     "ts": int(_t.time()), "vpn_up": vpn_up,
                     "ok": bool(prov.get("ok")), "mbps_total": prov.get("mbps_parallel_total"),
                     "latency_ms": prov.get("latency_ms"), "jitter_ms": prov.get("jitter_ms"),
                     "failed": prov.get("failed"), "source": "leerlauf",
+                    "error": prov.get("error"), "kanaele": prov.get("kanaele") or [],
                 }
-                bad = (vpn_up is False) or (not prov.get("ok")) \
-                    or (prov.get("latency_ms") is not None and prov["latency_ms"] > 400)
+            schlecht, gruende = alerting.stichprobe_bewerten(sample, grenze)
+            sample["bad"] = schlecht
 
             _health_history.append(sample)
             if len(_health_history) > HEALTH_HISTORY_MAX:
                 _health_history.pop(0)
-
-            # Alarm mit HYSTERESE + BREMSE (kein Flattern): erst nach mehreren
-            # schlechten Stichproben am Stück melden, Entwarnung erst nach mehreren
-            # guten – und höchstens alle ALERT_MIN_INTERVAL eine NEUE Problem-Mail.
-            if bad:
-                _health_problem_streak += 1
-                _health_good_streak = 0
-                if _health_problem_streak == ALERT_BAD_STREAK:   # ~15 min anhaltend → Diagnose
-                    diag_log("WARNING", "health",
-                             f"Anhaltend schwache Qualität ({sample.get('source')}): "
-                             f"vpn_up={vpn_up}, ok={sample.get('ok')}, "
-                             f"ladezeit≈{sample.get('latency_ms')}ms, durchsatz={sample.get('mbps_total')}Mbit/s")
-                if _health_problem_streak >= ALERT_BAD_STREAK and not _alert_active:
-                    now = time.monotonic()
-                    if _alert_last_sent == 0.0 or (now - _alert_last_sent) >= ALERT_MIN_INTERVAL:
-                        await asyncio.to_thread(_maybe_send_alert, True, sample)
-                        if _alert_active:            # nur bei tatsächlich verschickter Mail
-                            _alert_last_sent = now
-            else:
-                _health_good_streak += 1
-                if _alert_active and _health_good_streak >= ALERT_GOOD_STREAK:
-                    diag_log("INFO", "health", "Qualität wieder normal")
-                    await asyncio.to_thread(_maybe_send_alert, False, sample)
-                if _health_good_streak >= ALERT_GOOD_STREAK:
-                    _health_problem_streak = 0
-
-            # Tägliches Lebenszeichen ("alles ok"), nur wenn aktiviert.
-            if db.get_setting("alert_enabled", "0") == "1" and db.get_setting("alert_heartbeat", "0") == "1":
-                now = time.monotonic()
-                if now - _alert_last_heartbeat >= ALERT_HEARTBEAT_INTERVAL:
-                    _alert_last_heartbeat = now
-                    st = _selfcheck_status()
-                    hb = (f"SelfStream lebt – Status: {st['level'].upper()}\n\n"
-                          + ("Alles in Ordnung.\n" if not st["issues"]
-                             else ("Hinweise:\n- " + "\n- ".join(st["issues"]) + "\n")))
-                    await asyncio.to_thread(_send_email, "✅ SelfStream: Tages-Lebenszeichen", hb)
+            await _alarm_auswerten(sample, schlecht, gruende)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -8127,7 +8282,15 @@ def get_alerts(_=Depends(check_admin)):
         "smtp_password": _VPN_PASSWORD_PLACEHOLDER if has_pw else "",
         "alert_from": s.get("alert_from", ""),
         "heartbeat": s.get("alert_heartbeat", "0") == "1",
-        "alert_active": _alert_active,
+        "heartbeat_hour": _int_setting("alert_heartbeat_hour", 8, 0, 23),
+        "latency_ms": _alarm_latenz_grenze(),
+        "panel_url": s.get("alert_panel_url", ""),
+        "alert_active": _alarm.gemeldet,
+        "alert_since": _alarm.seit if _alarm.aktiv else None,
+        "alerts_today": _alarm.alarme_heute,
+        "alerts_max": alerting.MAX_ALARME_PRO_TAG,
+        "events": [{"key": k, "since": v.get("seit"), "error": v.get("fehler", ""),
+                    "reported": bool(v.get("gemeldet"))} for k, v in _alarm_ereignisse.items()],
         "status": _selfcheck_status(),
     }
 
@@ -8154,7 +8317,26 @@ def set_alerts(body: dict, _=Depends(check_admin)):
         db.set_setting("smtp_port", str(p))
     if "smtp_password" in body and str(body["smtp_password"]) != _VPN_PASSWORD_PLACEHOLDER:
         db.set_setting("smtp_password", str(body["smtp_password"]))
+    for k, key, lo, hi in (("heartbeat_hour", "alert_heartbeat_hour", 0, 23),
+                           ("latency_ms", "alert_latency_ms", 200, 10000)):
+        if k in body:
+            try:
+                v = int(float(body[k]))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{k}: Zahl {lo}–{hi}")
+            db.set_setting(key, str(max(lo, min(hi, v))))
+    if "panel_url" in body:
+        url = str(body["panel_url"] or "").strip()
+        if url and (len(url) > 200 or not re.match(r"^https?://[^\s<>\"']+$", url)):
+            raise HTTPException(status_code=400, detail="Panel-Adresse muss mit http:// oder https:// beginnen")
+        db.set_setting("alert_panel_url", url)
     return {"ok": True}
+
+
+@admin_app.get("/api/alerts/history")
+def alerts_history(limit: int = 50, _=Depends(check_admin)):
+    """Verschickte (und gescheiterte) Alarm-Mails, neueste zuerst."""
+    return {"ok": True, "mails": db.get_alert_mails(max(1, min(int(limit), 200)))}
 
 
 @admin_app.post("/api/alerts/test")
@@ -8166,7 +8348,14 @@ async def test_alerts(_=Depends(check_admin)):
             + ("Alles in Ordnung.\n" if not st["issues"]
                else ("Hinweise:\n- " + "\n- ".join(st["issues"]) + "\n"))
             + "\nWenn du diese Mail bekommst, funktioniert der E-Mail-Alarm.")
-    ok, err = await asyncio.to_thread(_send_email, "🔔 SelfStream: Test-Benachrichtigung", body)
+    if _alarm_panel():
+        body += f"\n\nPanel: {_alarm_panel()}\n"
+    betreff = "🔔 SelfStream: Test-Benachrichtigung"
+    ok, err = await asyncio.to_thread(_send_email, betreff, body)
+    try:
+        db.add_alert_mail("test", betreff, ok, _mask_creds(err or ""))
+    except Exception:
+        pass
     return {"ok": ok, "error": err}
 
 
@@ -8954,7 +9143,7 @@ async def _canary_fetch_once() -> dict:
                 data = r.content
                 elapsed = time.time() - _t0
                 ok = r.status_code < 400 and len(data) > 100
-                _passive_record(elapsed, len(data), ok)   # Passiv-Proben weiter füttern
+                _passive_record(elapsed, len(data), ok, dur)   # Passiv-Proben weiter füttern
                 if ok:
                     got += 1
                     if dur and dur > 0:

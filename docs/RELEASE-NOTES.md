@@ -2,6 +2,49 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-85"></a>
+
+## v1.85 — E-Mail-Alarm: weniger Fehlalarme, klarere Mails, keine Lücken
+
+**Fehlalarme**
+
+- Der Check, wenn niemand schaut, nahm immer nur den **ersten Sender** der Liste. Hing genau
+  der, kam „Anbieter nicht erreichbar“, obwohl alle anderen liefen. Jetzt probiert er bis zu
+  drei Sender nacheinander (`_leerlauf_stichprobe`).
+- Die Antwortzeit misst einen kompletten Verbindungsaufbau durchs VPN; die feste Grenze von
+  400 ms war dafür zu knapp. Neue Grenze 1000 ms, im Panel einstellbar.
+- Bei echten Streams galt starr „ab 3 s Ladezeit schlecht“. Maßstab ist jetzt Ladezeit ÷
+  Spielzeit des Segments (aus `#EXTINF`): unter 1 kommt der Player mit. Ohne bekannte
+  Segmentlänge bleiben die alten Grenzen.
+
+**Klarere Mails**
+
+- Betreff nennt den Grund, der Text Beginn der Störung, geprüfte Sender, den Fehler und die
+  Messwerte. Die Entwarnung nennt Zeitraum und Dauer. Optional ein Link zum Panel.
+
+**Keine Lücken mehr**
+
+- Die 2-Stunden-Sperre nach einer Problem-Mail schluckte eine neue Störung kurz nach der
+  Entwarnung komplett – samt späterer Entwarnung. Ersetzt durch ein Tageslimit von 5
+  Störungs-Mails; die fünfte sagt, dass weitere nur noch im Panel stehen.
+- Der Alarm-Zustand liegt in der Datenbank und übersteht einen Neustart; vorher kam die
+  Entwarnung nach einem Neustart nie.
+- **Neustart-Mail:** endete der vorige Lauf nicht sauber (OOM-Kill, Absturz, Stromausfall),
+  kommt nach dem Start eine Mail mit dem letzten Lebenszeichen. Ein Stopp per `docker stop`
+  oder Unraid zählt als sauber: `server.py` fängt jetzt SIGTERM ab. Vorher hatte der Prozess
+  als PID 1 dafür keinen Handler, Docker wartete 10 s und beendete ihn per SIGKILL.
+- **EPG und Senderlisten:** schlägt der Abruf 30 Minuten lang durchgehend fehl, kommt eine
+  Mail, und eine weitere, sobald es wieder klappt. Zugangsdaten in Fehlertexten werden
+  maskiert – auch in den bisherigen Diagnose-Logs der Senderlisten, wo httpx sie mitschrieb.
+- **Lebenszeichen** zur festen Stunde (Standard 8 Uhr) statt 24 Stunden nach dem Start.
+- **Mail-Verlauf im Panel:** jede Mail mit Zeit, Art und – falls gescheitert – dem Grund.
+
+**Technik**
+
+Die Entscheidungslogik liegt in `backend/alerting.py` (reine Funktionen) und ist mit
+`tests/test_alerting.py` abgesichert. Neue Abhängigkeit `tzdata` für die Uhrzeiten in den
+Mails.
+
 <a id="v1-84"></a>
 
 ## v1.84 — EPG-Abruf beendet den Container nicht mehr

@@ -138,6 +138,17 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_canary_ts ON canary_events(ts);
 
+                -- Verlauf der Alarm-Mails (auch gescheiterte), für das Panel
+                CREATE TABLE IF NOT EXISTS alert_mails (
+                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts      REAL NOT NULL,
+                    art     TEXT NOT NULL,
+                    betreff TEXT NOT NULL,
+                    ok      INTEGER NOT NULL,
+                    fehler  TEXT DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_alert_mails_ts ON alert_mails(ts);
+
                 CREATE TABLE IF NOT EXISTS diagnostic_logs (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     level      TEXT NOT NULL,
@@ -736,6 +747,29 @@ class Database:
     def clear_segment_events(self):
         with self.conn() as con:
             con.execute("DELETE FROM segment_events")
+
+    # ── Alarm-Mail-Verlauf (90 Tage) ─────────────────────────────────────────────
+    def add_alert_mail(self, art: str, betreff: str, ok: bool, fehler: str = ""):
+        with self.conn() as con:
+            con.execute(
+                "INSERT INTO alert_mails (ts, art, betreff, ok, fehler) VALUES (?, ?, ?, ?, ?)",
+                (time.time(), art, betreff[:200], 1 if ok else 0, (fehler or "")[:500]))
+            con.execute("DELETE FROM alert_mails WHERE ts < ?", (time.time() - 90 * 86400,))
+
+    def get_alert_mails(self, limit: int = 50) -> List[Dict]:
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT ts, art, betreff, ok, fehler FROM alert_mails ORDER BY ts DESC LIMIT ?",
+                (limit,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def count_alert_mails(self, art: str, since_ts: float) -> int:
+        """Erfolgreich verschickte Mails einer Art seit since_ts."""
+        with self.conn() as con:
+            row = con.execute(
+                "SELECT COUNT(*) AS n FROM alert_mails WHERE art = ? AND ok = 1 AND ts >= ?",
+                (art, since_ts)).fetchone()
+            return int(row["n"])
 
     # ── Canary-Verlauf (Selbst-Zuschauer-Statistik, 30-Tage-Aufbewahrung) ────────
     def add_canary_event(self, entry: dict):

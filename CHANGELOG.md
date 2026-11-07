@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.85 · November 2026
+- 🇬🇧 **Reworked e-mail alerts:** fewer false alarms (the idle check tries up to three channels instead of only the first, a fair latency limit, stream quality judged by load time versus segment length), every mail says what, since when and how long, no more silently swallowed outages, at most 5 alarm mails per day. New: mail when the EPG or a channel list fails for 30 min and after an unexpected restart (e.g. out of memory), daily heartbeat at a fixed time, mail history in the panel.
+- 🇩🇪 **E-Mail-Alarm überarbeitet:** weniger Fehlalarme (der Leerlauf-Check probiert bis zu drei Sender statt nur den ersten, faire Antwortzeit-Grenze, Stream-Qualität nach Ladezeit im Verhältnis zur Segmentlänge), jede Mail sagt was, seit wann und wie lange, keine verschluckten Störungen mehr, höchstens 5 Störungs-Mails pro Tag. Neu: Mail, wenn EPG oder eine Senderliste 30 Min lang fehlschlägt und nach einem unerwarteten Neustart (z. B. Speicher voll), Lebenszeichen zur festen Uhrzeit, Mail-Verlauf im Panel.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-85)
+
 ## 1.84 · November 2026
 - 🇬🇧 Fixes the **container being killed for running out of memory** every few days: refreshing the EPG no longer keeps the old and new EPG in memory side by side, filtering goes file to file, and memory is returned to the system afterwards (measured: refresh peak +369 → +148 MB, idle 197 → 93 MB). All four EPG load paths now use the same memory-safe route.
 - 🇩🇪 Behebt den **Speicher-Abbruch des Containers** alle paar Tage: Beim EPG-Abruf liegen alte und neue EPG nicht mehr gleichzeitig im Speicher, gefiltert wird von Datei zu Datei, und der Speicher geht danach ans System zurück (gemessen: Spitze beim Abruf +369 → +148 MB, Grundlast 197 → 93 MB). Alle vier EPG-Ladewege nutzen jetzt denselben speichersicheren Weg.
