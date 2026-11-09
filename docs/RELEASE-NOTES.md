@@ -2,6 +2,26 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-87"></a>
+
+## v1.87 — Auto-Best misst ohne zweiten Tunnel
+
+**Anlass (08.11.2026):** Um 17:38–17:41 fiel ein laufender Stream aus. Gezielter Test im
+Leerlauf: Sobald der Mess-Tunnel (wg9) mit demselben Mullvad-Schlüssel zu einem anderen
+Server aufgebaut wurde, fiel der echte Tunnel (wg0) nach ~5 s auf 0 Mbit/s und erholte
+sich erst mit seinem nächsten Handshake rund zwei Minuten später. Mullvad lässt einen
+Schlüssel nur auf einem Server gleichzeitig zu.
+
+**Neu:**
+- Kein Mess-Tunnel mehr. Gemessen wird per **Probe-Wechsel**: wg0 wird nahtlos (nur Peer-Tausch)
+  auf den Kandidaten gestellt, 3 Downloads à 5 MB, danach der nächste Kandidat. Am Ende steht
+  wg0 immer auf dem Gewinner oder wieder auf dem bisherigen Server – auch bei einem Fehler.
+- Schaut jemand (Notfall-Suche), werden nur die 3 Server mit dem besten Ping geprüft, und ein
+  Download gilt nach 5 s als Hänger (Leerlauf: 5 Server, 10 s). Nach dem ersten Hänger wird
+  ein Kandidat nicht weiter gemessen.
+- Jede Suche, jede Messung und jeder Wechsel steht mit Uhrzeit im Container-Log
+  (`Auto-Best: …`), nicht nur im Panel.
+
 <a id="v1-86"></a>
 
 ## v1.86 — Auto-Best misst selbst und nimmt den wirklich schnellsten Server

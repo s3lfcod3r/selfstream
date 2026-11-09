@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.87 · November 2026
+- 🇬🇧 **Auto-Best no longer disrupts the stream:** The separate measuring tunnel used the same Mullvad key and froze the live tunnel for about two minutes. Auto-Best now briefly switches the real tunnel to each candidate (seamlessly), measures there and finally stays on the fastest or returns to the previous server. Every search, measurement and switch is now written to the container log with a timestamp.
+- 🇩🇪 **Auto-Best stört den Stream nicht mehr:** Der eigene Mess-Tunnel nutzte denselben Mullvad-Schlüssel und legte den echten Tunnel rund zwei Minuten lahm. Jetzt stellt Auto-Best den echten Tunnel kurz und nahtlos auf jeden Kandidaten, misst dort und bleibt am Ende auf dem schnellsten oder geht zurück auf den bisherigen Server. Jede Suche, Messung und jeder Wechsel steht jetzt mit Uhrzeit im Container-Log.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-87)
+
 ## 1.86 · November 2026
 - 🇬🇧 **Auto-Best measures for real:** SelfStream now measures the actual speed of the active WireGuard server and its alternatives through a separate measuring tunnel (running streams are not touched) and switches seamlessly to the fastest. It searches when segments load slowly or stall – not only when playback stutters – and also runs a routine check while nobody is watching. The choice is based on measured speed, no longer on ping.
 - 🇩🇪 **Auto-Best misst wirklich:** SelfStream misst jetzt das echte Tempo des aktiven WireGuard-Servers und der Alternativen über einen eigenen Mess-Tunnel (laufende Streams bleiben unberührt) und schaltet nahtlos auf den schnellsten. Gesucht wird, sobald Segmente langsam laden oder hängen – nicht erst bei Ruckeln – und zusätzlich per Routine-Check, wenn niemand schaut. Entschieden wird nach gemessenem Tempo statt nach Ping.

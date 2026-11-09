@@ -6888,118 +6888,41 @@ async def _measure_server_latency(path: str, gw, dev, active_ip: str = None):
     return (ip, lat)
 
 
-# ── Tempo-Messung über einen ZWEITEN WireGuard-Tunnel (Streams bleiben unberührt) ──
-# Für jeden Kandidaten kommt kurz ein eigenes Interface (wg9) hoch. Nur Verbindungen
-# mit der Markierung WG_MESS_MARK laufen per Policy-Routing durch wg9 – alles andere,
-# auch die laufenden Streams, bleibt auf wg0. Gleicher Mullvad-Schlüssel auf einem
-# ANDEREN Server stört den aktiven Tunnel nicht (gemessen 07.11.2026). Den aktiven
-# Server selbst misst der Check direkt über wg0.
-WG_MESS_IFACE = "wg9"
-WG_MESS_TABLE = 202
-WG_MESS_MARK = 0x5302
-WG_MESS_PRIO = 1000
-WG_MESS_MAX = 5                  # so viele Kandidaten (nach Ping vorsortiert) werden vermessen
+# ── Tempo-Messung per Probe-Wechsel auf wg0 ────────────────────────────────────
+# KEIN zweiter Tunnel: Derselbe Mullvad-Schlüssel auf einem zweiten Server legt den
+# aktiven Tunnel lahm, bis zu dessen nächstem Handshake (gemessen 08.11.2026: wg0
+# 0 Mbit/s für ~2 min – vermutlich Ursache des Ausfalls 17:38). Stattdessen wird wg0
+# kurz nahtlos auf jeden Kandidaten umgestellt, dort gemessen und am Ende auf den
+# Besten bzw. zurück auf den bisherigen Server gestellt.
+WG_MESS_MAX = 5                  # Kandidaten im Routine-Check (nach Ping vorsortiert)
+WG_MESS_MAX_NOTFALL = 3          # weniger, wenn gerade jemand schaut
 WG_MESS_HOST = "speed.cloudflare.com"
 WG_MESS_BYTES = 5_000_000
 WG_MESS_PFAD = f"/__down?bytes={WG_MESS_BYTES}"
-WG_MESS_FRIST = 10.0             # s je Download; länger = Hänger
-_SO_MARK = getattr(socket, "SO_MARK", 36)
+WG_MESS_FRIST = 10.0             # s je Download im Leerlauf; länger = Hänger
+WG_MESS_FRIST_NOTFALL = 5.0      # Zuschauer sollen nicht lange auf einem Hänger hängen
 _wg_autobest_last_check = 0.0    # time.monotonic() der letzten Suche (Notfall + Routine)
 
 
-def _wg_mess_ab(server_ip: Optional[str] = None) -> None:
-    """Mess-Tunnel samt Regel/Route garantiert abräumen (blockierend, wirft nie)."""
-    for _ in range(5):
-        r = _dual_sh(["ip", "rule", "del", "fwmark", hex(WG_MESS_MARK), "lookup", str(WG_MESS_TABLE)])
-        if r is None or r.returncode != 0:
-            break
-    _dual_sh(["ip", "route", "flush", "table", str(WG_MESS_TABLE)])
-    if server_ip:
-        _dual_sh(["ip", "route", "del", f"{server_ip}/32"])
-    _dual_sh(["ip", "link", "del", WG_MESS_IFACE])
+def _wg_ein_download(frist: float = WG_MESS_FRIST) -> Optional[float]:
+    """Ein Mess-Download über wg0 (blockierend) → Mbit/s oder None (Fehler/Hänger).
 
-
-def _wg_mess_auf(conf_path: str, active_ip: Optional[str]) -> dict:
-    """Mess-Tunnel zu EINEM Kandidaten aufbauen (blockierend). {"ok", "ip"|"error"}."""
-    try:
-        with open(conf_path, "r") as f:
-            iface, peer = _wg_parse_conf(f.read())
-    except Exception as e:
-        return {"ok": False, "error": f"Config lesen: {e}"}
-    priv = iface.get("privatekey", "")
-    addr = iface.get("address", "").split(",")[0].strip().split("/")[0]
-    pub, ep = peer.get("publickey", ""), peer.get("endpoint", "")
-    if not (priv and addr and pub and ep):
-        return {"ok": False, "error": "Config unvollständig"}
-    ip = ep.rsplit(":", 1)[0].strip("[]")
-    try:
-        ipaddress.ip_address(ip)
-        ipaddress.ip_address(addr)
-    except ValueError:
-        return {"ok": False, "error": "Endpoint/Adresse ungültig"}
-    if ip == active_ip:
-        return {"ok": False, "error": "ist der aktive Server"}   # dessen Route NIE anfassen
-    gw, dev = (_wg_saved_default or _wg_default_gw())
-    if not gw:
-        return {"ok": False, "error": "LAN-Gateway nicht gefunden"}
-    _wg_mess_ab()   # Reste eines abgebrochenen Laufs
-    keyfile = os.path.join(VPN_OVPN_DIR, ".mess.key")
-    try:
-        fd = os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(priv + "\n")
-        schritte = [
-            ["ip", "link", "add", WG_MESS_IFACE, "type", "wireguard"],
-            ["wg", "set", WG_MESS_IFACE, "private-key", keyfile, "peer", pub,
-             "endpoint", ep, "allowed-ips", "0.0.0.0/0"],
-            ["ip", "link", "set", WG_MESS_IFACE, "up"],
-            ["ip", "route", "replace", f"{ip}/32", "via", gw, "dev", dev],
-        ]
-        lokal = _dual_sh(["ip", "-o", "addr"])
-        if not (lokal and f" {addr}/" in lokal.stdout):
-            schritte.append(["ip", "addr", "add", f"{addr}/32", "dev", WG_MESS_IFACE])
-        schritte += [
-            ["ip", "route", "replace", "default", "dev", WG_MESS_IFACE, "src", addr,
-             "table", str(WG_MESS_TABLE)],
-            ["ip", "rule", "add", "fwmark", hex(WG_MESS_MARK), "lookup", str(WG_MESS_TABLE),
-             "priority", str(WG_MESS_PRIO)],
-        ]
-        for cmd in schritte:
-            r = _dual_sh(cmd, timeout=8)
-            if r is None or r.returncode != 0:
-                fehler = ((r.stderr or r.stdout).strip() if r else "Zeitüberschreitung")[:200]
-                _wg_mess_ab(ip)
-                return {"ok": False, "error": f"{cmd[0]} {cmd[1]}: {fehler}"}
-    finally:
-        try:
-            os.remove(keyfile)
-        except OSError:
-            pass
-    return {"ok": True, "ip": ip}
-
-
-def _wg_ein_download(markiert: bool) -> Optional[float]:
-    """Ein Mess-Download (blockierend) → Mbit/s oder None (Fehler/Hänger).
-
-    Bewusst ohne httpx: httpx setzt Socket-Optionen erst NACH dem Verbindungsaufbau,
-    der Aufbau liefe dann noch über wg0 und die Verbindung risse beim Umrouten ab.
-    Hier wird SO_MARK vor connect() gesetzt."""
+    Eigene neue Verbindung (kein Connection-Pool), damit jede Messung wirklich über
+    den gerade eingestellten Server läuft."""
     import ssl
     host, pfad = WG_MESS_HOST, WG_MESS_PFAD
     s = None
     try:
         ip = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if markiert:
-            s.setsockopt(socket.SOL_SOCKET, _SO_MARK, WG_MESS_MARK)
-        s.settimeout(5)
+        s.settimeout(min(5.0, frist))
         t0 = time.monotonic()
         s.connect((ip, 443))
         s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
         s.sendall(f"GET {pfad} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: selfstream\r\n"
                   f"Connection: close\r\n\r\n".encode())
-        gesamt, frist = 0, t0 + WG_MESS_FRIST
-        while time.monotonic() < frist:
+        gesamt, ende = 0, t0 + frist
+        while time.monotonic() < ende:
             teil = s.recv(65536)
             if not teil:
                 break
@@ -7018,23 +6941,30 @@ def _wg_ein_download(markiert: bool) -> Optional[float]:
                 pass
 
 
-async def _wg_tempo_proben(markiert: bool) -> list:
-    """MESS_PROBEN Downloads (Mbit/s, None = Abbruch/Hänger) – über wg9 oder wg0."""
+async def _wg_tempo_proben(frist: float) -> list:
+    """Bis zu MESS_PROBEN Downloads über wg0 (Mbit/s, None = Abbruch/Hänger).
+    Nach dem ersten Hänger ist Schluss – der Server zählt dann ohnehin als 0."""
     werte = []
     for _ in range(vpnwahl.MESS_PROBEN):
-        werte.append(await asyncio.to_thread(_wg_ein_download, markiert))
+        wert = await asyncio.to_thread(_wg_ein_download, frist)
+        werte.append(wert)
+        if wert is None:
+            break
     return werte
 
 
-async def _wg_kandidat_messen(conf_path: str, active_ip: Optional[str]) -> dict:
-    auf = await asyncio.to_thread(_wg_mess_auf, conf_path, active_ip)
-    if not auf.get("ok"):
-        return {"ok": False, "error": auf.get("error"), "werte": []}
-    try:
-        werte = await _wg_tempo_proben(markiert=True)
-    finally:
-        await asyncio.to_thread(_wg_mess_ab, auf.get("ip"))
-    return {"ok": True, "werte": werte}
+async def _wg_kandidat_messen(conf_path: str, frist: float) -> dict:
+    """wg0 nahtlos auf den Kandidaten stellen und dort messen (Rückweg macht der Aufrufer)."""
+    res = await asyncio.to_thread(_wg_switch_seamless, conf_path)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error"), "werte": []}
+    return {"ok": True, "werte": await _wg_tempo_proben(frist)}
+
+
+def _ab_log(text: str) -> None:
+    """Auto-Best-Schritt ins Panel-VPN-Log UND ins Container-Log (mit Uhrzeit nachvollziehbar)."""
+    _vpn_log_add(f"🏆 Auto-Best: {text}")
+    logger.info(f"Auto-Best: {text}")
 
 
 async def _wg_autobest_suchen(active_fn: str, grund: str, notfall: bool) -> dict:
@@ -7061,41 +6991,53 @@ async def _wg_autobest_suchen(active_fn: str, grund: str, notfall: bool) -> dict
     pings.sort()
     auswahl = [fn for _lat, fn in pings[:WG_MESS_MAX]]
 
-    # 2) Echtes Tempo: aktueller Server über wg0, Kandidaten je über den Mess-Tunnel
-    _vpn_log_add(f"🏆 Auto-Best: {grund} – messe {active_fn} und {len(auswahl)} Alternativen…")
-    aktuell_werte = await _wg_tempo_proben(markiert=False)
+    # 2) Echtes Tempo, alles über wg0: erst der aktuelle Server, dann per Probe-Wechsel
+    #    jeder Kandidat. Am Ende steht wg0 IMMER auf dem Gewinner oder wieder auf dem alten.
+    frist = WG_MESS_FRIST_NOTFALL if notfall else WG_MESS_FRIST
+    auswahl = auswahl[:WG_MESS_MAX_NOTFALL if notfall else WG_MESS_MAX]
+    _ab_log(f"Suche gestartet ({grund}) – messe {active_fn} und {len(auswahl)} Alternativen")
+    aktuell_werte = await _wg_tempo_proben(frist)
     aktuell = vpnwahl.messung_werten(aktuell_werte)
+    _ab_log(f"gemessen {active_fn} (aktiv): {aktuell} Mbit/s {aktuell_werte}")
     status["gemessen"].append({"server": active_fn, "mbps": aktuell, "werte": aktuell_werte,
                                "aktiv": True})
-    punkte = {}
-    for fn in auswahl:
-        m = await _wg_kandidat_messen(os.path.join(VPN_OVPN_DIR, fn), active_ip)
-        wert = vpnwahl.messung_werten(m["werte"]) if m.get("ok") else 0.0
-        punkte[fn] = wert
-        status["gemessen"].append({"server": fn, "mbps": wert, "werte": m.get("werte") or [],
-                                   "fehler": m.get("error")})
-
-    # 3) Entscheiden + nahtlos wechseln
-    ziel = vpnwahl.besten_waehlen(aktuell, punkte, notfall)
+    punkte, ziel = {}, None
+    try:
+        for fn in auswahl:
+            m = await _wg_kandidat_messen(os.path.join(VPN_OVPN_DIR, fn), frist)
+            wert = vpnwahl.messung_werten(m["werte"]) if m.get("ok") else 0.0
+            punkte[fn] = wert
+            _ab_log(f"gemessen {fn}: {wert} Mbit/s {m.get('werte') or []}"
+                    + (f" – {m.get('error')}" if m.get("error") else ""))
+            status["gemessen"].append({"server": fn, "mbps": wert, "werte": m.get("werte") or [],
+                                       "fehler": m.get("error")})
+        ziel = vpnwahl.besten_waehlen(aktuell, punkte, notfall)
+    finally:
+        # 3) wg0 auf den Gewinner stellen – oder zurück auf den bisherigen Server
+        if auswahl:
+            ende = ziel or active_fn
+            res = await asyncio.to_thread(_wg_switch_seamless, os.path.join(VPN_OVPN_DIR, ende))
+            if not res.get("ok") and ende != active_fn:
+                _ab_log(f"Wechsel auf {ende} fehlgeschlagen ({res.get('error')}) – zurück auf {active_fn}")
+                status["ergebnis"] = f"Wechsel fehlgeschlagen ({res.get('error')})"
+                ziel, ende = None, active_fn
+                res = await asyncio.to_thread(_wg_switch_seamless, os.path.join(VPN_OVPN_DIR, ende))
+            if not res.get("ok"):
+                _ab_log(f"FEHLER: Rückweg auf {active_fn} fehlgeschlagen ({res.get('error')})")
+                diag_log("ERROR", "vpn", f"WG Auto-Best: Rückweg auf {active_fn} fehlgeschlagen")
+            await _reset_iptv_client()   # Verbindungen der Probe-Server nicht weiterverwenden
     if not ziel:
-        status["ergebnis"] = "aktueller Server ist gut genug" if aktuell > 0 else \
-            "kein erreichbarer Server schneller"
-        _vpn_log_add(f"🏆 Auto-Best: bleibe auf {active_fn} ({aktuell} Mbit/s).")
+        status.setdefault("ergebnis", "aktueller Server ist gut genug" if aktuell > 0 else
+                          "kein erreichbarer Server schneller")
+        _ab_log(f"bleibe auf {active_fn} ({aktuell} Mbit/s) – {status['ergebnis']}")
         _wg_autobest_status = status
         return status
-    res = await asyncio.to_thread(_wg_switch_seamless, os.path.join(VPN_OVPN_DIR, ziel))
-    if res.get("ok"):
-        db.set_setting("vpn_ovpn_path", os.path.join(VPN_OVPN_DIR, ziel))
-        await _reset_iptv_client()
-        _wg_autobest_last_switch = time.monotonic()
-        status.update({"to": ziel, "ergebnis": f"gewechselt ({aktuell} → {punkte[ziel]} Mbit/s)"})
-        _vpn_log_add(f"🏆 Auto-Best: nahtlos {active_fn} → {ziel} "
-                     f"({aktuell} → {punkte[ziel]} Mbit/s).")
-        diag_log("INFO", "vpn", f"WG Auto-Best: {active_fn} → {ziel} "
-                                f"({aktuell} → {punkte[ziel]} Mbit/s, {grund})")
-    else:
-        status["ergebnis"] = f"Wechsel fehlgeschlagen ({res.get('error')})"
-        _vpn_log_add(f"🏆 Auto-Best: Wechsel fehlgeschlagen ({res.get('error')}).")
+    db.set_setting("vpn_ovpn_path", os.path.join(VPN_OVPN_DIR, ziel))
+    _wg_autobest_last_switch = time.monotonic()
+    status.update({"to": ziel, "ergebnis": f"gewechselt ({aktuell} → {punkte[ziel]} Mbit/s)"})
+    _ab_log(f"nahtlos gewechselt {active_fn} → {ziel} ({aktuell} → {punkte[ziel]} Mbit/s)")
+    diag_log("INFO", "vpn", f"WG Auto-Best: {active_fn} → {ziel} "
+                            f"({aktuell} → {punkte[ziel]} Mbit/s, {grund})")
     _wg_autobest_status = status
     return status
 
@@ -7146,10 +7088,6 @@ async def _wg_autobest_watch():
             raise
         except Exception as e:
             logger.warning(f"WG autobest watch error: {e}")
-            try:
-                await asyncio.to_thread(_wg_mess_ab)
-            except Exception:
-                pass
 
 
 # ── Mullvad: alle Server automatisch importieren ───────────────────────────────
