@@ -380,7 +380,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.99</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v2.00</div>
       </div>
     </div>
 
@@ -452,8 +452,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Name</th><th style="width:28px;text-align:center;">●</th><th style="width:32px;">M3U</th><th>Short URL</th><th style="width:60px;text-align:center;">Token</th>
-              <th style="width:80px;">Max Str.</th><th style="width:46px;">Str.</th><th style="width:46px;">Ges.</th><th style="width:76px;">Zuletzt</th><th></th>
+              <th>Name</th><th style="width:28px;text-align:center;"><span class="qtip" tabindex="0" data-tip="Grün = darf schauen, rot = gesperrt.">●</span></th><th style="width:46px;"><span class="qtip" tabindex="0" data-tip="Adresse der Senderliste für den Player dieses Nutzers. Linker Knopf: Adresse für unterwegs. Rechter Knopf: Adresse mit der IP im Heimnetz, nur zum Testen.">Link</span></th><th><span class="qtip" tabindex="0" data-tip="Dieselbe Senderliste als kurze Adresse – leichter einzutippen.">Kurzlink</span></th><th style="width:76px;text-align:center;"><span class="qtip" tabindex="0" data-tip="Der persönliche Schlüssel des Nutzers. Er steckt schon in Link und Kurzlink; einzeln braucht man ihn selten.">Schlüssel</span></th>
+              <th style="width:86px;"><span class="qtip" tabindex="0" data-tip="So viele Geräte dürfen gleichzeitig schauen. 0 = unbegrenzt.">Streams</span></th><th style="width:56px;"><span class="qtip" tabindex="0" data-tip="Wie oft dieser Nutzer insgesamt einen Sender gestartet hat.">Abrufe</span></th><th style="width:60px;"><span class="qtip" tabindex="0" data-tip="Geschaute Zeit insgesamt, in Stunden.">Geschaut</span></th><th style="width:76px;">Zuletzt</th><th></th>
             </tr></thead>
             <tbody id="users-tbody"></tbody>
           </table>
@@ -572,7 +572,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <input class="form-input" id="import-url" placeholder="http://anbieter.tv/get.php?…">
               </div>
               <div class="form-group" style="margin:0;">
-                <label class="form-label">Verfügbare Lines</label>
+                <label class="form-label">Gleichzeitige Verbindungen (erlaubt)</label>
                 <input class="form-input" id="import-provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
               </div>
               <div class="form-group" style="margin:0;">
@@ -622,7 +622,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <!-- EPG -->
       <div id="page-epg" class="content-area" style="display:none">
         <div class="section-hdr">
-          <span class="section-title">EPG Quellen</span>
+          <span class="section-title">Programm-Daten (EPG)</span>
           <div></div>
         </div>
         <!-- EPG Quelle hinzufügen + Cache oben -->
@@ -674,7 +674,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div id="epg-last-fetch" style="margin-top:4px;font-size:11px;color:var(--text2);"></div>
 
           <!-- EPG-Qualitätsprüfung: erkennt vermischte Programmlisten beim Anbieter -->
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+          <details style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+            <summary style="cursor:pointer;font-size:12px;color:var(--text2);">🔎 Programm-Daten prüfen und Archiv</summary>
+          <div style="margin-top:10px;">
             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
               <strong style="color:var(--text);font-size:12px;">Qualität prüfen</strong>
               <!-- value wird beim Laden auf heute gesetzt (setzeEpgPruefTag): ein einzelner
@@ -745,6 +747,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <div id="epg-arc-result" style="margin-top:10px;"></div>
             <div id="epg-q-result" style="margin-top:10px;"></div>
           </div>
+          </details>
         </div>
 
         <!-- Quellen-Tabelle -->
@@ -756,6 +759,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
 
         <!-- Globale EPG-URL -->
+        <details style="margin-bottom:14px;">
+          <summary style="cursor:pointer;font-size:12px;color:var(--text2);margin-bottom:10px;">🔗 Programm-Adresse für die Player (EPG-URL)</summary>
         <div class="epg-global">
           <strong style="color:var(--text);">Globale EPG-URL</strong> – direkt in IPTV-App eintragen (gleich für alle):
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
@@ -795,11 +800,12 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </table>
           </div>
         </div>
+        </details>
 
         <!-- EPG Channel Manager -->
         <div style="margin-top:20px;">
           <div class="section-hdr">
-            <span class="section-title">EPG Kanal-Manager <span id="epg-ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
+            <span class="section-title">Sender mit Programm <span id="epg-ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <input class="search-input" id="epg-ch-search" placeholder="Kanal suchen…" oninput="filterEpgCh()" style="width:180px;">
               <select class="group-filter" id="epg-ch-filter" onchange="filterEpgCh()" style="font-size:11px;">
@@ -828,7 +834,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <!-- Logs -->
       <div id="page-logs" class="content-area" style="display:none">
         <div class="section-hdr">
-          <span class="section-title">Watch-Verlauf</span>
+          <span class="section-title">Verlauf – wer hat was geschaut</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <input class="form-input logs-control" id="logs-user-filter" placeholder="Benutzer filtern..." style="width:180px;padding:5px 8px;font-size:11px;" oninput="scheduleLogsReload()">
             <input class="form-input logs-control" id="logs-date-from" type="date" style="width:140px;padding:5px 8px;font-size:11px;" title="Von Datum" onchange="loadLogs(1)">
@@ -842,6 +848,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <button class="btn sm" onclick="loadLogs()">↻ Refresh</button>
           </div>
         </div>
+        <div id="logs-summe" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px;"></div>
         <div id="logs-meta" class="form-hint" style="margin-bottom:10px;">Lädt...</div>
         <div class="table-wrap">
           <table>
@@ -1216,7 +1223,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.99</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v2.00</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1838,7 +1845,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
       <div class="form-group">
-        <label class="form-label">Verfügbare Lines</label>
+        <label class="form-label">Gleichzeitige Verbindungen (erlaubt)</label>
         <input class="form-input" id="provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
         <div class="form-hint">0 = unbegrenzt</div>
       </div>
@@ -1880,7 +1887,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <input class="form-input" id="import-provider-name" placeholder="z.B. Provider A">
     </div>
     <div class="form-group">
-      <label class="form-label">Verfügbare Lines</label>
+      <label class="form-label">Gleichzeitige Verbindungen (erlaubt)</label>
       <input class="form-input" id="import-provider-lines" type="number" min="0" value="0" placeholder="z.B. 6">
       <div class="form-hint">0 = unbekannt/unbegrenzt (nur Tracking ohne Kapazitätsgrenze).</div>
     </div>
@@ -2226,6 +2233,10 @@ function buildLocalUrl(externalUrl) {
 // ── Users ─────────────────────────────────────────────────────────────────────
 async function loadUsers(pageArg) {
   const users=await api('GET','/api/users');
+  const live = await api('GET','/api/stats').catch(() => null);
+  const schautGerade = {};
+  ((live && live.active_sessions) || []).forEach(x => { schautGerade[x.user] = x.channel; });
+  ((live && live.active_catchup) || []).forEach(x => { if (!schautGerade[x.user]) schautGerade[x.user] = x.channel; });
   const providerCap = await api('GET','/api/providers/capacity').catch(() => []);
   providersCache = await api('GET','/api/providers').catch(() => []);
   const pageSize = parseInt(document.getElementById('users-page-size')?.value || '20');
@@ -2264,7 +2275,7 @@ async function loadUsers(pageArg) {
     // Max streams input
     const maxStr = (u.max_streams === 0) ? 0 : (u.max_streams || 1);
     return `<tr>
-      <td><strong>${esc(u.name)}</strong>${u.notes?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2)">${esc(u.notes)}</div>`:''}</td>
+      <td><strong>${esc(u.name)}</strong>${schautGerade[u.name]?` <span style="display:inline-block;padding:0 7px;border-radius:10px;border:1px solid #14b8a6;color:#14b8a6;font-size:10px;white-space:nowrap;" title="${esc(schautGerade[u.name])}">schaut gerade</span>`:''}${u.notes?`<div style="font-family:var(--mono);font-size:10px;color:var(--text2)">${esc(u.notes)}</div>`:''}</td>
       <td style="text-align:center;">${u.active?'<span style="color:#3fb950;font-size:14px;" title="Aktiv">●</span>':'<span style="color:#f85149;font-size:14px;" title="Gesperrt">●</span>'}</td>
       <td style="text-align:center;">
         <div style="display:flex;gap:3px;justify-content:center;">
@@ -2563,7 +2574,7 @@ async function loadProviders() {
         capacityHtml = `
           <div style="margin-top:8px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <span style="font-size:10px;color:var(--text2);font-family:var(--mono);">Aktive Streams: <strong style="color:${barColor}">${active}</strong> / ${lineCap} Lines${over>0?` <span style="color:#ff4444;font-weight:bold;">(+${over} über Limit)</span>`:''}</span>
+              <span style="font-size:10px;color:var(--text2);font-family:var(--mono);">Verbindungen belegt: <strong style="color:${barColor}">${active}</strong> von ${lineCap} Lines${over>0?` <span style="color:#ff4444;font-weight:bold;">(+${over} über Limit)</span>`:''}</span>
               <span style="font-size:10px;color:var(--text2);font-family:var(--mono);">${pct}%</span>
             </div>
             <div style="height:4px;background:var(--border);overflow:hidden;">
@@ -3764,7 +3775,29 @@ async function saveEpgEdit() {
 }
 
 // ── Logs ──────────────────────────────────────────────────────────────────────
+function _dauerText(sek) {
+  sek = Math.max(0, parseInt(sek, 10) || 0);
+  if (sek < 3600) return Math.round(sek / 60) + ' Min.';
+  return (Math.round(sek / 360) / 10).toString().replace('.', ',') + ' Std.';
+}
+
+async function logsZusammenfassung() {
+  const el = document.getElementById('logs-summe');
+  if (!el) return;
+  let z;
+  try { z = await api('GET', '/api/logs/zusammenfassung?stunden=24'); } catch(e) { return; }
+  if (!z) return;
+  const kachel = (name, wert, sub) => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;min-width:0;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px;">${name}</div>
+      <div style="font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${wert}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">${sub}</div></div>`;
+  el.innerHTML = kachel('Geschaut in den letzten 24 Stunden', _dauerText(z.sekunden), z.nutzer_anzahl === 1 ? 'von 1 Nutzer' : `von ${z.nutzer_anzahl} Nutzern`)
+    + kachel('Meistgeschauter Sender', z.sender ? esc(z.sender.name) : '–', z.sender ? _dauerText(z.sender.sekunden) : 'noch nichts geschaut')
+    + kachel('Aktivster Nutzer', z.nutzer ? esc(z.nutzer.name) : '–', z.nutzer ? _dauerText(z.nutzer.sekunden) : 'noch nichts geschaut');
+}
+
 async function loadLogs(pageArg) {
+  logsZusammenfassung();
   const user = document.getElementById('logs-user-filter')?.value?.trim() || '';
   const dateFrom = document.getElementById('logs-date-from')?.value || '';
   const dateTo = document.getElementById('logs-date-to')?.value || '';

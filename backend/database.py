@@ -937,6 +937,27 @@ class Database:
                                (int(seit_ts // 60),)).fetchall()
             return [dict(r) for r in rows]
 
+    def get_watch_zusammenfassung(self, stunden: int = 24) -> Dict:
+        """Geschaute Zeit, meistgeschauter Sender und aktivster Nutzer der letzten Stunden.
+
+        Gezählt werden abgeschlossene Einträge; wer gerade noch schaut, kommt erst dazu,
+        wenn er umschaltet oder aufhört."""
+        seit = f"-{max(1, min(int(stunden), 24 * 90))} hours"
+        with self.conn() as con:
+            gesamt = con.execute("SELECT COALESCE(SUM(duration_seconds), 0), COUNT(DISTINCT user_id) FROM watch_logs "
+                                 "WHERE started_at >= datetime('now', ?)", (seit,)).fetchone()
+            sender = con.execute("SELECT channel, SUM(duration_seconds) AS s FROM watch_logs "
+                                 "WHERE started_at >= datetime('now', ?) GROUP BY channel "
+                                 "ORDER BY s DESC LIMIT 1", (seit,)).fetchone()
+            nutzer = con.execute("SELECT u.name AS name, SUM(w.duration_seconds) AS s FROM watch_logs w "
+                                 "JOIN users u ON u.id = w.user_id WHERE w.started_at >= datetime('now', ?) "
+                                 "GROUP BY w.user_id ORDER BY s DESC LIMIT 1", (seit,)).fetchone()
+        return {
+            "stunden": int(stunden), "sekunden": int(gesamt[0] or 0), "nutzer_anzahl": int(gesamt[1] or 0),
+            "sender": {"name": sender["channel"], "sekunden": int(sender["s"] or 0)} if sender and sender["s"] else None,
+            "nutzer": {"name": nutzer["name"], "sekunden": int(nutzer["s"] or 0)} if nutzer and nutzer["s"] else None,
+        }
+
     def add_netz_probe(self, ts: float, mbps: Optional[float]) -> None:
         with self.conn() as con:
             con.execute("INSERT OR REPLACE INTO netz_proben (ts, mbps) VALUES (?, ?)", (ts, mbps))

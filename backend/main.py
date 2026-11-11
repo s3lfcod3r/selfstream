@@ -9279,6 +9279,12 @@ def _wg_aktiv_stand() -> dict:
     return {"server": name, "mbps": e.get("mbps"), "ts": e.get("ts")}
 
 
+@admin_app.get("/api/logs/zusammenfassung")
+def get_logs_zusammenfassung(stunden: int = 24, _=Depends(check_admin)):
+    """Kurzfassung für die Seite Verlauf: geschaute Zeit, meistgeschauter Sender, aktivster Nutzer."""
+    return db.get_watch_zusammenfassung(stunden)
+
+
 @admin_app.get("/api/vpn/tempo")
 def get_vpn_tempo(_=Depends(check_admin)):
     """Was gerade durch den Tunnel fließt + zuletzt gemessenes Höchsttempo des aktiven Servers."""

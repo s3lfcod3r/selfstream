@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 2.00 · November 2026
+- 🇬🇧 **Users, history, providers and EPG easier to read:** The user table has plain column names with explanations on hover and marks who is watching right now. The history starts with a summary of the last 24 hours (time watched, most watched channel, most active user). Providers say "connections in use: 2 of 20" instead of "lines". On the EPG page the quality check with archive and the EPG address for the players fold away. No function was removed.
+- 🇩🇪 **Benutzer, Verlauf, Anbieter und EPG verständlicher:** Die Benutzer-Tabelle hat klare Spaltennamen mit Erklärung beim Darüberfahren und zeigt, wer gerade schaut. Der Verlauf beginnt mit einer Zusammenfassung der letzten 24 Stunden (geschaute Zeit, meistgeschauter Sender, aktivster Nutzer). Bei den Anbietern heißt es „Verbindungen belegt: 2 von 20“ statt „Lines“. Auf der EPG-Seite sind die Qualitätsprüfung mit Archiv und die Programm-Adresse für die Player eingeklappt. Es ist keine Funktion weggefallen.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v2-00)
+
 ## 1.99 · November 2026
 - 🇬🇧 **Channels and groups on one menu item:** "Channels & groups" replaces the two separate menu items; two tabs at the top switch between the channel list and the groups. Nothing else changed on the two pages.
 - 🇩🇪 **Kanäle und Gruppen unter einem Menüpunkt:** „Kanäle & Gruppen“ ersetzt die beiden einzelnen Menüpunkte; zwei Reiter oben wechseln zwischen Senderliste und Gruppen. An den beiden Seiten selbst hat sich sonst nichts geändert.

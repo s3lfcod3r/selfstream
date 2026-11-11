@@ -2,6 +2,27 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v2-00"></a>
+
+## v2.00 — Benutzer, Verlauf, Anbieter und EPG verständlicher
+
+Fünfter Schritt des Umbaus zu einer einfacheren Oberfläche. Bewusst nur Namen, Erklärungen,
+eine Zusammenfassung und Einklappen – die Bedienung der Seiten bleibt, wie sie war.
+
+- **Benutzer:** Spalten heißen Link, Kurzlink, Schlüssel, Streams, Abrufe, Geschaut (vorher
+  M3U, Short URL, Token, Max Str., Str., Ges.) und erklären sich beim Darüberfahren. Neben
+  dem Namen steht „schaut gerade“, wenn eine Sitzung läuft.
+- **Verlauf:** Titel „Verlauf – wer hat was geschaut“; darüber drei Kacheln für die letzten
+  24 Stunden (`GET /api/logs/zusammenfassung`). Gezählt werden abgeschlossene Einträge.
+- **Anbieter:** „Gleichzeitige Verbindungen (erlaubt)“ statt „Verfügbare Lines“,
+  „Verbindungen belegt: x von y“ statt „Aktive Streams: x / y“.
+- **EPG:** Titel „Programm-Daten (EPG)“ und „Sender mit Programm“; „Programm-Daten prüfen und
+  Archiv“ sowie die „Programm-Adresse für die Player“ sind eingeklappt.
+
+**Nicht umgesetzt aus dem Entwurf:** Die Benutzer-Zeile mit nur zwei Knöpfen („Link kopieren“,
+„Bearbeiten“). Dafür müsste der Bearbeiten-Dialog neu gebaut werden; das wäre ein eigener
+Schritt mit eigenem Risiko.
+
 <a id="v1-99"></a>
 
 ## v1.99 — Kanäle und Gruppen unter einem Menüpunkt
