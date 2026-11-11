@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.97 · November 2026
+- 🇬🇧 **Dashboard answers "is everything running?":** The four lights (provider, VPN, SelfStream, devices) with the one-sentence verdict are now at the top of the dashboard. Each live viewer additionally shows whether their device keeps up and how many Mbit/s the channel consumes. "Active streams" became "Connections" with the provider limit next to it.
+- 🇩🇪 **Dashboard beantwortet „läuft alles?“:** Die vier Ampeln (Anbieter, VPN, SelfStream, Geräte) mit dem Urteil-Satz stehen jetzt oben auf dem Dashboard. Bei jedem Zuschauer steht zusätzlich, ob sein Gerät Schritt hält und wie viele Mbit/s der Sender verbraucht. Aus „Aktive Streams“ wurde „Verbindungen“ mit der Grenze des Anbieters daneben.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-97)
+
 ## 1.96 · November 2026
 - 🇬🇧 **Menu reordered, tunnel speed, Mbit/s in the single values:** The menu is grouped by task: Overview · Viewers (users, history) · Channels (providers, channels, groups, EPG) · Operation (quality, VPN, alerts and log) · System. "Traffic" is now called "Quality", "Diagnose" is "Alerts & log". The VPN light shows what is flowing through the tunnel right now and the top speed from the last server check. The single values show the fetch speed and the consumption of each segment in Mbit/s.
 - 🇩🇪 **Menü neu sortiert, Tunnel-Tempo, Mbit/s bei den Einzelwerten:** Das Menü ist nach Aufgaben gruppiert: Übersicht · Zuschauer (Benutzer, Verlauf) · Sender (Anbieter, Kanäle, Gruppen, EPG) · Betrieb (Qualität, VPN, Alarm und Protokoll) · System. „Traffic“ heißt jetzt „Qualität“, „Diagnose“ heißt „Alarm & Protokoll“. Die VPN-Ampel zeigt, was gerade durch den Tunnel fließt, und das Höchsttempo aus der letzten Server-Prüfung. Die Einzelwerte nennen je Bildstück das Tempo beim Abholen und den Verbrauch in Mbit/s.

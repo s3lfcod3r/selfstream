@@ -6945,6 +6945,14 @@ def _near_capacity() -> bool:
     return bool(cap and active >= cap - 1)
 
 
+def _anbieter_grenze() -> int:
+    """Höchstzahl gleichzeitiger Verbindungen beim Anbieter (0 = nicht eingetragen)."""
+    try:
+        return max([int(p.get("line_capacity") or 0) for p in db.get_m3u_providers()], default=0)
+    except Exception:
+        return 0
+
+
 def _viewer_count() -> int:
     """Aktuelle Zuschauer (aktive Streams). 0 = niemand schaut → sicherer Moment
     für einen Serverwechsel (der Wechsel unterbricht sonst laufende Streams)."""
@@ -7946,6 +7954,7 @@ def get_qualitaet(days: int = 7, verlauf_min: int = 60, _=Depends(check_admin)):
         "kette": {
             "anbieter": {"level": passiv.get("level"), "samples": passiv.get("samples", 0),
                          "mbps": passiv.get("mbps"),
+                         "belegt": _viewer_count(), "grenze": _anbieter_grenze(),
                          "verbrauch_mbps": round(sum(z["bedarf_mbps"] or 0 for z in zs), 1),
                          "reserve": min(qualitaet.RESERVE_MAX, round(1.0 / quote, 1)) if quote else None},
             "vpn": {"an": vpn_an, "traegt": traegt,

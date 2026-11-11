@@ -2,6 +2,21 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-97"></a>
+
+## v1.97 — Dashboard mit Ampeln
+
+Zweiter Schritt des Umbaus zu einer einfacheren Oberfläche.
+
+- Karte **„Läuft alles?“** oben auf dem Dashboard: dieselben vier Ampeln und derselbe
+  Urteil-Satz wie auf der Seite Qualität (gemeinsame Funktion `qKetteZeichnen`). Geladen wird
+  sie nur, solange das Dashboard zu sehen ist.
+- **„Schaut gerade“** (vorher „Live Sessions“): je Zuschauer zusätzlich „hält Schritt“ bzw.
+  der Rückstand und der Verbrauch des Senders in Mbit/s.
+- Kachel **„Verbindungen“** (vorher „Aktive Streams“) mit der Grenze des Anbieters darunter;
+  `/api/qualitaet` liefert dafür `kette.anbieter.belegt` und `.grenze`.
+- „Live Catchup“ heißt „Schaut zeitversetzt“.
+
 <a id="v1-96"></a>
 
 ## v1.96 — Menü neu sortiert, Tunnel-Tempo, Mbit/s bei den Einzelwerten

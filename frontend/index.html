@@ -381,7 +381,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.96</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.97</div>
       </div>
     </div>
 
@@ -389,15 +389,22 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
       <!-- Dashboard -->
       <div id="page-dashboard" class="content-area">
+        <div class="scard" style="margin-bottom:16px;">
+          <div class="scard-title" style="margin:0 0 10px 0;">🧭 Läuft alles?</div>
+          <div id="dash-kette" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
+            <div class="empty-state">Lade…</div>
+          </div>
+          <div id="dash-urteil" style="margin-top:12px;padding:9px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);font-size:13px;">–</div>
+        </div>
         <div class="stats-grid">
           <div class="stat-card"><div class="stat-label">Benutzer</div><div class="stat-value" id="s-users">—</div></div>
-          <div class="stat-card"><div class="stat-label">Aktive Streams</div><div class="stat-value" id="s-active">—</div></div>
+          <div class="stat-card"><div class="stat-label">Verbindungen</div><div class="stat-value" id="s-active">—</div><div class="stat-sub" id="s-active-sub"></div></div>
           <div class="stat-card"><div class="stat-label">Heute</div><div class="stat-value" id="s-today">—</div></div>
           <div class="stat-card"><div class="stat-label">Kanäle aktiv</div><div class="stat-value" id="s-channels">—</div><div class="stat-sub" id="s-ch-sub"></div></div>
           <div class="stat-card"><div class="stat-label">Speicher</div><div class="stat-value" id="s-mem">—</div><div class="stat-sub" id="s-mem-sub"></div></div>
         </div>
         <div class="section-hdr">
-          <span class="section-title">Live Sessions</span>
+          <span class="section-title">Schaut gerade</span>
           <div style="display:flex;gap:8px;align-items:center;">
             <span style="font-family:var(--mono);font-size:10px;color:var(--text2);">Auto-Refresh:</span>
             <select class="group-filter" id="refresh-sel" style="font-size:10px;padding:4px 8px;" onchange="setRefresh()">
@@ -415,7 +422,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
 
         <div class="section-hdr" style="margin-top:8px;">
-          <span class="section-title">Live Catchup</span>
+          <span class="section-title">Schaut zeitversetzt</span>
         </div>
         <div class="table-wrap" id="catchup-wrap">
           <div class="empty-state">Keine aktiven Catchup-Sessions</div>
@@ -1202,7 +1209,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.96</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.97</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -2079,6 +2086,21 @@ async function loadStats() {
 
     const now=Math.floor(Date.now()/1000);
 
+    // ── Ampeln + Urteil (nur wenn das Dashboard zu sehen ist) – stören die übrigen Stats nie ──
+    let qual = null;
+    try {
+      if (document.getElementById('page-dashboard')?.style.display !== 'none') {
+        qual = await api('GET', '/api/qualitaet?days=1&verlauf_min=10');
+        if (qual && qual.kette) {
+          qKetteZeichnen(qual, 'dash-kette', 'dash-urteil');
+          const g = qual.kette.anbieter.grenze;
+          document.getElementById('s-active-sub').textContent = g ? `von ${g} beim Anbieter` : '';
+        }
+      }
+    } catch(e) { qual = null; }
+    const schritt = {};
+    ((qual && qual.zuschauer) || []).forEach(z => { schritt[z.user] = z; });
+
     // ── Live Sessions ──────────────────────────────────────────────────────────
     const wrap=document.getElementById('sessions-wrap');
     if(!s.active_sessions||!s.active_sessions.length){
@@ -2099,7 +2121,7 @@ async function loadStats() {
           <span style="color:var(--text2);margin:0 6px;flex-shrink:0;">→</span>
           <span style="font-family:var(--mono);font-size:12px;color:var(--teal);flex-shrink:0;">${esc(sess.channel)}</span>
           ${np.title?`<span style="color:var(--text2);margin:0 6px;flex-shrink:0;">·</span><span style="font-size:11px;flex-shrink:0;">📺</span><span style="font-size:11px;color:var(--teal);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;margin:0 4px;">${esc(np.title)}</span><span style="font-family:var(--mono);font-size:10px;color:var(--text2);flex-shrink:0;white-space:nowrap;">${npTime}</span>`:''}
-          <span class="session-meta" style="flex-shrink:0;">${timeStr?`seit ${timeStr} · ${durStr}`:''}</span>
+          <span class="session-meta" style="flex-shrink:0;">${schritt[sess.user]?`${qRueck(schritt[sess.user].rueck, schritt[sess.user].skips)}${schritt[sess.user].bedarf_mbps!=null?' · '+qMbit(schritt[sess.user].bedarf_mbps):''} · `:''}${timeStr?`seit ${timeStr} · ${durStr}`:''}</span>
         </div>`;
       }).join('');
     }
@@ -5434,12 +5456,8 @@ function qStoerungText(s) {
   return t;
 }
 
-async function loadQualitaet() {
-  const days = document.getElementById('q-days')?.value || '7';
-  const vmin = document.getElementById('q-verlauf')?.value || '60';
-  const q = await api('GET', `/api/qualitaet?days=${days}&verlauf_min=${vmin}`).catch(() => null);
-  if (!q || !q.kette) return;
-  window._qualitaet = q;
+function qKetteZeichnen(q, ketteId, urteilId) {
+  if (!document.getElementById(ketteId) || !document.getElementById(urteilId)) return;
   const k = q.kette;
 
   // Kette
@@ -5468,16 +5486,25 @@ async function loadQualitaet() {
   const kachel = (icon, name, text, level, tipp) => `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${Q_FARBE[level]};border-radius:6px;padding:10px 12px;min-width:0;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">${icon} ${qTip(name, tipp)}</div>
       <div style="font-size:12px;margin-bottom:8px;">${esc(text)}</div>${qPill(level)}</div>`;
-  document.getElementById('q-kette').innerHTML =
+  document.getElementById(ketteId).innerHTML =
     kachel('🛰️', 'Anbieter', anbText, anbL, Q_TIPP.anbieter) + kachel('🛡️', 'VPN', vpnText, vpnL, Q_TIPP.vpn) +
     kachel('⚙️', 'SelfStream', ssText, ssL, Q_TIPP.selfstream) + kachel('📺', 'Geräte', gerText, gerL, Q_TIPP.geraete);
-  qVerlaufZeichnen(q);
 
   // Urteil
-  const u = document.getElementById('q-urteil');
+  const u = document.getElementById(urteilId);
   const uf = Q_FARBE[q.urteil.level] || Q_FARBE.unbekannt;
   u.style.borderColor = uf;
   u.innerHTML = `<span style="color:${uf};">●</span> <strong>Urteil:</strong> ${esc(q.urteil.text)}`;
+}
+
+async function loadQualitaet() {
+  const days = document.getElementById('q-days')?.value || '7';
+  const vmin = document.getElementById('q-verlauf')?.value || '60';
+  const q = await api('GET', `/api/qualitaet?days=${days}&verlauf_min=${vmin}`).catch(() => null);
+  if (!q || !q.kette) return;
+  window._qualitaet = q;
+  qKetteZeichnen(q, 'q-kette', 'q-urteil');
+  qVerlaufZeichnen(q);
 
   // Zuschauer
   const zEl = document.getElementById('q-zuschauer');

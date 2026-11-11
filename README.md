@@ -6,7 +6,7 @@
 *Selbstgehosteter IPTV-Proxy — mit Benutzerverwaltung, Stream-Schutz, EPG, integriertem WireGuard-VPN und Traffic-Analyse.*
 
 [![Build](https://github.com/s3lfcod3r/selfstream/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/s3lfcod3r/selfstream/actions/workflows/docker-publish.yml)
-![Version](https://img.shields.io/badge/version-1.96-33A78C)
+![Version](https://img.shields.io/badge/version-1.97-33A78C)
 ![License](https://img.shields.io/badge/license-All%20rights%20reserved-8A9CAA)
 ![Backend](https://img.shields.io/badge/backend-FastAPI-1F7763)
 ![Web](https://img.shields.io/badge/web-Vanilla%20JS-43D3AD)
