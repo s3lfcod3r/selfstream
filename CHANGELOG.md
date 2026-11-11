@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 2.01 · November 2026
+- 🇬🇧 **Alerts and settings tidied up:** On "Alerts & log" only the switch, the recipient and the daily sign of life stay visible; the mail server and the fine tuning fold away. The settings cards are called Addresses, Stream, Security, Retention and Log time zone, with plain field names. In the stream card the identification towards the provider and the nine catch-up switches with the logging options fold away. No function was removed.
+- 🇩🇪 **Alarm und Einstellungen aufgeräumt:** Auf „Alarm & Protokoll“ bleiben nur der Schalter, der Empfänger und das tägliche Lebenszeichen sichtbar; Mail-Server und Feineinstellungen sind eingeklappt. Die Karten der Einstellungen heißen Adressen, Stream, Sicherheit, Speicherdauer und Zeitzone des Protokolls, mit verständlichen Feldnamen. In der Stream-Karte sind die Kennung gegenüber dem Anbieter und die neun Catchup-Schalter samt Protokollierung eingeklappt. Es ist keine Funktion weggefallen.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v2-01)
+
 ## 2.00 · November 2026
 - 🇬🇧 **Users, history, providers and EPG easier to read:** The user table has plain column names with explanations on hover and marks who is watching right now. The history starts with a summary of the last 24 hours (time watched, most watched channel, most active user). Providers say "connections in use: 2 of 20" instead of "lines". On the EPG page the quality check with archive and the EPG address for the players fold away. No function was removed.
 - 🇩🇪 **Benutzer, Verlauf, Anbieter und EPG verständlicher:** Die Benutzer-Tabelle hat klare Spaltennamen mit Erklärung beim Darüberfahren und zeigt, wer gerade schaut. Der Verlauf beginnt mit einer Zusammenfassung der letzten 24 Stunden (geschaute Zeit, meistgeschauter Sender, aktivster Nutzer). Bei den Anbietern heißt es „Verbindungen belegt: 2 von 20“ statt „Lines“. Auf der EPG-Seite sind die Qualitätsprüfung mit Archiv und die Programm-Adresse für die Player eingeklappt. Es ist keine Funktion weggefallen.

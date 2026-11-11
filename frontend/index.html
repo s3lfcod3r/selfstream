@@ -380,7 +380,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v2.00</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v2.01</div>
       </div>
     </div>
 
@@ -866,7 +866,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <!-- Diagnose (Server-Logs, ~30 Tage) -->
       <div id="page-diagnose" class="content-area" style="display:none">
         <div class="scard" style="margin-bottom:18px;">
-          <div class="scard-title">🔔 Selbst-Check &amp; E-Mail-Alarm</div>
+          <div class="scard-title">🔔 E-Mail-Alarm</div>
           <div class="form-hint" style="margin-bottom:12px;">
             SelfStream prüft sich alle 5&nbsp;Min selbst und schickt dir eine E-Mail, wenn eine Störung <strong>mindestens 15&nbsp;Min</strong> anhält – mit Grund, Uhrzeit und Messwerten – und eine Entwarnung samt Dauer, sobald es wieder läuft. Außerdem meldet es, wenn der EPG-Abruf oder eine Senderliste 30&nbsp;Min lang fehlschlägt und wenn der Dienst unerwartet neu gestartet ist. Höchstens 5 Störungs-Mails pro Tag.
           </div>
@@ -880,6 +880,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <label class="form-label">Empfänger (deine E-Mail)</label>
               <input class="form-input" id="alert-to" type="email" placeholder="du@example.de" autocomplete="email">
             </div>
+          </div>
+          <details style="margin-bottom:14px;">
+            <summary style="cursor:pointer;font-size:12px;color:var(--text2);">✉️ Mail-Server einrichten (nötig, damit Mails verschickt werden)</summary>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:12px 0;">
             <div>
               <label class="form-label">Absender (optional)</label>
               <input class="form-input" id="alert-from" type="email" placeholder="leer = SMTP-Benutzer">
@@ -909,6 +913,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <input class="form-input" id="alert-pass" type="password" placeholder="••••••••" autocomplete="current-password">
             </div>
           </div>
+          </details>
           <label style="display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer;">
             <input type="checkbox" id="alert-heartbeat">
             <span style="font-size:13px;">Täglich eine „alles ok"-Mail (Lebenszeichen – so weißt du, dass die Überwachung selbst läuft)</span>
@@ -918,6 +923,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <label class="form-label">Lebenszeichen um</label>
               <select class="form-select" id="alert-hb-hour"></select>
             </div>
+          </div>
+          <details style="margin-bottom:14px;">
+            <summary style="cursor:pointer;font-size:12px;color:var(--text2);">⚙️ Feineinstellungen (Antwortzeit-Grenze, Panel-Adresse in den Mails)</summary>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:12px 0;">
             <div>
               <label class="form-label">Antwortzeit-Grenze (ms)</label>
               <input class="form-input" id="alert-latency" type="number" min="200" max="10000" step="100" placeholder="1000">
@@ -928,6 +937,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <input class="form-input" id="alert-panel-url" type="url" placeholder="http://192.168.1.2:8080/admin">
             </div>
           </div>
+          </details>
           <button class="btn primary" onclick="alertsSave(true)">💾 Speichern</button>
           <button class="btn" id="alert-test-btn" onclick="alertsTest()" style="margin-left:8px;">✉️ Test-E-Mail senden</button>
           <div class="form-hint" style="margin-top:10px;">Beispiel web.de: Server <code>smtp.web.de</code>, Port <code>587</code>, STARTTLS, Benutzer = deine web.de-Adresse. Bei manchen Anbietern brauchst du ein „App-Passwort" statt des normalen Passworts.</div>
@@ -997,19 +1007,19 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <div class="settings-grid">
 
           <div class="scard">
-            <div class="scard-title">🌐 URLs</div>
+            <div class="scard-title">🌐 Adressen</div>
             <div class="form-group">
-              <label class="form-label">Admin Panel URL</label>
+              <label class="form-label">Adresse des Panels</label>
               <input class="form-input" id="cfg-base" placeholder="http://192.168.1.69:8080">
               <div class="form-hint">Interne URL deines Admin-Panels (Port 8080)</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Proxy URL <span style="color:var(--text2);font-weight:400;">(intern, Port 8000)</span></label>
+              <label class="form-label">Adresse für die Player <span style="color:var(--text2);font-weight:400;">(intern, Port 8000)</span></label>
               <input class="form-input" id="cfg-proxy" placeholder="http://192.168.1.69:8000">
               <div class="form-hint">Lokale IP deines Servers – wird intern verwendet</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Öffentliche Domain / Short URL <span style="color:var(--red);font-size:10px;">★ Für Internet-Zugriff</span></label>
+              <label class="form-label">Kurze Adresse (optional) <span style="color:var(--red);font-size:10px;">★ Für Internet-Zugriff</span></label>
               <input class="form-input" id="cfg-short-domain" placeholder="https://iptv.deine-domain.de" oninput="_updateProxyPreview(this.value.trim())">
               <div class="form-hint" style="color:var(--yellow);">
                 ⚠️ <strong>Deine Subdomain eintragen</strong> – diese URL wird in alle M3U-Links eingebaut.<br>
@@ -1026,7 +1036,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
 
           <div class="scard">
-            <div class="scard-title">📡 HLS / Stream</div>
+            <div class="scard-title">📡 Stream</div>
+            <details style="margin-bottom:14px;">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text2);">🪪 Kennung gegenüber dem Anbieter (User Agent, Referer)</summary>
+              <div style="margin-top:12px;">
             <div class="form-group">
               <label class="form-label">User Agent</label>
               <input class="form-input" id="cfg-ua" placeholder="VLC/3.0 LibVLC/3.0">
@@ -1035,16 +1048,18 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <label class="form-label">Referer (optional)</label>
               <input class="form-input" id="cfg-ref" placeholder="https://anbieter.tv/">
             </div>
+              </div>
+            </details>
             <div class="form-group">
-              <label class="form-label">Connect Timeout (s)</label>
+              <label class="form-label">Wartezeit für die Verbindung zum Anbieter (s)</label>
               <input class="form-input" type="number" id="cfg-timeout" value="10">
             </div>
             <div class="form-group">
-              <label class="form-label">Read Timeout (s)</label>
+              <label class="form-label">Wartezeit auf Daten vom Anbieter (s)</label>
               <input class="form-input" type="number" id="cfg-rtimeout" value="30">
             </div>
             <div class="form-group">
-              <label class="form-label">🗄️ Segment-Prefetch (Vorpuffer)</label>
+              <label class="form-label">🗄️ Bildstücke vorladen</label>
               <select class="form-select" id="cfg-prefetch">
                 <option value="0">0 – Deaktiviert (kein Vorpuffern)</option>
                 <option value="1">1 – 1 Segment voraus</option>
@@ -1053,6 +1068,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </select>
               <div class="form-hint">Wie viele Segmente selfstream im Voraus lädt. Mehr = flüssiger aber mehr RAM/CPU. Bei Lag: auf 0 oder 1 reduzieren.</div>
             </div>
+            <details style="margin-bottom:14px;">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text2);">⚙️ Erweitert: zeitversetztes Schauen (Catchup) und Protokollierung</summary>
+              <div style="margin-top:12px;">
             <div class="form-group">
               <label class="form-label">⏱️ Catchup Timeout</label>
               <select class="form-select" id="cfg-catchup-ttl">
@@ -1151,6 +1169,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </select>
               <div class="form-hint">Loggt für `playlist`, `stream`, `segment`, `catchup` die komplette Anfrage (Pfad, Query, Header, IP) und Response-Ereignisse. Achtung: erzeugt viele Logs.</div>
             </div>
+              </div>
+            </details>
             <button class="btn primary" onclick="saveHls()">Speichern</button>
           </div>
 
@@ -1171,9 +1191,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
 
           <div class="scard">
-            <div class="scard-title">📋 Verlaufspeicherung</div>
+            <div class="scard-title">🗂 Speicherdauer</div>
             <div class="form-group">
-              <label class="form-label">Aufbewahrung Watch-Logs</label>
+              <label class="form-label">Verlauf aufbewahren</label>
               <select class="form-select" id="cfg-log-retention">
                 <option value="-1">∞ Unbegrenzt</option>
                 <option value="0">Deaktiviert (alles löschen)</option>
@@ -1191,7 +1211,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
 
           <div class="scard">
-            <div class="scard-title">🔧 Diagnose</div>
+            <div class="scard-title">🕒 Zeitzone des Protokolls</div>
             <div class="form-group">
               <label class="form-label">Zeitzone für die Diagnose-Tabelle</label>
               <select class="form-select" id="cfg-diagnostic-tz" onchange="toggleDiagTzCustom()">
@@ -1223,7 +1243,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v2.00</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v2.01</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>

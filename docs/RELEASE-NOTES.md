@@ -2,6 +2,24 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v2-01"></a>
+
+## v2.01 — Alarm und Einstellungen aufgeräumt
+
+Sechster und letzter Schritt des Umbaus zu einer einfacheren Oberfläche.
+
+- **Alarm & Protokoll:** Karte „E-Mail-Alarm“. Sichtbar bleiben Zustand, Schalter, Empfänger,
+  Lebenszeichen, Speichern und Test-Mail. Eingeklappt: „Mail-Server einrichten“ (Absender,
+  Server, Port, Sicherheit, Benutzer, Passwort) und „Feineinstellungen“ (Antwortzeit-Grenze,
+  Panel-Adresse in den Mails).
+- **Einstellungen:** Karten Adressen, Stream, Sicherheit, Speicherdauer, Zeitzone des
+  Protokolls. Felder heißen „Adresse des Panels“, „Adresse für die Player“, „Kurze Adresse“,
+  „Wartezeit für die Verbindung zum Anbieter“, „Wartezeit auf Daten vom Anbieter“,
+  „Bildstücke vorladen“, „Verlauf aufbewahren“.
+- **Stream-Karte:** eingeklappt sind „Kennung gegenüber dem Anbieter“ (User Agent, Referer) und
+  „Erweitert“ (neun Catchup-Schalter, Diagnose Master, Player Request Diagnose). Die Felder
+  bleiben im Formular, „Speichern“ erfasst sie wie bisher.
+
 <a id="v2-00"></a>
 
 ## v2.00 — Benutzer, Verlauf, Anbieter und EPG verständlicher
