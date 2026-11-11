@@ -4,33 +4,105 @@ import time
 import re
 import json
 import hashlib
+import logging
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
 DB_PATH = os.getenv("DB_PATH", "/data/selfstream.db")
 SETTINGS_CACHE_SEC = 2.0
+SCHREIB_TAKT_SEC = 2.0        # so oft werden gesammelte Protokollzeilen geschrieben
+SCHREIB_MAX = 5000            # mehr wird nicht gesammelt (Schutz bei Schreibfehlern)
+SITZUNG_TAKT_SEC = 10.0       # active_sessions höchstens so oft je Nutzer auffrischen
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
     def __init__(self):
         self.db_path = DB_PATH
         self._settings_cache = None   # (db_path, Zeitpunkt, {key: value})
+        self._lokal = threading.local()          # je Thread eine offene Verbindung
+        self._spaeter_liste: list = []           # gesammelte Protokollzeilen (sql, params)
+        self._spaeter_sperre = threading.Lock()
+        self._schreiber = None
+        self._sitzung_zuletzt: Dict = {}         # token → Zeitpunkt des letzten Auffrischens
 
-    @contextmanager
-    def conn(self):
+    def _verbindung(self):
+        """Offene Verbindung dieses Threads (wird wiederverwendet).
+
+        Vorher öffnete jeder Zugriff eine neue Verbindung samt zweier PRAGMAs – ein
+        Senderwechsel sechs- bis achtmal. sqlite-Verbindungen gehören einem Thread, daher
+        eine je Thread; wechselt der Pfad (Tests), wird neu geöffnet.
+        """
+        con = getattr(self._lokal, "con", None)
+        if con is not None and getattr(self._lokal, "pfad", None) == self.db_path:
+            return con
+        if con is not None:
+            try:
+                con.close()
+            except Exception:
+                pass
         con = sqlite3.connect(self.db_path, timeout=10)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA foreign_keys=ON")
+        self._lokal.con, self._lokal.pfad = con, self.db_path
+        return con
+
+    @contextmanager
+    def conn(self):
+        try:
+            con = self._verbindung()
+        except Exception:
+            self._lokal.con = None
+            raise
         try:
             yield con
             con.commit()
         except Exception:
-            con.rollback()
+            try:
+                con.rollback()
+            except Exception:
+                self._lokal.con = None   # Verbindung unbrauchbar → beim nächsten Mal neu öffnen
             raise
-        finally:
-            con.close()
+
+    # ── Protokollzeilen sammeln statt einzeln schreiben ──────────────────────
+    def _spaeter(self, sql: str, params: tuple) -> None:
+        """Eine Schreibzeile vormerken; ein Hintergrund-Thread schreibt sie gebündelt.
+
+        Nur für Protokolle (Diagnose, Segment-Messwerte): Die liefen bisher mitten in der
+        Anfrage eines Zuschauers und hielten sie auf. Geht der Prozess unter, fehlen
+        höchstens die letzten SCHREIB_TAKT_SEC Sekunden.
+        """
+        with self._spaeter_sperre:
+            if len(self._spaeter_liste) < SCHREIB_MAX:
+                self._spaeter_liste.append((sql, params))
+            if self._schreiber is None or not self._schreiber.is_alive():
+                self._schreiber = threading.Thread(target=self._schreiber_lauf, daemon=True,
+                                                   name="db-schreiber")
+                self._schreiber.start()
+
+    def _schreiber_lauf(self) -> None:
+        while True:
+            time.sleep(SCHREIB_TAKT_SEC)
+            self.vorgemerktes_schreiben()
+
+    def vorgemerktes_schreiben(self) -> int:
+        """Alle vorgemerkten Zeilen jetzt schreiben (auch vor dem Lesen der Protokolle)."""
+        with self._spaeter_sperre:
+            stapel, self._spaeter_liste = self._spaeter_liste, []
+        if not stapel:
+            return 0
+        try:
+            with self.conn() as con:
+                for sql, params in stapel:
+                    con.execute(sql, params)
+        except Exception as e:
+            logger.warning(f"Protokollzeilen nicht geschrieben ({len(stapel)}): {e}")
+            return 0
+        return len(stapel)
 
     def init(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -539,6 +611,14 @@ class Database:
             return True
 
     def session_refresh(self, token: str):
+        # Jede Playlist- und Segment-Anfrage ruft das auf; die Sitzung verfällt erst nach
+        # SESSION_TTL (60 s). Ein Schreibzugriff alle 10 s je Nutzer genügt.
+        jetzt = time.monotonic()
+        if jetzt - self._sitzung_zuletzt.get(token, 0.0) < SITZUNG_TAKT_SEC:
+            return
+        if len(self._sitzung_zuletzt) > 2000:
+            self._sitzung_zuletzt.clear()
+        self._sitzung_zuletzt[token] = jetzt
         now = int(time.time())
         with self.conn() as con:
             con.execute("UPDATE active_sessions SET updated_at = ? WHERE token = ?", (now, token))
@@ -695,8 +775,7 @@ class Database:
 
     def add_segment_event(self, event: dict):
         """Store a segment timing event in DB for long-term retention."""
-        with self.conn() as con:
-            con.execute("""
+        self._spaeter("""
                 INSERT INTO segment_events (ts, user_name, channel, provider_id, type, elapsed, size_kb, mbps, seg,
                                             dur, out_s, cached)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -735,6 +814,7 @@ class Database:
             return [r[0] for r in rows]
 
     def get_segment_events(self, limit: int = 10000, days: int = 30, include_ok: bool = True) -> List[Dict]:
+        self.vorgemerktes_schreiben()
         cutoff = time.time() - (days * 86400)
         type_filter = "" if include_ok else "AND se.type != 'ok'"
         with self.conn() as con:
@@ -814,6 +894,7 @@ class Database:
 
     def get_spaete_segmente(self, days: int = 7, limit: int = 20000) -> List[Dict]:
         """Alle nicht rechtzeitigen Segmente im Zeitraum (für die Störungsliste)."""
+        self.vorgemerktes_schreiben()
         cutoff = time.time() - max(1, int(days)) * 86400
         with self.conn() as con:
             rows = con.execute(
@@ -977,11 +1058,12 @@ class Database:
             lv = "INFO"
         src = (source or "").strip()[:80]
         msg = (message or "").strip()[:8192]
-        with self.conn() as con:
-            con.execute(
-                "INSERT INTO diagnostic_logs (level, source, message) VALUES (?, ?, ?)",
-                (lv, src, msg),
-            )
+        # Zeitpunkt jetzt festhalten: geschrieben wird gebündelt, bis zu 2 s später.
+        self._spaeter(
+            "INSERT INTO diagnostic_logs (level, source, message, created_at) "
+            "VALUES (?, ?, ?, datetime(?, 'unixepoch'))",
+            (lv, src, msg, int(time.time())),
+        )
 
     def purge_diagnostic_logs(self, retention_days: int = 30):
         d = max(1, min(int(retention_days), 366))
@@ -1017,7 +1099,7 @@ class Database:
             params.append(src_f[:80])
         with self.conn() as con:
             total_row = con.execute(
-                f"SELECT COUNT(*) as cnt FROM diagnostic_logs {where}", tuple(params)
+                f"SELECT COUNT(*) as cnt FROM diagnostic_logs {where}", tuple(params)  # noqa: S608
             ).fetchone()
             total = int(total_row["cnt"] if total_row else 0)
             rows = con.execute(

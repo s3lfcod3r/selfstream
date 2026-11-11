@@ -379,7 +379,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.91</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.92</div>
       </div>
     </div>
 
@@ -1200,7 +1200,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.91</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.92</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1299,28 +1299,35 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="scard" style="grid-column:1/-1">
             <div class="scard-title">🏆 Auto-Best (WireGuard, nahtlos)</div>
             <div class="form-hint" style="margin-bottom:14px;">
-              SelfStream misst selbst, wie schnell der aktive Server und die Alternativen <strong>wirklich</strong> sind (dazu stellt es den Tunnel jeweils für ein, zwei Sekunden auf den Kandidaten), und schaltet <strong>nahtlos</strong> auf den schnellsten um – <strong>ohne Tunnel-Abriss</strong>. Schaut gerade jemand, werden nur die drei vielversprechendsten Server kurz geprüft. Gesucht wird, sobald Segmente langsam laden oder hängen, und zusätzlich regelmäßig, wenn niemand schaut. Ein Cooldown verhindert ständiges Hin- und Herspringen.
+              Das Ziel ergibt sich von selbst aus der <strong>Zahl der aktiven Nutzer</strong>: Nutzer × Bedarf je Stream + Reserve. <strong>Schaut niemand</strong>, prüft SelfStream regelmäßig, ob der aktive Server dieses Ziel schafft – nur wenn nicht, werden andere Server gemessen und es wird <strong>nahtlos</strong> gewechselt. <strong>Schaut jemand</strong>, wird nicht auf Verdacht umgeschaltet, sondern nur, wenn es wirklich ruckelt oder der Tunnel weniger liefert, als gerade gebraucht wird; dann zuerst auf den zuletzt schnellsten Server. Antwortet der aktive Server gar nicht mehr, wird sofort gewechselt.
             </div>
             <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
               <div style="flex:1;min-width:220px;">
                 <label class="form-label">Modus</label>
                 <select class="form-select" id="wgab-auto">
                   <option value="0">Aus</option>
-                  <option value="1">An – selbst messen und auf den schnellsten Server</option>
+                  <option value="1">An – Ziel aus der Nutzerzahl, selbst messen und wechseln</option>
                 </select>
               </div>
               <div style="flex:1;min-width:160px;">
-                <label class="form-label">Schwelle (Mbit/s)</label>
+                <label class="form-label">Bedarf je Stream (Mbit/s)</label>
                 <div style="display:flex;align-items:center;gap:8px;">
-                  <input class="form-input" type="number" id="wgab-mbps" min="1" max="500" style="width:80px;">
-                  <span style="font-size:11px;color:var(--text2);">darunter gilt als zu langsam</span>
+                  <input class="form-input" type="number" id="wgab-stream" min="1" max="50" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">ein Full-HD-Sender braucht bis etwa 10</span>
+                </div>
+              </div>
+              <div style="flex:1;min-width:160px;">
+                <label class="form-label">Reserve (%)</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="wgab-reserve" min="0" max="300" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">Aufschlag auf den Bedarf</span>
                 </div>
               </div>
               <div style="flex:1;min-width:160px;">
                 <label class="form-label">Cooldown (Min)</label>
                 <div style="display:flex;align-items:center;gap:8px;">
                   <input class="form-input" type="number" id="wgab-cooldown" min="5" max="720" style="width:80px;">
-                  <span style="font-size:11px;color:var(--text2);">Mindest-Pause zwischen Wechseln</span>
+                  <span style="font-size:11px;color:var(--text2);">Mindest-Pause zwischen Prüfungen</span>
                 </div>
               </div>
               <div style="flex:1;min-width:160px;">
@@ -4529,12 +4536,25 @@ async function wgAutobestLoad() {
   try { r = await api('GET', '/api/vpn/wg-autobest'); } catch(e) { if (el) el.textContent = '– nicht verfügbar –'; return; }
   if (!r || !r.ok) { if (el) el.textContent = '– nicht verfügbar –'; return; }
   const sa = document.getElementById('wgab-auto'); if (sa) sa.value = r.auto ? '1' : '0';
-  const sm = document.getElementById('wgab-mbps'); if (sm) sm.value = r.min_mbps;
+  const z = r.ziel || {};
+  const sm = document.getElementById('wgab-stream'); if (sm) sm.value = z.je_stream;
+  const sr = document.getElementById('wgab-reserve'); if (sr) sr.value = z.reserve_pct;
   const sc = document.getElementById('wgab-cooldown'); if (sc) sc.value = r.cooldown_min;
   const si = document.getElementById('wgab-idle'); if (si) si.value = r.idle_h;
   const co = document.getElementById('wgab-country'); if (co) co.value = r.country || '';
   if (!el) return;
   let txt = r.auto ? '🟢 Auto-Best aktiv' : '⚪ Auto-Best aus';
+  if (z.nutzer != null) {
+    const a = r.aktiv || {};
+    txt += `\n${z.nutzer} aktive Nutzer × ${z.je_stream} Mbit/s + ${z.reserve_pct} % Reserve → Ziel ${Math.round(z.ziel)} Mbit/s.`;
+    if (a.mbps != null && a.ts) {
+      const reicht = a.mbps >= z.ziel;
+      txt += `\nAktiver Server ${a.server}: ${Math.round(a.mbps)} Mbit/s (gemessen ${_agoText(Math.floor(Date.now() / 1000) - a.ts)}) – ${reicht ? 'reicht ✅' : 'reicht nicht ⚠️'}`;
+    } else {
+      txt += `\nAktiver Server ${a.server || '?'}: noch nicht gemessen (passiert, sobald niemand schaut).`;
+    }
+    txt += `\nGerade schauen ${z.schauen} → Bedarf jetzt ${Math.round(z.bedarf_jetzt)} Mbit/s.`;
+  }
   const st = r.status;
   if (st && st.zeit) {
     const ago = _agoText(Math.floor(Date.now() / 1000) - st.zeit);
@@ -4585,7 +4605,8 @@ async function wgAutobestSave() {
   if (btn) { btn.disabled = true; btn.textContent = '💾 Speichern…'; }
   const body = {
     auto: document.getElementById('wgab-auto').value === '1',
-    min_mbps: parseInt(document.getElementById('wgab-mbps').value, 10) || 20,
+    je_stream: parseInt(document.getElementById('wgab-stream').value, 10) || 10,
+    reserve_pct: Math.max(0, parseInt(document.getElementById('wgab-reserve').value, 10) || 0),
     cooldown_min: parseInt(document.getElementById('wgab-cooldown').value, 10) || 30,
     idle_h: Math.max(0, parseInt(document.getElementById('wgab-idle').value, 10) || 0),
     country: (document.getElementById('wgab-country').value || '').trim().toLowerCase(),

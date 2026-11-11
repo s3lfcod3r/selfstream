@@ -2,6 +2,68 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-92"></a>
+
+## v1.92 — VPN-Ziel nach Nutzerzahl, schnellerer Server
+
+**Anlass (11.11.2026):** Bis zu acht Leute sollen gleichzeitig schauen können, und das Ziel für
+den VPN-Server soll sich von selbst an die Zahl der Nutzer anpassen.
+
+**Befund vorher:**
+- Die Auto-Best-Schwelle stand fest auf 400 Mbit/s. Die Leitung zum Anbieter lag meist knapp
+  darunter, also wurde alle 20 Minuten gesucht – mit Probe-Umschalten auf drei Server, auch
+  während jemand schaute.
+- Die Tempo-Messung (5 MB) rechnete den Verbindungsaufbau mit ein und kam deshalb nie über
+  rund 200 Mbit/s, egal wie schnell der Server war.
+- Lasttest mit 8 nachgebauten Zuschauern auf 8 Sendern: CPU kein Problem (15 % eines Kerns),
+  aber Playlist im Median 288 ms, erstes Byte eines Segments 637 ms. Ursache: sechs bis acht
+  neue Datenbankverbindungen je Anfrage und Protokollzeilen, die mitten in der Anfrage
+  geschrieben wurden.
+
+**VPN (`vpnwahl.py`, `main.py`):**
+- **Ziel aus der Nutzerzahl:** aktive Nutzer × Bedarf je Stream (Standard 10 Mbit/s) + Reserve
+  (Standard 50 %). Bei 11 Nutzern 165 Mbit/s. Einstellbar sind nur noch Bedarf und Reserve
+  (`wg_stream_mbps`, `wg_reserve_pct`); `wg_autobest_min_mbps` wird nicht mehr benutzt.
+- **Schaut jemand:** gesucht wird nur bei echtem Ruckeln, vielen Fehlern, sehr langsamen
+  Segmenten oder wenn der Tunnel weniger liefert, als die gerade Schauenden brauchen. Zuerst
+  kommt der zuletzt schnellste Server dran (Gedächtnis je Server, `wg_gedaechtnis`); ist er
+  klar besser und deckt den Bedarf, endet die Suche dort. Echtes Ruckeln darf den Cooldown
+  nach 3 Minuten abkürzen.
+- **Schaut niemand:** Routine-Prüfung wie bisher alle n Stunden. Schafft der aktive Server das
+  Ziel, wird gar nicht umgeschaltet. Sonst gewinnt ein Server, der es schafft.
+- **Messung:** Die Uhr läuft ab dem ersten Datenblock; im Leerlauf mit 25 MB statt 5 MB.
+- **Toter Server:** Ist der Handshake älter als 200 s, wechselt der Wächter sofort nahtlos auf
+  den zuletzt schnellsten anderen Server, statt 90 s zu warten und denselben neu aufzubauen.
+- **Aufgeräumt:** Routen zu alten Endpunkten werden nach jedem Wechsel entfernt.
+- **Nur IPv4:** Alle Abrufe über `make_iptv_client` sind an IPv4 gebunden. Der Tunnel und die
+  VPN-Pflicht decken nur IPv4 ab; mit einer IPv6-Adresse am Container wären Abrufe zu
+  IPv6-Zielen sonst am Tunnel vorbeigegangen.
+
+**Server (`database.py`):**
+- Eine offene Datenbankverbindung je Thread statt einer neuen je Zugriff.
+- Protokollzeilen (Diagnose, Segment-Messwerte) werden gesammelt und alle 2 s in einem Zug
+  geschrieben. Beim Absturz fehlen höchstens diese 2 s.
+- `active_sessions` wird je Nutzer höchstens alle 10 s aufgefrischt (verfällt nach 60 s).
+- Das Anfrage-Protokoll wird nicht mehr aufgebaut, wenn die Diagnose ausgeschaltet ist.
+
+**Lasttest danach (8 Zuschauer, 8 Sender, nachgebauter Anbieter, Einzelprotokoll an):**
+
+| | vorher | nachher |
+|---|---|---|
+| Playlist, Median | 288 ms | 49 ms |
+| Erstes Byte eines Segments, Median | 637 ms | 115 ms |
+| Erstes Byte, 95 % | 954 ms | 246 ms |
+| CPU (100 = ein Kern) | 15 % | 6 % |
+| Speicher, Spitze | 238 MB | 230 MB |
+
+Das direkte Durchreichen der Segmente wurde nicht gebaut: Der Engpass war die Datenbank, nicht
+das Zwischenspeichern.
+
+**Nicht geprüft:** das Umschalten an echten Mullvad-Servern (die Tests ersetzen Messung und
+Wechsel durch Attrappen) und der Ausweich-Wechsel bei einem wirklich toten Server.
+
+**Tests:** `tests/test_vpnwahl.py` erweitert.
+
 <a id="v1-91"></a>
 
 ## v1.91 — Traffic-Seite neu: wo hakt es?
