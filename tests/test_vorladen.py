@@ -38,15 +38,41 @@ def test_leere_playlist():
 
 # ── Auswahl beim Umschalten ─────────────────────────────────────────────────
 
-def test_zap_nimmt_die_letzten_drei_aelteste_zuerst():
-    urls = v.segment_urls(LISTE, PL)
-    assert v.zap_auswahl(urls) == urls[1:]
+def _liste(ziel, dauern):
+    zeilen = ["#EXTM3U"] + ([f"#EXT-X-TARGETDURATION:{ziel}"] if ziel else [])
+    for i, d in enumerate(dauern, 1):
+        zeilen += ([f"#EXTINF:{d},"] if d else []) + [f"s{i}.ts"]
+    return "\n".join(zeilen)
 
 
-def test_zap_bei_kurzer_playlist_und_null():
-    assert v.zap_auswahl(["x"]) == ["x"]
-    assert v.zap_auswahl(["x", "y"], 0) == []
-    assert v.zap_auswahl([]) == []
+def _namen(urls):
+    return [u.rsplit("/", 1)[1] for u in urls]
+
+
+def test_zap_beginnt_drei_zieldauern_vor_dem_ende():
+    # So sieht die Playlist des Anbieters aus (11.11.2026): Zieldauer 9, sechs Segmente
+    # von rund 6,5 s. 39,1 s − 27 s = 12,1 s → das zweite Segment.
+    pl = _liste(9, [6.369, 6.555, 6.555, 6.259, 6.370, 7.037])
+    assert _namen(v.zap_auswahl(pl, PL)) == ["s2.ts", "s3.ts"]
+
+
+def test_zap_bei_gleich_langen_segmenten():
+    assert _namen(v.zap_auswahl(_liste(6, [6.0] * 5), PL)) == ["s3.ts", "s4.ts"]
+
+
+def test_zap_playlist_kuerzer_als_der_abstand_beginnt_vorn():
+    assert _namen(v.zap_auswahl(_liste(10, [6.0, 6.0, 6.0]), PL)) == ["s1.ts", "s2.ts"]
+
+
+def test_zap_ohne_zeitangaben_beginnt_drei_vor_dem_ende():
+    assert _namen(v.zap_auswahl(_liste(None, [6.0] * 5), PL)) == ["s3.ts", "s4.ts"]
+    assert _namen(v.zap_auswahl(_liste(6, [None] * 5), PL)) == ["s3.ts", "s4.ts"]
+
+
+def test_zap_leer_und_null():
+    assert v.zap_auswahl("", PL) == []
+    assert v.zap_auswahl(_liste(6, [6.0] * 5), PL, 0) == []
+    assert _namen(v.zap_auswahl(_liste(6, [6.0]), PL)) == ["s1.ts"]
 
 
 # ── Nachfolger im laufenden Betrieb ─────────────────────────────────────────

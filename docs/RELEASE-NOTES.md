@@ -2,6 +2,25 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-90"></a>
+
+## v1.90 — Vorladen trifft den Startpunkt des Players
+
+**Anlass (11.11.2026):** Erste echte Senderwechsel mit 1.89. Das zweite Segment kam jedes Mal
+aus dem Vorladen, das erste nie: Es wurde weiter erst auf Anfrage geholt (0,06–0,27 s).
+
+**Ursache:** 1.89 holte beim Umschalten die letzten drei Segmente. Die Playlist des Anbieters
+hat sechs Segmente von rund 6,5 s bei Zieldauer 9. Ein Player beginnt drei Zieldauern vor dem
+Ende (27 s), also beim zweiten Segment – das lag außerhalb der Auswahl.
+
+**Geändert:** `vorladen.zap_auswahl` rechnet den Startpunkt aus `#EXT-X-TARGETDURATION` und
+den `#EXTINF`-Zeiten aus und holt dieses Segment und das folgende (statt drei vom Ende).
+Fehlen die Zeitangaben, beginnt die Auswahl wie bisher drei Segmente vor dem Ende.
+
+**Messung 1.89 (sieben Wechsel, Zugriff von außen):** Playlist beantwortet → erstes Segment
+angefragt 0,35–0,5 s; erstes Segment ausgeliefert nach weiteren 0,7–1,3 s. Die Umleitung
+entfällt. Den größten Rest macht die Auslieferung des ersten Segments (2–8 MB) ans Gerät aus.
+
 <a id="v1-89"></a>
 
 ## v1.89 — Schnelleres Umschalten

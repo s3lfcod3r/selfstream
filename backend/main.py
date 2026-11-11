@@ -2019,7 +2019,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             _seg_liste = vorladen.segment_urls(playlist_content, decoded_url)
             vorladen.folge_merken(_segment_folge, _seg_liste)
             if _ist_zap and get_prefetch_count() > 0:
-                _vorladen_starten(vorladen.zap_auswahl(_seg_liste), hls)
+                _vorladen_starten(vorladen.zap_auswahl(playlist_content, decoded_url), hls)
         except Exception:
             pass
         _log_player_request(

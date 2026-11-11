@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.90 · November 2026
+- 🇬🇧 **Prefetch hits the player's start point:** On a channel switch SelfStream now fetches the segment a player really starts with – three target durations before the end of the playlist – and the one after it. Version 1.89 fetched the last three segments; with the usual six-segment playlists the player started earlier, so the very first segment was still fetched only on request.
+- 🇩🇪 **Vorladen trifft den Startpunkt des Players:** Beim Umschalten holt SelfStream jetzt das Segment, mit dem ein Player wirklich beginnt – drei Zieldauern vor dem Ende der Playlist – und das danach. Version 1.89 holte die letzten drei Segmente; bei den üblichen Playlists mit sechs Segmenten begann der Player weiter vorn, das allererste Segment wurde also weiterhin erst auf Anfrage geholt.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-90)
+
 ## 1.89 · November 2026
 - 🇬🇧 **Faster channel switching:** The channel address answers directly instead of redirecting (one request less per switch), playlists use the already open connection to the provider, "now playing" is looked up per channel instead of scanning the whole guide, and settings are kept for two seconds instead of being read from the database on every request. Prefetching was reworked: on a switch the segments the player starts with are fetched right away, afterwards the segment the player asks for next – before, segments the player had already passed were fetched.
 - 🇩🇪 **Schnelleres Umschalten:** Die Sender-Adresse antwortet direkt statt umzuleiten (eine Anfrage weniger je Umschalten), Playlists nutzen die schon offene Verbindung zum Anbieter, „läuft gerade“ wird je Sender nachgeschlagen statt das ganze Programm zu durchsuchen, und Einstellungen werden zwei Sekunden gemerkt statt bei jedem Abruf aus der Datenbank gelesen. Das Vorladen wurde überarbeitet: Beim Umschalten werden sofort die Segmente geholt, mit denen der Player beginnt, danach jeweils das Segment, das er als Nächstes anfragt – bisher wurden Segmente geholt, an denen der Player schon vorbei war.
