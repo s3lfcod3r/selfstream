@@ -2,6 +2,35 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-88"></a>
+
+## v1.88 — VPN-Pflicht (Notschalter)
+
+**Anlass (11.11.2026):** Alles soll über das VPN laufen. Beim Durchsehen fiel auf: Wird der
+Tunnel abgebaut (Neustart durch den Wächter, Wechsel der Config, Absturz), stellt SelfStream
+die normale Standard-Route wieder her, damit der Container Internet behält. Schaut in dem
+Moment jemand, gehen Playlist- und Segment-Abrufe direkt zum Anbieter.
+
+**Neu:**
+- Einstellung **VPN-Pflicht** (`vpn_pflicht`, Standard aus) auf der Seite VPN. Vor jedem Abruf
+  nach außen prüft SelfStream anhand der Routing-Tabelle (`/proc/net/route`), ob der Verkehr
+  wirklich durch den Tunnel geht. Wenn nicht, wird der Abruf verweigert – noch vor der
+  Namensauflösung. Das gilt für alle Abrufe: Streams, Catchup, EPG, Senderlisten, Messungen.
+- Geprüft wird die Route, nicht bloß „gibt es wg0“: Beim Aufbau existiert das Interface schon,
+  bevor die Standard-Route umgestellt ist.
+- Beim WireGuard-Abbau bleibt der Container mit VPN-Pflicht 0,3 s ganz ohne Standard-Route,
+  bevor die normale Route zurückkommt. Abrufe, die die Prüfung gerade noch bestanden haben,
+  scheitern in dieser Pause, statt direkt rauszugehen.
+- Zuschauer sehen den neuen Hinweis-Clip **„VPN gestört“**. Sobald der Tunnel wieder trägt,
+  kommt beim nächsten Playlist-Abruf wieder der Sender.
+- Ausnahmen: Ziele im eigenen Netz, wenn sie als IP eingetragen sind (Namen werden nicht
+  aufgelöst, weil schon das eine Anfrage nach außen wäre). Die Alarm-Mail geht weiterhin am
+  Tunnel vorbei – sonst käme bei einem VPN-Ausfall genau die Mail nicht an, die ihn meldet.
+- Die Seite VPN zeigt, ob der Verkehr gerade durch den Tunnel läuft.
+
+**Grenze:** Geprüft mit WireGuard. Bei OpenVPN gilt die Sperre ebenfalls, die kurze Pause beim
+Abbau gibt es dort nicht.
+
 <a id="v1-87"></a>
 
 ## v1.87 — Auto-Best misst ohne zweiten Tunnel

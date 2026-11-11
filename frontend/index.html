@@ -379,7 +379,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.87</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.88</div>
       </div>
     </div>
 
@@ -1200,7 +1200,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.87</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.88</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1276,6 +1276,24 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
             <button class="btn primary" onclick="vpnServerLatency()" id="vpn-lat-btn">🔍 Server-Latenz prüfen</button>
             <div id="vpn-lat-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht geprüft –</div>
+          </div>
+
+          <div class="scard" style="grid-column:1/-1">
+            <div class="scard-title">🛡️ VPN-Pflicht (Notschalter)</div>
+            <div class="form-hint" style="margin-bottom:14px;">
+              Ist die VPN-Pflicht an, geht <strong>kein Abruf nach außen</strong>, solange der Tunnel den Verkehr nicht trägt – auch nicht beim Neustart, Wechsel oder Absturz des Tunnels. Zuschauer sehen in der Zeit den Hinweis <strong>„VPN gestört“</strong>, der Sender startet danach von selbst wieder. Ziele im eigenen Netz (als IP eingetragen) bleiben erreichbar, die Alarm-Mail geht weiterhin am Tunnel vorbei, damit sie einen VPN-Ausfall melden kann.
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+              <div style="flex:1;min-width:220px;max-width:420px;">
+                <label class="form-label">Modus</label>
+                <select class="form-select" id="vpnpflicht-an">
+                  <option value="0">Aus – ohne Tunnel geht der Verkehr direkt raus</option>
+                  <option value="1">An – ohne Tunnel wird gesperrt</option>
+                </select>
+              </div>
+              <button class="btn primary" onclick="vpnPflichtSave()" id="vpnpflicht-save-btn">💾 Speichern</button>
+            </div>
+            <div id="vpnpflicht-status" style="padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);">– Lädt –</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -4459,6 +4477,7 @@ async function loadVpnSettings() {
   if (!s) return;
   renderOvpnList(s.ovpn_files || [], s.vpn_ovpn_path || '');
   mullvadFillSources(s.ovpn_files || []);
+  vpnPflichtZeigen(s);
   vpnRefreshStatus();
   canaryLoad();
   wgAutobestLoad();
@@ -4518,6 +4537,29 @@ function _agoText(s) {
   if (s < 90) return 'vor ' + s + ' s';
   if (s < 5400) return 'vor ' + Math.round(s / 60) + ' min';
   return 'vor ' + Math.round(s / 3600) + ' h';
+}
+
+function vpnPflichtZeigen(s) {
+  const sel = document.getElementById('vpnpflicht-an');
+  const st = document.getElementById('vpnpflicht-status');
+  if (!sel || !st) return;
+  const an = s.vpn_pflicht === '1';
+  sel.value = an ? '1' : '0';
+  if (s.vpn_traegt) st.textContent = '🟢 Der Verkehr läuft gerade durch den Tunnel.';
+  else if (an) st.textContent = '🔴 Der Tunnel trägt gerade nicht – Abrufe nach außen sind gesperrt.';
+  else st.textContent = '🟡 Der Tunnel trägt gerade nicht – Abrufe gehen direkt raus (VPN-Pflicht ist aus).';
+}
+
+async function vpnPflichtSave() {
+  const btn = document.getElementById('vpnpflicht-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '💾 Speichern…'; }
+  try {
+    const r = await api('POST', '/api/vpn', { vpn_pflicht: document.getElementById('vpnpflicht-an').value });
+    if (r && r.ok) showToast('✅ VPN-Pflicht gespeichert'); else showToast('❌ Fehlgeschlagen');
+  } catch(e) { showToast('❌ ' + (e.message || e)); }
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Speichern'; }
+  const s = await api('GET', '/api/vpn');
+  if (s) vpnPflichtZeigen(s);
 }
 
 async function wgAutobestSave() {

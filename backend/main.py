@@ -37,6 +37,7 @@ from timeparse import (
 from hls import rewrite_hls_playlist, segment_durations
 import alerting
 import vpnwahl
+import vpnpflicht
 from security_util import (
     _host_is_internal, assert_safe_upstream_url,
     _PBKDF2_ITERATIONS, _hash_admin_token, _verify_admin_token,
@@ -879,8 +880,74 @@ async def _ssrf_guard_request(request: httpx.Request) -> None:
     assert_safe_upstream_url(str(request.url))
 
 
+# ── VPN-Pflicht (Notschalter) ──────────────────────────────────────────────────
+# Ist die Einstellung ``vpn_pflicht`` an, geht kein Abruf nach außen, solange der
+# Tunnel den Verkehr nicht trägt (Abbau, Neustart, Absturz, Aufbau noch nicht fertig).
+# Vorher stellte der Abbau die normale Route wieder her, und laufende Streams holten
+# ihre Segmente dann mit der eigenen Adresse direkt beim Anbieter. Die Regeln stehen
+# in vpnpflicht.py; LAN-Ziele (als IP) bleiben erlaubt, die Alarm-Mail geht weiterhin
+# bewusst am Tunnel vorbei (smtplib, nicht dieser Client).
+class VpnNichtBereit(httpx.ConnectError):
+    """Abruf verweigert: VPN-Pflicht ist an, der Tunnel trägt den Verkehr nicht."""
+
+
+VPN_PFLICHT_CACHE_SEC = 2.0
+_vpn_pflicht_cache = {"ts": 0.0, "an": False}
+_vpn_sperre_gemeldet = 0.0
+
+
+def _vpn_pflicht_an() -> bool:
+    """Einstellung ``vpn_pflicht`` (kurz gecacht – wird vor JEDEM Abruf gefragt)."""
+    jetzt = time.monotonic()
+    if jetzt - _vpn_pflicht_cache["ts"] > VPN_PFLICHT_CACHE_SEC:
+        try:
+            _vpn_pflicht_cache["an"] = db.get_setting("vpn_pflicht", "0") == "1"
+        except Exception:
+            pass   # DB kurz nicht lesbar → letzten Stand behalten
+        _vpn_pflicht_cache["ts"] = jetzt
+    return _vpn_pflicht_cache["an"]
+
+
+def _vpn_tunnel_traegt() -> bool:
+    """Geht Internet-Verkehr laut Routing-Tabelle gerade durch den Tunnel?
+    Bewusst OHNE Cache: Die Tabelle ist die Wahrheit, ein alter Stand wäre das Leck."""
+    try:
+        with open("/proc/net/route") as f:
+            return vpnpflicht.route_ueber_tunnel(f.read())
+    except OSError:
+        return False
+
+
+def vpn_sperre_aktiv(host: str = "") -> bool:
+    """True, wenn ein Abruf an ``host`` wegen der VPN-Pflicht nicht rausgehen darf."""
+    if not _vpn_pflicht_an():
+        return False
+    return vpnpflicht.gesperrt(True, _vpn_tunnel_traegt(), host)
+
+
+def _vpn_sperre_melden() -> None:
+    """Höchstens alle 30 s ins Log – bei einem Ausfall fragen die Player im Sekundentakt."""
+    global _vpn_sperre_gemeldet
+    jetzt = time.monotonic()
+    if jetzt - _vpn_sperre_gemeldet < 30:
+        return
+    _vpn_sperre_gemeldet = jetzt
+    logger.warning("VPN-Pflicht: Tunnel trägt nicht – Abrufe nach außen gesperrt")
+    diag_log("WARNING", "vpn", "VPN-Pflicht: Tunnel trägt nicht – Abrufe nach außen gesperrt")
+
+
+async def _vpn_guard_request(request: httpx.Request) -> None:
+    """httpx-Request-Hook: läuft vor JEDEM Abruf (auch Weiterleitungen und Abrufe über
+    eine offene Verbindung) und noch VOR der Namensauflösung."""
+    if vpn_sperre_aktiv(request.url.host):
+        _vpn_sperre_melden()
+        raise VpnNichtBereit("VPN-Pflicht: Tunnel nicht aktiv", request=request)
+
+
 def make_iptv_client(ssrf_guard: bool = False, **kwargs) -> httpx.AsyncClient:
     """Create an httpx client with browser-like headers so IPTV servers don't block us.
+
+    Jeder Client prüft vor jedem Abruf die VPN-Pflicht (siehe _vpn_guard_request).
 
     ssrf_guard=True: jeden ausgehenden Request (inkl. Redirect-Hops) gegen die
     SSRF-Policy prüfen. Nur für Fetches nutzer-/anbieter-beeinflusster Inhalts-URLs
@@ -899,10 +966,10 @@ def make_iptv_client(ssrf_guard: bool = False, **kwargs) -> httpx.AsyncClient:
         kwargs["headers"] = merged
     else:
         kwargs["headers"] = default_headers
-    if ssrf_guard:
-        hooks = dict(kwargs.get("event_hooks") or {})
-        hooks["request"] = list(hooks.get("request", [])) + [_ssrf_guard_request]
-        kwargs["event_hooks"] = hooks
+    hooks = dict(kwargs.get("event_hooks") or {})
+    pruefungen = [_vpn_guard_request] + ([_ssrf_guard_request] if ssrf_guard else [])
+    hooks["request"] = list(hooks.get("request", [])) + pruefungen
+    kwargs["event_hooks"] = hooks
     return httpx.AsyncClient(**kwargs)
 
 
@@ -1347,6 +1414,20 @@ async def error_banned_ts():
     return _serve_error_clip("error-banned.ts")
 
 
+@proxy_app.get("/iptv/error-vpn.ts")
+async def error_vpn_ts():
+    """Liefert den 'VPN gestört'-Videoclip (MPEG-TS) für den Player."""
+    return _serve_error_clip("error-vpn.ts")
+
+
+def _vpn_hinweis_playlist(public_url: str, token: str) -> HTMLResponse:
+    """Endlos-Playlist mit dem 'VPN gestört'-Clip. Sobald der Tunnel wieder trägt,
+    liefert der nächste Playlist-Abruf des Players wieder den echten Sender."""
+    m3u = _build_loop_playlist(f"{public_url}/iptv/error-vpn.ts", _blocked_seq(f"{token}::vpn"))
+    return HTMLResponse(content=m3u, media_type="application/x-mpegURL",
+                        headers={"Cache-Control": "no-cache"})
+
+
 @proxy_app.get("/iptv/error-max-streams.png")
 async def error_image():
     """Serves a PNG error image for max streams reached."""
@@ -1445,6 +1526,12 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
     proxy_url = db.get_proxy_url()
     short_domain = db.get_setting("short_domain", "")
     public_url = short_domain.rstrip("/") if short_domain else proxy_url
+
+    # VPN-Pflicht: ohne tragenden Tunnel gar nicht erst zum Anbieter – Hinweis zeigen.
+    if vpn_sperre_aktiv(urllib.parse.urlsplit(decoded_url).hostname or ""):
+        _vpn_sperre_melden()
+        _log_player_request("stream:vpn_gesperrt", request, token, {}, level="WARNING")
+        return _vpn_hinweis_playlist(public_url, token)
 
     # Get friendly channel name from DB
     ch_record = db.get_channel_by_url(decoded_url)
@@ -1969,6 +2056,9 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                 "Access-Control-Allow-Origin": "*",
             }
         )
+    except VpnNichtBereit:
+        # Tunnel fiel zwischen der Prüfung oben und dem Abruf weg.
+        return _vpn_hinweis_playlist(public_url, token)
     except Exception as e:
         _e_str = _mask_creds(e)
         _log_player_request("stream:error", request, token, {"channel": channel_name, "error": _mask_creds(repr(e))}, level="ERROR")
@@ -5697,7 +5787,7 @@ async def logo_app():
 # ── VPN (OpenVPN) Integration ──────────────────────────────────────────────────
 
 VPN_SETTINGS_KEYS = {
-    "vpn_enabled", "vpn_user", "vpn_password", "vpn_ovpn_path"
+    "vpn_enabled", "vpn_user", "vpn_password", "vpn_ovpn_path", "vpn_pflicht"
 }
 
 _vpn_process: Optional[subprocess.Popen] = None
@@ -6026,15 +6116,24 @@ _wg_saved_default = None   # (gateway, dev) der Original-Default-Route vor WireG
 _wg_saved_resolv = None    # Original /etc/resolv.conf vor WireGuard
 
 
+WG_ABBAU_PAUSE_SEC = 0.3   # Pause ohne Standard-Route beim Abbau (nur mit VPN-Pflicht)
+
+
 def _wg_down():
     """WireGuard-Interface abbauen (löscht seine Routen/Adressen), Original-Default-Route
     UND DNS wiederherstellen – sonst hätte der Container nach dem Teardown kein Internet
     bzw. Mullvad-DNS (nur im Tunnel erreichbar) mehr."""
     global _wg_saved_default, _wg_saved_resolv
+    stand = _iface_exists(WG_IFACE)
     try:
         subprocess.run(["ip", "link", "del", "dev", WG_IFACE], capture_output=True, timeout=10)
     except Exception:
         pass
+    if stand and _vpn_pflicht_an():
+        # Ohne Interface gibt es jetzt KEINE Standard-Route. Abrufe, die die VPN-Prüfung
+        # eine Millisekunde vorher noch bestanden haben, scheitern in dieser Pause, statt
+        # gleich über die wiederhergestellte normale Route direkt rauszugehen.
+        time.sleep(WG_ABBAU_PAUSE_SEC)
     if _wg_saved_default:
         gw, dev = _wg_saved_default
         try:
@@ -6912,6 +7011,8 @@ def _wg_ein_download(frist: float = WG_MESS_FRIST) -> Optional[float]:
     import ssl
     host, pfad = WG_MESS_HOST, WG_MESS_PFAD
     s = None
+    if vpn_sperre_aktiv(host):
+        return None   # VPN-Pflicht: ohne Tunnel auch keine Messung nach außen
     try:
         ip = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -7237,6 +7338,8 @@ def get_vpn_settings(_=Depends(check_admin)):
         "vpn_type":     _vpn_config_type(active_path),   # "openvpn" | "wireguard"
         "vpn_running":  vpn_is_running(),
         "ovpn_files":   ovpn_files,
+        "vpn_pflicht":  s.get("vpn_pflicht", "0"),
+        "vpn_traegt":   _vpn_tunnel_traegt(),   # geht Verkehr wirklich durch den Tunnel?
     }
 
 
@@ -7279,7 +7382,7 @@ async def get_vpn_status(_=Depends(check_admin)):
         else:
             for url in ["https://ifconfig.me/ip", "https://api.ipify.org", "https://checkip.amazonaws.com"]:
                 try:
-                    async with httpx.AsyncClient(timeout=5) as client:
+                    async with make_iptv_client(timeout=5) as client:
                         r = await client.get(url)
                         if r.status_code == 200:
                             public_ip = r.text.strip()

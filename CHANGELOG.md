@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.88 · November 2026
+- 🇬🇧 **VPN kill switch:** New setting "VPN required" (VPN page). When it is on, no request leaves the container while the tunnel does not carry the traffic – including during a tunnel restart, switch or crash. Until now the normal route was restored on teardown and running streams fetched their segments directly. Viewers see a "VPN disturbed" notice and the channel resumes by itself. LAN targets given as IP stay reachable; the alert mail still bypasses the tunnel on purpose.
+- 🇩🇪 **VPN-Notschalter:** Neue Einstellung „VPN-Pflicht“ (Seite VPN). Ist sie an, verlässt kein Abruf den Container, solange der Tunnel den Verkehr nicht trägt – auch nicht beim Neustart, Wechsel oder Absturz des Tunnels. Bisher wurde beim Abbau die normale Route wiederhergestellt, und laufende Streams holten ihre Segmente direkt. Zuschauer sehen den Hinweis „VPN gestört“, der Sender startet von selbst wieder. Ziele im eigenen Netz (als IP) bleiben erreichbar; die Alarm-Mail geht weiterhin bewusst am Tunnel vorbei.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-88)
+
 ## 1.87 · November 2026
 - 🇬🇧 **Auto-Best no longer disrupts the stream:** The separate measuring tunnel used the same Mullvad key and froze the live tunnel for about two minutes. Auto-Best now briefly switches the real tunnel to each candidate (seamlessly), measures there and finally stays on the fastest or returns to the previous server. Every search, measurement and switch is now written to the container log with a timestamp.
 - 🇩🇪 **Auto-Best stört den Stream nicht mehr:** Der eigene Mess-Tunnel nutzte denselben Mullvad-Schlüssel und legte den echten Tunnel rund zwei Minuten lahm. Jetzt stellt Auto-Best den echten Tunnel kurz und nahtlos auf jeden Kandidaten, misst dort und bleibt am Ende auf dem schnellsten oder geht zurück auf den bisherigen Server. Jede Suche, Messung und jeder Wechsel steht jetzt mit Uhrzeit im Container-Log.
