@@ -34,35 +34,71 @@ def test_ampel():
 
 # ── Wer schaut gerade ───────────────────────────────────────────────────────
 
-def _p(ts, user, elapsed, out, cached=False, dur=6.0, channel="RTL HD"):
+def _p(ts, user, elapsed, rueck, cached=False, dur=6.0, channel="RTL HD", skip=0):
     return {"ts": ts, "user": user, "channel": channel, "elapsed": elapsed,
-            "dur": dur, "out": out, "cached": cached}
+            "dur": dur, "rueck": rueck, "cached": cached, "skip": skip}
+
+
+def test_rueckstand_nimmt_den_kleinsten_der_letzten_drei():
+    assert q.rueckstand([0, 1, 0]) == 0          # das übliche Schwanken um ein Segment
+    assert q.rueckstand([0, 1, 2, 2, 3]) == 2    # fällt wirklich zurück
+    assert q.rueckstand([2, 2]) is None          # noch zu wenige Anfragen
+    assert q.rueckstand([None, 1, 1, 1]) == 1
+    assert q.rueckstand([]) is None
+
+
+def test_rueck_ampel():
+    assert q.rueck_ampel(0) == "gut"
+    assert q.rueck_ampel(1) == "knapp"
+    assert q.rueck_ampel(2) == "schlecht"
+    assert q.rueck_ampel(None) == "unbekannt"
+
+
+def test_rueck_ampel_mit_uebersprungenen_segmenten():
+    assert q.rueck_ampel(0, 1) == "knapp"
+    assert q.rueck_ampel(0, 2) == "schlecht"
+    assert q.rueck_ampel(None, 3) == "schlecht"      # zählt auch ohne gesicherten Rückstand
+
+
+def test_zuschauer_ueberspringt_segmente():
+    z = q.zuschauer([_p(100, "Dennis", 0.5, 0, skip=2), _p(106, "Dennis", 0.5, 0)], jetzt=110)
+    assert z[0]["urteil"] == q.GERAET_URTEIL and z[0]["skips"] == 2 and z[0]["level"] == "schlecht"
 
 
 def test_zuschauer_fluessig():
-    z = q.zuschauer([_p(100, "Sven", 0.5, 0.6), _p(106, "Sven", 0.4, 0.7)], jetzt=110)
+    z = q.zuschauer([_p(100, "Sven", 0.5, 0), _p(106, "Sven", 0.4, 0)], jetzt=110)
     assert z[0]["user"] == "Sven" and z[0]["urteil"] == "flüssig"
-    assert z[0]["rein"] == 13.5 and z[0]["raus"] == 9.3
+    assert z[0]["rein"] == 13.5 and z[0]["rueck"] == 0
 
 
-def test_zuschauer_eigene_leitung_knapp():
-    z = q.zuschauer([_p(100, "Dennis", 0.5, 4.5), _p(106, "Dennis", 0.5, 4.7)], jetzt=110)
-    assert z[0]["urteil"] == "Leitung zum Gerät knapp"
-    assert z[0]["rein_level"] == "gut" and z[0]["raus_level"] == "knapp"
+def test_zuschauer_geraet_kommt_nicht_hinterher():
+    z = q.zuschauer([_p(100, "Dennis", 0.5, 0), _p(106, "Dennis", 0.5, 2)], jetzt=110)
+    assert z[0]["urteil"] == q.GERAET_URTEIL
+    assert z[0]["rein_level"] == "gut" and z[0]["rueck_level"] == "schlecht"
+
+
+def test_zuschauer_es_zaehlt_der_neueste_rueckstand():
+    z = q.zuschauer([_p(100, "Dennis", 0.5, 2), _p(106, "Dennis", 0.5, 0)], jetzt=110)
+    assert z[0]["urteil"] == "flüssig"           # hat wieder aufgeholt
 
 
 def test_zuschauer_anlieferung_langsam_geht_vor():
-    z = q.zuschauer([_p(100, "Sven", 7.0, 7.5), _p(106, "Sven", 8.0, 8.0)], jetzt=110)
+    z = q.zuschauer([_p(100, "Sven", 7.0, 2), _p(106, "Sven", 8.0, 2)], jetzt=110)
     assert z[0]["urteil"] == "Anlieferung langsam" and z[0]["level"] == "schlecht"
 
 
 def test_zwischenspeicher_zaehlt_nicht_fuer_die_anlieferung():
-    z = q.zuschauer([_p(100, "Sven", 0.0, 0.6, cached=True)], jetzt=110)
-    assert z[0]["rein"] is None and z[0]["raus"] == 10.0 and z[0]["urteil"] == "flüssig"
+    z = q.zuschauer([_p(100, "Sven", 0.0, 0, cached=True)], jetzt=110)
+    assert z[0]["rein"] is None and z[0]["urteil"] == "flüssig"
+
+
+def test_ohne_rueckstand_und_ohne_anlieferung_keine_messung():
+    z = q.zuschauer([_p(100, "Sven", 0.0, None, cached=True)], jetzt=110)
+    assert z[0]["urteil"] == "noch keine Messung"
 
 
 def test_alte_proben_zaehlen_nicht():
-    assert q.zuschauer([_p(100, "Sven", 0.5, 0.6)], jetzt=100 + q.ZUSCHAUER_FENSTER + 1) == []
+    assert q.zuschauer([_p(100, "Sven", 0.5, 0)], jetzt=100 + q.ZUSCHAUER_FENSTER + 1) == []
 
 
 # ── Störungen ───────────────────────────────────────────────────────────────

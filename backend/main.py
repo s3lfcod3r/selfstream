@@ -2025,7 +2025,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         # Segment-Pfad) und beim Umschalten die Segmente holen, mit denen der Player beginnt.
         try:
             _seg_liste = vorladen.segment_urls(playlist_content, decoded_url)
-            vorladen.folge_merken(_segment_folge, _seg_liste)
+            _folge_merken(_seg_liste)
             if _ist_zap and get_prefetch_count() > 0:
                 _vorladen_starten(vorladen.zap_auswahl(playlist_content, decoded_url), hls)
         except Exception:
@@ -2197,19 +2197,81 @@ def _netz_probe_anstossen() -> None:
     threading.Thread(target=lauf, daemon=True).start()
 
 
+RUECK_SUCHE_MAX = 60   # so weit wird die Segmentfolge höchstens abgelaufen
+
+
+def _rueckstand_segmente(url: str):
+    """Wie viele Segmente nach ``url`` schon bekannt sind (0 = es ist das neueste).
+
+    None, wenn das Segment in keiner durchgereichten Playlist stand."""
+    naechstes = _segment_folge.get(url)
+    if naechstes is None:
+        return 0 if url in _segment_folge_ende else None
+    n = 0
+    while naechstes is not None and n < RUECK_SUCHE_MAX:
+        n += 1
+        naechstes = _segment_folge.get(naechstes)
+    return n
+
+
+def _uebersprungen(vorher: str, url: str) -> int:
+    """Wie viele Segmente zwischen der vorigen und dieser Anfrage ausgelassen wurden.
+
+    0 bei lückenloser Folge, bei derselben Adresse und wenn sich die beiden nicht in einer
+    Kette finden (Rücksprung, anderer Sender, sehr alte Anfrage)."""
+    if not vorher or vorher == url:
+        return 0
+    naechstes, schritte = _segment_folge.get(vorher), 1
+    while naechstes is not None and schritte <= RUECK_SUCHE_MAX:
+        if naechstes == url:
+            return schritte - 1
+        naechstes, schritte = _segment_folge.get(naechstes), schritte + 1
+    return 0
+
+
+def _sitzung_rueckstand(sess: dict, url: str) -> tuple:
+    """Rückstand einer Sitzung fortschreiben → (gesicherter Rückstand, übersprungene Segmente).
+
+    Gemerkt wird je Sitzung der kleinste je gesehene Abstand zum neuesten Segment (der
+    Start-Abstand des Players), um wie viele Segmente die letzten Anfragen darüber lagen,
+    und das zuletzt angefragte Segment. Beim Senderwechsel entsteht eine neue Sitzung, der
+    Stand beginnt also neu."""
+    try:
+        if sess is None:
+            return None, 0
+        skip = _uebersprungen(sess.get("lag_letzte", ""), url)
+        sess["lag_letzte"] = url
+        abstand = _rueckstand_segmente(url)
+        if abstand is None:
+            return None, skip
+        sess["lag_min"] = min(sess.get("lag_min", abstand), abstand)
+        verlauf = sess.setdefault("lag_verlauf", [])
+        verlauf.append(abstand - sess["lag_min"])
+        del verlauf[:-qualitaet.RUECK_PROBEN]
+        return qualitaet.rueckstand(verlauf), skip
+    except Exception:
+        return None, 0
+
+
 def _segment_festhalten(user: str, channel: str, provider_id, seg_name: str, size_kb: float,
-                        elapsed: float, dur, out_s, cached: bool, debug: bool) -> None:
+                        elapsed: float, dur, out_s, cached: bool, debug: bool, rueck=None,
+                        skip: int = 0) -> None:
     """Eine Auslieferung bewerten und festhalten (Hot Path, wirft nie).
 
-    rein = Abruf beim Anbieter (durchs VPN), raus = Auslieferung ans Gerät. Bewertet wird
-    gegen die Spielzeit des Segments, nicht mehr gegen starre 1 s / 2 s.
+    rein = Abruf beim Anbieter (durchs VPN), bewertet gegen die Spielzeit des Segments.
+    rueck = gesicherter Rückstand des Players (Segmente über seinem Start-Abstand), skip =
+    vor dieser Anfrage ausgelassene Segmente – die Zeichen dafür, dass ein Gerät oder
+    dessen Leitung nicht hinterherkommt. Die
+    Auslieferzeit (out_s) wird nur noch mitgeschrieben: Hinter einem Reverse-Proxy ist sie
+    praktisch immer 0 und sagt nichts über das Gerät.
     """
     try:
         jetzt = time.time()
         rein = "ok" if cached else qualitaet.stufe(elapsed, dur)
-        raus_spaet = out_s is not None and qualitaet.stufe(out_s, dur) == "slow"
+        raus_spaet = skip > 0 or (rueck is not None and rueck >= qualitaet.RUECK_SCHLECHT)
         _liefer_proben.append({"ts": jetzt, "user": user, "channel": channel, "elapsed": elapsed,
-                               "dur": dur, "out": out_s, "cached": cached})
+                               "dur": dur, "out": out_s, "cached": cached, "rueck": rueck,
+                               "skip": skip})
         if len(_liefer_proben) > LIEFER_PROBEN_MAX:
             del _liefer_proben[:len(_liefer_proben) - LIEFER_PROBEN_MAX]
         z = _tage_zaehler.setdefault((time.strftime("%Y-%m-%d"), channel or "?"), [0, 0])
@@ -2226,7 +2288,8 @@ def _segment_festhalten(user: str, channel: str, provider_id, seg_name: str, siz
               "elapsed": round(elapsed, 2), "size_kb": round(size_kb), "mbps": mbps,
               "seg": seg_name, "provider_id": provider_id,
               "dur": round(dur, 2) if dur else None,
-              "out_s": round(out_s, 2) if out_s is not None else None, "cached": cached}
+              "out_s": round(out_s, 2) if out_s is not None else None, "cached": cached,
+              "rueck": rueck, "skip": skip}
         _segment_events.append(ev)
         if len(_segment_events) > 500:
             _segment_events.pop(0)
@@ -2417,6 +2480,18 @@ async def _prefetch_segment(url: str, hls: dict):
 
 # Nachfolger je Segment-Adresse aus den durchgereichten Live-Playlists (siehe vorladen.py).
 _segment_folge: dict = {}
+# Jeweils letztes Segment der zuletzt gesehenen Playlists (hat noch keinen Nachfolger).
+_segment_folge_ende: dict = {}
+SEGMENT_ENDE_MAX = 500
+
+
+def _folge_merken(urls: list) -> None:
+    """Reihenfolge einer Playlist festhalten (für Vorladen und Rückstand)."""
+    vorladen.folge_merken(_segment_folge, urls)
+    if urls:
+        _segment_folge_ende[urls[-1]] = True
+        while len(_segment_folge_ende) > SEGMENT_ENDE_MAX:
+            _segment_folge_ende.pop(next(iter(_segment_folge_ende)))
 
 
 async def _vorladen_reihe(urls: list, hls: dict) -> None:
@@ -3763,6 +3838,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
                 channel_name_log = _sessions.get(session_key, {}).get("channel", "")
                 debug_mode = db.get_setting("segment_debug", "0") == "1"
+                _rueck, _skip = _sitzung_rueckstand(_sessions.get(session_key), decoded_url)
 
                 chunk_size = 524288
                 _out_t0 = time.time()
@@ -3777,12 +3853,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 finally:
                     _segment_festhalten(user_name, channel_name_log, user.get("provider_id"), seg_name,
                                         size_kb, elapsed, _segment_dauer.get(decoded_url), _out_s,
-                                        bool(_from_cache), debug_mode)
+                                        bool(_from_cache), debug_mode, _rueck, _skip)
                 return
 
             _unter_text = await _playlist_holen(decoded_url, hls)
             _segment_dauern_merken(_unter_text, decoded_url)
-            vorladen.folge_merken(_segment_folge, vorladen.segment_urls(_unter_text, decoded_url))
+            _folge_merken(vorladen.segment_urls(_unter_text, decoded_url))
             rewritten = rewrite_hls_playlist(_unter_text, decoded_url, public_url_seg, token)
             yield rewritten.encode()
             return
@@ -7806,7 +7882,7 @@ def get_qualitaet(days: int = 7, _=Depends(check_admin)):
     letzte = proben[-1] if proben else None
     frisch = bool(letzte and jetzt - letzte["ts"] <= qualitaet.PROBE_FENSTER)
     zs = qualitaet.zuschauer(list(_liefer_proben), jetzt)
-    knapp = [z["user"] for z in zs if z["urteil"] == "Leitung zum Gerät knapp"]
+    knapp = [z["user"] for z in zs if z["urteil"] == qualitaet.GERAET_URTEIL]
     quote = passiv.get("quote")
     # Alte Zeilen (vor 1.91) wurden starr ab 1 s / 2 s als spät gezählt und kennen keine
     # Spielzeit: hier mit den Sekunden-Grenzen neu einstufen, sonst entstehen Scheinstörungen.

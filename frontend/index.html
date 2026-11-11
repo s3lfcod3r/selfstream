@@ -379,7 +379,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.92</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.93</div>
       </div>
     </div>
 
@@ -1200,7 +1200,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.92</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.93</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1532,7 +1532,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Qualität: Kette + Urteil + Zuschauer -->
         <div class="scard" style="margin-bottom:16px;">
           <div class="scard-title" style="margin:0 0 4px 0;">🧭 Wo hakt es gerade?</div>
-          <div class="form-hint" style="margin-bottom:12px;">Jede Strecke hat ihre eigene Ampel. <strong>Reserve</strong> = wie viel schneller ein Bildstück ankommt, als es abgespielt wird. Unter 1× ruckelt es.</div>
+          <div class="form-hint" style="margin-bottom:12px;">Jede Strecke hat ihre eigene Ampel. <strong>Reserve</strong> = wie viel schneller ein Bildstück bei SelfStream ankommt, als es abgespielt wird (unter 1× ruckelt es). <strong>Rückstand</strong> = ob ein Gerät Schritt hält: Fragt es immer ältere Bildstücke an, kommt es oder seine Leitung nicht hinterher.</div>
           <div id="q-kette" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
             <div class="empty-state">Lade…</div>
           </div>
@@ -1592,7 +1592,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
           <div class="form-hint" style="margin-bottom:10px;">
             Späte Bildstücke werden zu einer Störung zusammengefasst. Die Ursache ergibt sich daraus, wer betroffen war:
-            <strong>ein Sender</strong> → Anbieter (dieser Sender) · <strong>mehrere Sender</strong> → Anbieter oder VPN, entschieden durch einen Test-Download durch den Tunnel · <strong>nur ein Zuschauer</strong> bei pünktlicher Anlieferung → dessen Leitung.
+            <strong>ein Sender</strong> → Anbieter (dieser Sender) · <strong>mehrere Sender</strong> → Anbieter oder VPN, entschieden durch einen Test-Download durch den Tunnel · <strong>nur ein Zuschauer</strong> fällt zurück, obwohl die Anlieferung pünktlich war → dessen Gerät oder Leitung.
           </div>
           <div id="q-stoerungen"><div class="empty-state">Lade…</div></div>
         </div>
@@ -1634,8 +1634,8 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
           <div class="form-hint" style="margin-bottom:10px;">
             <strong>Geladen in</strong> = so lange brauchte SelfStream, um das Bildstück beim Anbieter zu holen (durch das VPN).
-            <strong>Zum Gerät</strong> = so lange dauerte die Auslieferung an den Player.
             Die Reserve dahinter vergleicht das mit der Spielzeit des Bildstücks: 🔴 unter 1× · 🟡 unter 1,7× · 🟢 darüber.
+            <strong>Rückstand</strong> = um wie viele Bildstücke der Player hinter seinem üblichen Abstand zum neuesten liegt: 🟢 0 · 🟡 1 · 🔴 2 und mehr. Überspringt er Bildstücke, hat der Zuschauer einen Sprung oder Hänger gesehen.
             <span id="seg-total-count" style="margin-left:8px;color:var(--teal);font-family:var(--mono);font-size:10px;"></span>
           </div>
           <div id="tr-seg-events" style="font-family:var(--mono);font-size:11px;">
@@ -5315,6 +5315,14 @@ function qReserve(r) {
   return `<span style="color:${Q_FARBE[level]};font-family:var(--mono);">${zahl}×</span>`;
 }
 
+function qRueck(r, skip) {
+  if (skip > 0) return `<span style="color:${skip >= 2 ? Q_FARBE.schlecht : Q_FARBE.knapp};">${skip} ${skip === 1 ? 'Bildstück' : 'Bildstücke'} übersprungen</span>`;
+  if (r == null) return '<span style="color:var(--text3);">noch keine Messung</span>';
+  if (r <= 0) return `<span style="color:${Q_FARBE.gut};">hält Schritt</span>`;
+  const f = r >= 2 ? Q_FARBE.schlecht : Q_FARBE.knapp;
+  return `<span style="color:${f};">${r} ${r === 1 ? 'Bildstück' : 'Bildstücke'} zurück</span>`;
+}
+
 function qLevelVonPassiv(l) { return l === 'bad' ? 'schlecht' : l === 'slow' ? 'knapp' : l === 'ok' ? 'gut' : 'unbekannt'; }
 
 function qZeitraum(von, bis) {
@@ -5332,7 +5340,7 @@ function qStoerungText(s) {
   const sender = s.sender_anzahl === 1 ? `Nur ${s.sender[0]}` : `${s.sender_anzahl} Sender (${s.sender.join(', ')}${s.sender_anzahl > s.sender.length ? ' …' : ''})`;
   const nutzer = s.nutzer_anzahl === 1 ? s.nutzer[0] : `${s.nutzer_anzahl} Zuschauer`;
   const stuecke = `${s.anzahl} späte Bildstücke`;
-  if (s.ursache === 'geraet') return `Nur ${nutzer}. SelfStream hatte die Bildstücke rechtzeitig, die Auslieferung ans Gerät war langsam (${stuecke}).`;
+  if (s.ursache === 'geraet') return `Nur ${nutzer}. SelfStream hatte die Bildstücke rechtzeitig, das Gerät fiel trotzdem zurück – es oder seine Leitung kam nicht hinterher (${s.anzahl} Bildstücke lang).`;
   let t = `${sender}, ${nutzer}, ${stuecke}.`;
   if (s.ursache === 'anbieter') t += ` Test-Download durch den Tunnel war schnell (${s.probe_mbps} Mbit/s).`;
   else if (s.ursache === 'vpn') t += s.probe_mbps == null ? ' Test-Download durch den Tunnel ist gescheitert.' : ` Test-Download durch den Tunnel war langsam (${s.probe_mbps} Mbit/s).`;
@@ -5365,7 +5373,7 @@ async function loadQualitaet() {
   const ssL = cpu == null ? 'unbekannt' : (cpu > 150 ? 'schlecht' : cpu > 90 ? 'knapp' : 'gut');
   const ssText = `${cpu != null ? String(cpu).replace('.', ',') + ' % CPU' : 'CPU wird gemessen'}${ram != null ? ', ' + ram + ' MB' : ''}`;
   const gerL = !k.geraete.gesamt ? 'unbekannt' : (k.geraete.knapp ? 'knapp' : 'gut');
-  const gerText = !k.geraete.gesamt ? 'niemand schaut gerade' : (k.geraete.knapp ? `${k.geraete.knapp} von ${k.geraete.gesamt} knapp` : `${k.geraete.gesamt} von ${k.geraete.gesamt} flüssig`);
+  const gerText = !k.geraete.gesamt ? 'niemand schaut gerade' : (k.geraete.knapp ? `${k.geraete.knapp} von ${k.geraete.gesamt} ${k.geraete.knapp === 1 ? 'fällt' : 'fallen'} zurück` : `${k.geraete.gesamt} von ${k.geraete.gesamt} ${k.geraete.gesamt === 1 ? 'hält' : 'halten'} Schritt`);
   const kachel = (icon, name, text, level) => `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${Q_FARBE[level]};border-radius:6px;padding:10px 12px;min-width:0;">
       <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">${icon} ${name}</div>
       <div style="font-size:12px;margin-bottom:8px;">${esc(text)}</div>${qPill(level)}</div>`;
@@ -5388,12 +5396,12 @@ async function loadQualitaet() {
       <thead><tr style="border-bottom:1px solid var(--border);">
         <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ZUSCHAUER</th>
         <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" title="Anbieter → VPN → SelfStream">KOMMT BEI SELFSTREAM AN</th>
-        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" title="SelfStream → Gerät">GEHT ZUM GERÄT</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" title="Fragt der Player immer ältere Bildstücke an?">HÄLT DAS GERÄT SCHRITT?</th>
         <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">URTEIL</th>
       </tr></thead><tbody>${q.zuschauer.map(z => `<tr style="border-bottom:1px solid var(--border);">
         <td style="padding:6px 8px;"><strong>${esc(z.user)}</strong><br><span style="font-size:10px;color:var(--text2);">${esc(z.channel || '')}</span></td>
         <td style="padding:6px 8px;">${qReserve(z.rein)} <span style="font-size:10px;color:var(--text3);">Reserve</span></td>
-        <td style="padding:6px 8px;">${qReserve(z.raus)} <span style="font-size:10px;color:var(--text3);">Reserve</span></td>
+        <td style="padding:6px 8px;">${qRueck(z.rueck, z.skips)}</td>
         <td style="padding:6px 8px;">${qPill(z.level, z.urteil)}</td>
       </tr>`).join('')}</tbody></table>`;
   }
@@ -5499,7 +5507,7 @@ function renderSegEvents() {
   const th = t => `<th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">${t}</th>`;
   const sek = v => String(v).replace('.', ',') + ' s';
   el.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-    <thead><tr style="border-bottom:1px solid var(--border);background:var(--bg2);">${th('ZEIT')}${th('USER')}${th('SENDER')}${th('GELADEN IN')}${th('ZUM GERÄT')}${th('GRÖSSE')}${th('BILDSTÜCK')}</tr></thead>
+    <thead><tr style="border-bottom:1px solid var(--border);background:var(--bg2);">${th('ZEIT')}${th('USER')}${th('SENDER')}${th('GELADEN IN')}${th('RÜCKSTAND')}${th('GRÖSSE')}${th('BILDSTÜCK')}</tr></thead>
     <tbody>${pageEvents.map(e => {
       const ts = e.ts || e.time || 0;
       const dt = ts ? new Date(ts * 1000) : null;
@@ -5516,7 +5524,7 @@ function renderSegEvents() {
       if (leer) rein = '<span style="color:#ef4444;">leer geliefert</span>';
       else if (cached) rein = '<span style="color:var(--text3);">lag schon bereit</span>';
       else rein = `${sek(elapsed)} ${dur > 0 ? '· ' + qReserve(res(elapsed)) : `<span style="color:${e.type === 'slow' ? '#ef4444' : e.type === 'delayed' ? '#eab308' : 'var(--text3)'};">●</span>`}`;
-      const raus = e.out_s == null ? '<span style="color:var(--text3);">–</span>' : `${sek(e.out_s)} ${dur > 0 ? '· ' + qReserve(res(Number(e.out_s))) : ''}`;
+      const raus = qRueck(e.rueck, e.skip);
       return `<tr style="border-bottom:1px solid var(--border);">
         <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;">${timeStr}</td>
         <td style="padding:4px 8px;"><strong>${esc(e.user_name || e.user || '—')}</strong></td>

@@ -2,6 +2,38 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-93"></a>
+
+## v1.93 — Geräte-Strecke über den Rückstand des Players
+
+**Anlass (11.11.2026):** Nach dem Update auf 1.92 stand die Auslieferzeit „zum Gerät“ bei allen
+Zuschauern auf 0,0 s. Zwischen SelfStream und den Playern sitzt ein Reverse-Proxy, der jedes
+Segment sofort komplett abnimmt; gemessen wurde also nur der Weg bis zum Proxy im eigenen Netz.
+Die höheren Werte unter 1.91 kamen sehr wahrscheinlich daher, dass SelfStream selbst durch
+Datenbankzugriffe kurz beschäftigt war. Die Ampel „Geräte“ hätte eine schwache Leitung bei
+einem Zuschauer nie erkannt.
+
+**Neu:** SelfStream kennt die Reihenfolge der Segmente jedes Senders und sieht, welches ein
+Player anfragt.
+- **Rückstand:** Abstand des angefragten Segments zum neuesten, gemessen gegen den kleinsten
+  Abstand, den diese Sitzung je hatte (der Start-Abstand des Players). Gewertet wird der
+  kleinste der letzten drei Werte, weil der Abstand von Natur aus um ein Segment schwankt.
+  1 = knapp, ab 2 kommt das Gerät nicht hinterher.
+- **Übersprungen:** Lässt der Player Segmente aus (er ist aus der Playlist gefallen und
+  springt nach vorn), hat der Zuschauer einen Sprung oder Hänger gesehen. 1 = knapp, ab 2
+  im Zwei-Minuten-Fenster schlecht.
+- War die Anlieferung selbst zu spät, gilt weiterhin „Anlieferung langsam“ – dann liegt es
+  nicht am Gerät.
+- Gespeichert in `segment_events.rueck` und `.skip`; die Auslieferzeit (`out_s`) wird nur noch
+  mitgeschrieben und nicht mehr bewertet.
+
+**Grenzen:** Ob das Gerät selbst zu schwach ist oder seine Leitung, lässt sich so nicht
+trennen. Pausiert jemand das Live-Bild und springt danach nach vorn, zählt das ebenfalls als
+übersprungen.
+
+**Tests:** `tests/test_qualitaet.py` erweitert; Ablauftest mit einem Player, der Schritt hält,
+und einem, der zurückfällt.
+
 <a id="v1-92"></a>
 
 ## v1.92 — VPN-Ziel nach Nutzerzahl, schnellerer Server

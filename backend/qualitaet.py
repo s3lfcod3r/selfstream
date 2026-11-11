@@ -5,7 +5,14 @@ Reserve 1 heißt, das Segment kommt genau so schnell an, wie es abgespielt wird 
 ruckelt es. Gemessen wird auf zwei Strecken:
 
   rein = Anbieter → VPN → SelfStream   (Abruf des Segments)
-  raus = SelfStream → Gerät            (Auslieferung an den Player)
+
+Die Strecke zum Gerät lässt sich so NICHT messen: Zwischen SelfStream und Player sitzt in
+der Regel ein Reverse-Proxy, der jedes Segment sofort komplett abnimmt. Die Auslieferzeit
+war deshalb praktisch immer 0 (gemessen am 11.11.2026). Stattdessen zählt der Rückstand:
+Ein Player bleibt im Normalbetrieb gleich weit hinter dem neuesten Segment. Kommt ein Gerät
+(oder dessen Leitung) nicht hinterher, fragt es immer ältere Segmente an – der Abstand wächst.
+Fällt es ganz aus der Playlist (die hält nur wenige Segmente vor), springt der Player nach
+vorn: Dann fehlen ihm Segmente. Beides zusammen ist das Zeichen für die Geräte-Strecke.
 """
 from typing import Optional
 
@@ -13,7 +20,12 @@ import alerting
 
 RESERVE_KNAPP = round(1.0 / alerting.QUOTE_LANGSAM, 2)   # darunter „knapp“ (≈ 1,67)
 RESERVE_MAX = 99.0            # Anzeige-Obergrenze
+GERAET_URTEIL = "Gerät kommt nicht hinterher"
 ZUSCHAUER_FENSTER = 120.0     # s: so alte Proben zählen für „wer schaut gerade“
+RUECK_PROBEN = 3              # so viele Anfragen am Stück müssen den Rückstand zeigen
+RUECK_KNAPP = 1               # Segmente über dem Start-Abstand: ab hier „knapp“
+RUECK_SCHLECHT = 2            # … ab hier kommt das Gerät nicht mehr hinterher
+SKIP_SCHLECHT = 2             # übersprungene Segmente im Fenster: ab hier „schlecht“
 STOER_LUECKE = 120.0          # s ohne späte Segmente → Störung zu Ende
 STOER_MIN = 3                 # ab so vielen späten Segmenten ist es eine Störung
 PROBE_FENSTER = 600.0         # s: so lange nach Störungsbeginn zählt eine Netz-Probe
@@ -51,15 +63,37 @@ def ampel(res: Optional[float]) -> str:
     return "knapp" if res < RESERVE_KNAPP else "gut"
 
 
+def rueckstand(letzte: list) -> Optional[int]:
+    """Gesicherter Rückstand aus den letzten Anfragen einer Sitzung (Segmente über dem
+    Start-Abstand). Es zählt der KLEINSTE der letzten RUECK_PROBEN Werte: Der Abstand
+    schwankt von Natur aus um ein Segment, je nachdem, ob das neueste schon angekündigt ist.
+    None, solange zu wenige Anfragen vorliegen."""
+    werte = [w for w in letzte if w is not None]
+    if len(werte) < RUECK_PROBEN:
+        return None
+    return int(min(werte[-RUECK_PROBEN:]))
+
+
+def rueck_ampel(rueck: Optional[int], uebersprungen: int = 0) -> str:
+    """Ampel der Geräte-Strecke aus gesichertem Rückstand und übersprungenen Segmenten."""
+    if uebersprungen >= SKIP_SCHLECHT or (rueck is not None and rueck >= RUECK_SCHLECHT):
+        return "schlecht"
+    if uebersprungen >= 1 or (rueck is not None and rueck >= RUECK_KNAPP):
+        return "knapp"
+    return "unbekannt" if rueck is None else "gut"
+
+
 def _median(werte: list) -> Optional[float]:
     return alerting.perzentil(werte, 50)
 
 
 def zuschauer(proben: list, jetzt: float, fenster: float = ZUSCHAUER_FENSTER) -> list:
-    """Je Nutzer die beiden Strecken aus den letzten Proben.
+    """Je Nutzer die Anlieferung (Reserve) und ob sein Gerät Schritt hält (Rückstand).
 
-    Probe: {"ts","user","channel","elapsed","dur","out","cached"}. Segmente aus dem
-    Zwischenspeicher sagen nichts über die Anlieferung und zählen nur für „raus“.
+    Probe: {"ts","user","channel","elapsed","dur","cached","rueck","skip"}. Segmente aus
+    dem Zwischenspeicher sagen nichts über die Anlieferung. "rueck" ist der gesicherte
+    Rückstand der Sitzung zum Zeitpunkt der Probe (siehe rueckstand()), "skip" die Zahl
+    der Segmente, die der Player vor dieser Anfrage ausgelassen hat.
     """
     nach_nutzer: dict = {}
     for p in proben:
@@ -68,17 +102,17 @@ def zuschauer(proben: list, jetzt: float, fenster: float = ZUSCHAUER_FENSTER) ->
     out = []
     for name, ps in nach_nutzer.items():
         rein = [reserve(p.get("elapsed"), p.get("dur")) for p in ps if not p.get("cached")]
-        raus = [reserve(p.get("out"), p.get("dur")) for p in ps if p.get("out") is not None]
         rein = [r for r in rein if r is not None]
-        raus = [r for r in raus if r is not None]
         r_rein = _median(rein)
-        r_raus = _median(raus)
-        a_rein, a_raus = ampel(r_rein), ampel(r_raus)
+        neueste = max(ps, key=lambda p: p.get("ts", 0))
+        rueck = neueste.get("rueck")
+        skips = sum(int(p.get("skip") or 0) for p in ps)
+        a_rein, a_rueck = ampel(r_rein), rueck_ampel(rueck, skips)
         if a_rein in ("schlecht", "knapp"):
             urteil, level = "Anlieferung langsam", a_rein
-        elif a_raus in ("schlecht", "knapp"):
-            urteil, level = "Leitung zum Gerät knapp", a_raus
-        elif a_rein == "unbekannt" and a_raus == "unbekannt":
+        elif a_rueck in ("schlecht", "knapp"):
+            urteil, level = GERAET_URTEIL, a_rueck
+        elif a_rein == "unbekannt" and a_rueck == "unbekannt":
             urteil, level = "noch keine Messung", "unbekannt"
         else:
             urteil, level = "flüssig", "gut"
@@ -86,8 +120,8 @@ def zuschauer(proben: list, jetzt: float, fenster: float = ZUSCHAUER_FENSTER) ->
             "user": name,
             "channel": max(ps, key=lambda p: p.get("ts", 0)).get("channel", ""),
             "rein": round(r_rein, 1) if r_rein is not None else None,
-            "raus": round(r_raus, 1) if r_raus is not None else None,
-            "rein_level": a_rein, "raus_level": a_raus,
+            "rueck": rueck, "skips": skips,
+            "rein_level": a_rein, "rueck_level": a_rueck,
             "urteil": urteil, "level": level, "samples": len(ps),
         })
     out.sort(key=lambda z: z["user"].lower())
@@ -127,7 +161,7 @@ def stoerungen(ereignisse: list, netz_proben: list = (), luecke: float = STOER_L
     """Späte Segmente zu Störungen bündeln und die wahrscheinliche Ursache benennen.
 
     Ereignis: {"ts","user","channel","type"}; type 'slow'/'delayed' = Anlieferung zu spät,
-    'geraet' = Auslieferung ans Gerät zu spät. Ursachen:
+    'geraet' = das Gerät fällt zurück, obwohl die Anlieferung pünktlich war. Ursachen:
       'sender'   nur ein Sender betroffen → Anbieter, einzelner Sender
       'anbieter' mehrere Sender, neutraler Download durch den Tunnel war schnell
       'vpn'      mehrere Sender, neutraler Download langsam oder gescheitert
@@ -196,7 +230,8 @@ def urteil(anbieter_level: Optional[str], vpn_an: bool, vpn_traegt: bool,
     if knappe_nutzer:
         namen = ", ".join(knappe_nutzer[:3])
         return {"level": "knapp",
-                "text": f"Anbieter und VPN sind schnell. Bei {namen} ist die eigene Leitung der Engpass."}
+                "text": f"Anbieter und VPN sind schnell. Bei {namen} kommt das Gerät oder "
+                        f"dessen Leitung nicht hinterher."}
     if anbieter_level is None:
         return {"level": "unbekannt", "text": "Gerade schaut niemand, deshalb gibt es keine Messung."}
     return {"level": "gut", "text": "Alles flüssig."}
