@@ -381,7 +381,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.97</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.98</div>
       </div>
     </div>
 
@@ -1209,7 +1209,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.97</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.98</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1223,7 +1223,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <div class="settings-grid">
 
           <div class="scard">
-            <div class="scard-title">📡 VPN Status</div>
+            <div class="scard-title">📡 Status</div>
             <div id="vpn-status-box" style="padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);margin-bottom:14px;">
               <div style="display:flex;align-items:center;gap:10px;">
                 <span id="vpn-status-dot" style="width:12px;height:12px;border-radius:50%;background:#888;display:inline-block;flex-shrink:0;"></span>
@@ -1236,12 +1236,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <button class="btn" id="vpn-btn-stop" onclick="vpnStop()">⏹ Stoppen</button>
               <button class="btn" onclick="vpnRefreshStatus()">🔄</button>
             </div>
-            <div class="scard-title" style="margin-bottom:8px;">📋 Live Log</div>
+            <div id="vpn-tempo" style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7;">–</div>
+            <details>
+              <summary style="cursor:pointer;font-size:12px;color:var(--text2);margin-bottom:8px;">📋 Protokoll des Tunnels</summary>
             <div id="vpn-log" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:var(--mono);font-size:10px;line-height:1.6;height:220px;overflow-y:auto;color:var(--text2);white-space:pre-wrap;">– Log erscheint hier –</div>
+          </details>
           </div>
 
           <div class="scard">
-            <div class="scard-title">⚙️ Konfiguration</div>
+            <div class="scard-title">🗂 Server</div>
 
 
             <div class="form-group" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px;">
@@ -1279,16 +1282,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
 
           <div class="scard" style="grid-column:1/-1">
-            <div class="scard-title">🔍 Schnellsten Server finden (Latenz)</div>
-            <div class="form-hint" style="margin-bottom:14px;">
-              Misst <strong>störungsfrei</strong> die Antwortzeit zu jedem hinterlegten WireGuard-Server – <strong>ohne</strong> Tunnel-Wechsel, <strong>ohne</strong> einen Stream zu unterbrechen. Zeigt eine Rangliste; per <strong>⇄ Wechseln</strong> schaltest du gezielt auf den schnellsten. Bei Mullvad sind alle Server sehr schnell (20 Gbit/s) – die Latenz entscheidet. Den echten Durchsatz deines aktiven Servers zeigt dir der Canary laufend.
-            </div>
-            <button class="btn primary" onclick="vpnServerLatency()" id="vpn-lat-btn">🔍 Server-Latenz prüfen</button>
-            <div id="vpn-lat-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht geprüft –</div>
-          </div>
-
-          <div class="scard" style="grid-column:1/-1">
-            <div class="scard-title">🛡️ VPN-Pflicht (Notschalter)</div>
+            <div class="scard-title">🛡️ VPN-Pflicht</div>
             <div class="form-hint" style="margin-bottom:14px;">
               Ist die VPN-Pflicht an, geht <strong>kein Abruf nach außen</strong>, solange der Tunnel den Verkehr nicht trägt – auch nicht beim Neustart, Wechsel oder Absturz des Tunnels. Zuschauer sehen in der Zeit den Hinweis <strong>„VPN gestört“</strong>, der Sender startet danach von selbst wieder. Ziele im eigenen Netz (als IP eingetragen) bleiben erreichbar, die Alarm-Mail geht weiterhin am Tunnel vorbei, damit sie einen VPN-Ausfall melden kann.
             </div>
@@ -1306,10 +1300,13 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
 
           <div class="scard" style="grid-column:1/-1">
-            <div class="scard-title">🏆 Auto-Best (WireGuard, nahtlos)</div>
+            <div class="scard-title">🏆 Automatik (Server-Wahl)</div>
             <div class="form-hint" style="margin-bottom:14px;">
               Das Ziel ergibt sich von selbst aus der <strong>Zahl der aktiven Nutzer</strong>: Nutzer × Bedarf je Stream + Reserve. <strong>Schaut niemand</strong>, prüft SelfStream regelmäßig, ob der aktive Server dieses Ziel schafft – nur wenn nicht, werden andere Server gemessen und es wird <strong>nahtlos</strong> gewechselt. <strong>Schaut jemand</strong>, wird nicht auf Verdacht umgeschaltet, sondern nur, wenn es wirklich ruckelt oder der Tunnel weniger liefert, als gerade gebraucht wird; dann zuerst auf den zuletzt schnellsten Server. Antwortet der aktive Server gar nicht mehr, wird sofort gewechselt.
             </div>
+            <div id="wgab-status" style="margin-bottom:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– Lädt… –</div>
+            <details>
+              <summary style="cursor:pointer;font-size:12px;color:var(--text2);margin-bottom:12px;">⚙️ Einstellungen (An/Aus, Bedarf je Stream, Reserve, Land)</summary>
             <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
               <div style="flex:1;min-width:220px;">
                 <label class="form-label">Modus</label>
@@ -1352,35 +1349,20 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </div>
             </div>
             <button class="btn primary" onclick="wgAutobestSave()" id="wgab-save-btn">💾 Speichern</button>
-            <div id="wgab-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– Lädt… –</div>
+            </details>
           </div>
 
+          <details style="grid-column:1/-1">
+            <summary style="cursor:pointer;font-size:13px;color:var(--text2);padding:6px 2px;">🧰 Weitere Werkzeuge – Server von Hand testen, Speedtest, Selbst-Zuschauer</summary>
+            <div class="settings-grid" style="margin-top:12px;">
+
           <div class="scard" style="grid-column:1/-1">
-            <div class="scard-title">👁️ Selbst-Zuschauer (Canary)</div>
+            <div class="scard-title">🔍 Schnellsten Server finden (Latenz)</div>
             <div class="form-hint" style="margin-bottom:14px;">
-              SelfStream hält selbst einen Stream offen – wie ein echter Zuschauer – und misst laufend die Qualität. So kennt es die Stream-Güte <strong>auch wenn niemand schaut</strong>, und der E-Mail-Alarm greift immer. Pausiert automatisch, wenn's eng wird (nahe am Verbindungslimit).
+              Misst <strong>störungsfrei</strong> die Antwortzeit zu jedem hinterlegten WireGuard-Server – <strong>ohne</strong> Tunnel-Wechsel, <strong>ohne</strong> einen Stream zu unterbrechen. Zeigt eine Rangliste; per <strong>⇄ Wechseln</strong> schaltest du gezielt auf den schnellsten. Bei Mullvad sind alle Server sehr schnell (20 Gbit/s) – die Latenz entscheidet. Den echten Durchsatz deines aktiven Servers zeigt dir der Canary laufend.
             </div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
-              <div style="flex:1;min-width:240px;">
-                <label class="form-label">Modus</label>
-                <select class="form-select" id="canary-mode">
-                  <option value="off">Aus</option>
-                  <option value="observe">Nur beobachten (misst + alarmiert)</option>
-                  <option value="act">Beobachten + handeln (wechselt bei 0 Zuschauern selbst)</option>
-                </select>
-              </div>
-              <div style="flex:1;min-width:200px;">
-                <label class="form-label">Prüfen alle</label>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <input class="form-input" type="number" id="canary-interval" min="0" max="9999" style="width:80px;">
-                  <span style="font-size:11px;color:var(--text2);">Stunden — <strong>0 = 24/7</strong> (dauerhaft, misst alle 30&nbsp;s) · höhere Zahl = seltener</span>
-                </div>
-              </div>
-            </div>
-            <button class="btn primary" onclick="canarySave(true)">💾 Speichern</button>
-            <button class="btn" onclick="canaryStats()" style="margin-left:8px;">📊 Statistik</button>
-            <div id="canary-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
-            <div class="form-hint" style="margin-top:10px;">Bei „handeln" wechselt er nur bei <strong>0 Zuschauern</strong> und höchstens 1×/Stunde.</div>
+            <button class="btn primary" onclick="vpnServerLatency()" id="vpn-lat-btn">🔍 Server-Latenz prüfen</button>
+            <div id="vpn-lat-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch nicht geprüft –</div>
           </div>
 
           <div class="scard" style="grid-column:1/-1">
@@ -1489,6 +1471,38 @@ tr:hover td{background:rgba(255,255,255,.02);}
               </div>
             </div>
           </div>
+
+          <div class="scard" style="grid-column:1/-1">
+            <div class="scard-title">👁️ Selbst-Zuschauer (Canary)</div>
+            <div class="form-hint" style="margin-bottom:14px;">
+              SelfStream hält selbst einen Stream offen – wie ein echter Zuschauer – und misst laufend die Qualität. So kennt es die Stream-Güte <strong>auch wenn niemand schaut</strong>, und der E-Mail-Alarm greift immer. Pausiert automatisch, wenn's eng wird (nahe am Verbindungslimit).
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+              <div style="flex:1;min-width:240px;">
+                <label class="form-label">Modus</label>
+                <select class="form-select" id="canary-mode">
+                  <option value="off">Aus</option>
+                  <option value="observe">Nur beobachten (misst + alarmiert)</option>
+                  <option value="act">Beobachten + handeln (wechselt bei 0 Zuschauern selbst)</option>
+                </select>
+              </div>
+              <div style="flex:1;min-width:200px;">
+                <label class="form-label">Prüfen alle</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input class="form-input" type="number" id="canary-interval" min="0" max="9999" style="width:80px;">
+                  <span style="font-size:11px;color:var(--text2);">Stunden — <strong>0 = 24/7</strong> (dauerhaft, misst alle 30&nbsp;s) · höhere Zahl = seltener</span>
+                </div>
+              </div>
+            </div>
+            <button class="btn primary" onclick="canarySave(true)">💾 Speichern</button>
+            <button class="btn" onclick="canaryStats()" style="margin-left:8px;">📊 Statistik</button>
+            <div id="canary-status" style="margin-top:14px;padding:12px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);font-family:var(--mono);font-size:12px;color:var(--text2);white-space:pre-wrap;">– noch keine Messung –</div>
+            <div class="form-hint" style="margin-top:10px;">Bei „handeln" wechselt er nur bei <strong>0 Zuschauern</strong> und höchstens 1×/Stunde.</div>
+          </div>
+
+            </div>
+          </details>
+
 
         </div>
       </div>
@@ -4581,6 +4595,25 @@ function renderOvpnList(files, activePath) {
   }).join('');
 }
 
+async function vpnTempoZeigen() {
+  const el = document.getElementById('vpn-tempo');
+  if (!el) return;
+  let r;
+  try { r = await api('GET', '/api/vpn/tempo'); } catch(e) { return; }
+  if (!r || !r.ok) return;
+  const a = r.aktiv || {}, z = r.ziel || {};
+  let t = r.laeuft_mbps != null ? `Läuft gerade: <strong>${qMbit(r.laeuft_mbps)}</strong>` : 'Läuft gerade: –';
+  if (a.mbps != null && a.ts) {
+    const reicht = z.ziel != null ? (a.mbps >= z.ziel ? ' – reicht ✅' : ' – reicht nicht ⚠️') : '';
+    t += `<br>Schafft höchstens: <strong>${qMbit(a.mbps)}</strong> (gemessen ${_agoText(Math.floor(Date.now() / 1000) - a.ts)})`
+       + (z.ziel != null ? `<br>Ziel für ${z.nutzer} Nutzer: ${qMbit(z.ziel)}${reicht}` : '');
+  } else {
+    t += '<br>Höchsttempo noch nicht gemessen (passiert, sobald niemand schaut)'
+       + (z.ziel != null ? `<br>Ziel für ${z.nutzer} Nutzer: ${qMbit(z.ziel)}` : '');
+  }
+  el.innerHTML = t;
+}
+
 async function wgAutobestLoad() {
   const el = document.getElementById('wgab-status');
   let r;
@@ -5013,6 +5046,7 @@ async function loadHealthHistory() {
 }
 
 async function vpnRefreshStatus() {
+  vpnTempoZeigen();
   const s = await api('GET', '/api/vpn/status');
   if (!s) return;
   const dot  = document.getElementById('vpn-status-dot');

@@ -2,6 +2,20 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-98"></a>
+
+## v1.98 — VPN-Seite aufgeräumt
+
+Dritter Schritt des Umbaus zu einer einfacheren Oberfläche.
+
+- Reihenfolge: **Status**, **Server** (vorher „Konfiguration“), **VPN-Pflicht**, **Automatik**
+  (vorher „Auto-Best“).
+- **Status** zeigt zusätzlich „läuft gerade“, „schafft höchstens“ und das Ziel für die aktuelle
+  Nutzerzahl mit „reicht / reicht nicht“ (neuer Abruf `GET /api/vpn/tempo`).
+- Eingeklappt: das Protokoll des Tunnels, die Einstellungen der Automatik und – unter
+  „Weitere Werkzeuge“ – Latenz-Suche, Speedtest und Selbst-Zuschauer.
+- Alle Elemente und ihre Kennungen bleiben erhalten; es wurde nur umsortiert und eingeklappt.
+
 <a id="v1-97"></a>
 
 ## v1.97 — Dashboard mit Ampeln

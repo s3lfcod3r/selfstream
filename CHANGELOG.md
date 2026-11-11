@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.98 · November 2026
+- 🇬🇧 **VPN page tidied up:** Four cards instead of eight: status (with what is flowing through the tunnel right now, the top speed and the target for the current number of users), server, VPN required and automatic server choice. The tunnel log and the Auto-Best settings fold away; latency search, speed test and self-viewer moved into "More tools". No function was removed.
+- 🇩🇪 **VPN-Seite aufgeräumt:** Vier Karten statt acht: Status (mit dem, was gerade durch den Tunnel fließt, dem Höchsttempo und dem Ziel für die aktuelle Nutzerzahl), Server, VPN-Pflicht und Automatik. Das Tunnel-Protokoll und die Auto-Best-Einstellungen sind eingeklappt; Latenz-Suche, Speedtest und Selbst-Zuschauer liegen unter „Weitere Werkzeuge“. Es ist keine Funktion weggefallen.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-98)
+
 ## 1.97 · November 2026
 - 🇬🇧 **Dashboard answers "is everything running?":** The four lights (provider, VPN, SelfStream, devices) with the one-sentence verdict are now at the top of the dashboard. Each live viewer additionally shows whether their device keeps up and how many Mbit/s the channel consumes. "Active streams" became "Connections" with the provider limit next to it.
 - 🇩🇪 **Dashboard beantwortet „läuft alles?“:** Die vier Ampeln (Anbieter, VPN, SelfStream, Geräte) mit dem Urteil-Satz stehen jetzt oben auf dem Dashboard. Bei jedem Zuschauer steht zusätzlich, ob sein Gerät Schritt hält und wie viele Mbit/s der Sender verbraucht. Aus „Aktive Streams“ wurde „Verbindungen“ mit der Grenze des Anbieters daneben.

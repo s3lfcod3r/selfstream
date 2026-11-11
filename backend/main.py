@@ -9279,6 +9279,12 @@ def _wg_aktiv_stand() -> dict:
     return {"server": name, "mbps": e.get("mbps"), "ts": e.get("ts")}
 
 
+@admin_app.get("/api/vpn/tempo")
+def get_vpn_tempo(_=Depends(check_admin)):
+    """Was gerade durch den Tunnel fließt + zuletzt gemessenes Höchsttempo des aktiven Servers."""
+    return {"ok": True, **_tunnel_tempo(), "aktiv": _wg_aktiv_stand(), "ziel": _wg_ziel()}
+
+
 @admin_app.get("/api/vpn/wg-autobest")
 def get_wg_autobest(_=Depends(check_admin)):
     """Status + Einstellungen des nahtlosen WireGuard-Auto-Best."""
