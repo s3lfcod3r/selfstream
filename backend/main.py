@@ -2154,23 +2154,27 @@ _liefer_proben: list = []        # letzte Auslieferungen (siehe qualitaet.zuscha
 LIEFER_PROBEN_MAX = 600
 _tage_zaehler: dict = {}         # {(tag, sender): [gesamt, spät]} seit dem letzten Speichern
 _tage_zaehler_ts = 0.0
+# {minute: [geholt_bytes, geholt_s, geholt_n, spät, geliefert_bytes, geliefert_n]} seit dem Speichern
+_minuten_werte: dict = {}
 TAGE_ZAEHLER_SEC = 60.0
 _netz_probe_ts = 0.0
 NETZ_PROBE_ABSTAND = 300.0       # höchstens alle 5 min ein neutraler Mess-Download
 
 
 def _tage_zaehler_speichern(sofort: bool = False) -> None:
-    """Tageszähler je Sender in die Datenbank schreiben (höchstens einmal je Minute)."""
+    """Tageszähler je Sender und Minutenwerte der Anlieferung speichern (höchstens 1×/Minute)."""
     global _tage_zaehler_ts
-    if not _tage_zaehler or (not sofort and time.time() - _tage_zaehler_ts < TAGE_ZAEHLER_SEC):
+    if not (_tage_zaehler or _minuten_werte) or (not sofort and time.time() - _tage_zaehler_ts < TAGE_ZAEHLER_SEC):
         return
-    stand = dict(_tage_zaehler)
+    stand, minuten = dict(_tage_zaehler), dict(_minuten_werte)
     _tage_zaehler.clear()
+    _minuten_werte.clear()
     _tage_zaehler_ts = time.time()
     try:
         db.add_segment_tage(stand)
+        db.add_anlieferung(minuten)
     except Exception as e:
-        logger.debug(f"Tageszähler nicht gespeichert: {e}")
+        logger.debug(f"Zähler nicht gespeichert: {e}")
 
 
 def _netz_probe_anstossen() -> None:
@@ -2271,13 +2275,23 @@ def _segment_festhalten(user: str, channel: str, provider_id, seg_name: str, siz
         raus_spaet = skip > 0 or (rueck is not None and rueck >= qualitaet.RUECK_SCHLECHT)
         _liefer_proben.append({"ts": jetzt, "user": user, "channel": channel, "elapsed": elapsed,
                                "dur": dur, "out": out_s, "cached": cached, "rueck": rueck,
-                               "skip": skip})
+                               "skip": skip, "kb": size_kb})
         if len(_liefer_proben) > LIEFER_PROBEN_MAX:
             del _liefer_proben[:len(_liefer_proben) - LIEFER_PROBEN_MAX]
         z = _tage_zaehler.setdefault((time.strftime("%Y-%m-%d"), channel or "?"), [0, 0])
         z[0] += 1
         if rein != "ok":
             z[1] += 1
+        m = _minuten_werte.setdefault(int(jetzt // 60), [0, 0.0, 0, 0, 0, 0])
+        nbytes = int(size_kb * 1024)
+        if not cached:           # nur echte Abrufe beim Anbieter sagen etwas über dessen Tempo
+            m[0] += nbytes
+            m[1] += max(elapsed, 0.0)
+            m[2] += 1
+            if rein != "ok":
+                m[3] += 1
+        m[4] += nbytes           # an den Zuschauer ging es in jedem Fall
+        m[5] += 1
         _tage_zaehler_speichern()
 
         typ = rein if rein != "ok" else ("geraet" if raus_spaet else "ok")
@@ -7870,9 +7884,10 @@ def _rss_mb_jetzt():
 
 
 @admin_app.get("/api/qualitaet")
-def get_qualitaet(days: int = 7, _=Depends(check_admin)):
+def get_qualitaet(days: int = 7, verlauf_min: int = 60, _=Depends(check_admin)):
     """Alles für die Qualitätsseite: Kette, Urteil, Zuschauer, Störungen, Rangliste."""
     days = max(1, min(int(days), 90))
+    verlauf_min = max(10, min(int(verlauf_min), 7 * 1440))
     _tage_zaehler_speichern(sofort=True)
     jetzt = time.time()
     passiv = _passive_health()
@@ -7898,6 +7913,8 @@ def get_qualitaet(days: int = 7, _=Depends(check_admin)):
         "tage": days,
         "kette": {
             "anbieter": {"level": passiv.get("level"), "samples": passiv.get("samples", 0),
+                         "mbps": passiv.get("mbps"),
+                         "verbrauch_mbps": round(sum(z["bedarf_mbps"] or 0 for z in zs), 1),
                          "reserve": min(qualitaet.RESERVE_MAX, round(1.0 / quote, 1)) if quote else None},
             "vpn": {"an": vpn_an, "traegt": traegt,
                     "probe_mbps": letzte["mbps"] if frisch else None,
@@ -7910,6 +7927,8 @@ def get_qualitaet(days: int = 7, _=Depends(check_admin)):
         "zuschauer": zs,
         **qualitaet.stoerungen(spaete, proben),
         "rangliste": qualitaet.rangliste(db.get_segment_tage(days)),
+        "verlauf": qualitaet.verlauf(db.get_anlieferung(jetzt - verlauf_min * 60), jetzt, verlauf_min),
+        "verlauf_min": verlauf_min,
     }
 
 

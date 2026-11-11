@@ -34,9 +34,49 @@ def test_ampel():
 
 # ── Wer schaut gerade ───────────────────────────────────────────────────────
 
-def _p(ts, user, elapsed, rueck, cached=False, dur=6.0, channel="RTL HD", skip=0):
+def _p(ts, user, elapsed, rueck, cached=False, dur=6.0, channel="RTL HD", skip=0, kb=4000):
     return {"ts": ts, "user": user, "channel": channel, "elapsed": elapsed,
-            "dur": dur, "rueck": rueck, "cached": cached, "skip": skip}
+            "dur": dur, "rueck": rueck, "cached": cached, "skip": skip, "kb": kb}
+
+
+def test_zuschauer_mbit_tempo_und_bedarf():
+    # 2 × 3000 KB in je 0,5 s geholt, je 6 s Spielzeit
+    z = q.zuschauer([_p(100, "Sven", 0.5, 0, kb=3000), _p(106, "Sven", 0.5, 0, kb=3000)], jetzt=110)[0]
+    assert z["rein_mbps"] == 49.2       # 6000 KB × 8 ÷ 1 s
+    assert z["bedarf_mbps"] == 4.1      # 6000 KB × 8 ÷ 12 s
+
+
+def test_zuschauer_mbit_ohne_eigenen_abruf():
+    # Segment lag schon bereit: kein Abhol-Tempo, aber der Verbrauch steht fest.
+    z = q.zuschauer([_p(100, "Sven", 0.0, 0, cached=True, kb=3000)], jetzt=110)[0]
+    assert z["rein_mbps"] is None and z["bedarf_mbps"] == 4.1
+
+
+def _m(minute, mb=30, s=1.0, n=5, spaet=0, geliefert_mb=30):
+    return {"minute": minute, "geholt_bytes": mb * 1_000_000, "geholt_s": s, "geholt_n": n,
+            "spaet": spaet, "geliefert_bytes": geliefert_mb * 1_000_000}
+
+
+def test_verlauf_je_minute():
+    jetzt = 1000 * 60 + 30                       # Minute 1000
+    v = q.verlauf([_m(999), _m(1000, mb=15, s=1.0, spaet=2)], jetzt, minuten=3)
+    assert [x["t"] // 60 for x in v] == [998, 999, 1000]
+    assert v[0]["mbps"] is None and v[0]["verbrauch"] == 0.0
+    assert v[1]["mbps"] == 240.0 and v[1]["verbrauch"] == 4.0     # 30 MB in 1 s geholt; 30 MB in 60 s verbraucht
+    assert v[2]["mbps"] == 120.0 and v[2]["spaet"] == 2
+
+
+def test_verlauf_fasst_zusammen_wenn_es_mehr_minuten_als_punkte_sind():
+    jetzt = 1000 * 60
+    zeilen = [_m(m) for m in range(881, 1001)]   # 120 Minuten
+    v = q.verlauf(zeilen, jetzt, minuten=120, punkte=60)
+    assert len(v) == 60 and v[0]["min"] == 2
+    assert v[-1]["mbps"] == 240.0 and v[-1]["n"] == 10 and v[-1]["verbrauch"] == 4.0
+
+
+def test_verlauf_ohne_daten():
+    v = q.verlauf([], 1000 * 60, minuten=60)
+    assert len(v) == 60 and all(x["mbps"] is None and x["n"] == 0 for x in v)
 
 
 def test_rueckstand_nimmt_den_kleinsten_der_letzten_drei():
@@ -49,8 +89,9 @@ def test_rueckstand_nimmt_den_kleinsten_der_letzten_drei():
 
 def test_rueck_ampel():
     assert q.rueck_ampel(0) == "gut"
-    assert q.rueck_ampel(1) == "knapp"
-    assert q.rueck_ampel(2) == "schlecht"
+    assert q.rueck_ampel(1) == "gut"             # ein Segment über dem Bestwert ist normal
+    assert q.rueck_ampel(2) == "knapp"
+    assert q.rueck_ampel(3) == "schlecht"
     assert q.rueck_ampel(None) == "unbekannt"
 
 
@@ -72,13 +113,18 @@ def test_zuschauer_fluessig():
 
 
 def test_zuschauer_geraet_kommt_nicht_hinterher():
-    z = q.zuschauer([_p(100, "Dennis", 0.5, 0), _p(106, "Dennis", 0.5, 2)], jetzt=110)
+    z = q.zuschauer([_p(100, "Dennis", 0.5, 0), _p(106, "Dennis", 0.5, 3)], jetzt=110)
     assert z[0]["urteil"] == q.GERAET_URTEIL
     assert z[0]["rein_level"] == "gut" and z[0]["rueck_level"] == "schlecht"
 
 
+def test_zuschauer_ein_segment_zurueck_ist_fluessig():
+    z = q.zuschauer([_p(100, "Sven", 0.5, 1), _p(106, "Sven", 0.5, 1)], jetzt=110)
+    assert z[0]["urteil"] == "flüssig" and z[0]["rueck_level"] == "gut"
+
+
 def test_zuschauer_es_zaehlt_der_neueste_rueckstand():
-    z = q.zuschauer([_p(100, "Dennis", 0.5, 2), _p(106, "Dennis", 0.5, 0)], jetzt=110)
+    z = q.zuschauer([_p(100, "Dennis", 0.5, 3), _p(106, "Dennis", 0.5, 0)], jetzt=110)
     assert z[0]["urteil"] == "flüssig"           # hat wieder aufgeholt
 
 

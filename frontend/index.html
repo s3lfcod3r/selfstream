@@ -379,7 +379,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.93</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.95</div>
       </div>
     </div>
 
@@ -1200,7 +1200,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.93</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.95</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1577,6 +1577,33 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <span>Jetzt →</span>
           </div>
         </div>
+        <style>
+          .qtip { position:relative; cursor:help; border-bottom:1px dotted var(--text3); }
+          .qtip:hover::after, .qtip:focus::after {
+            content:attr(data-tip); position:absolute; left:0; top:calc(100% + 6px); z-index:50;
+            width:300px; max-width:70vw; padding:9px 11px; border-radius:6px;
+            background:var(--bg); border:1px solid var(--border); color:var(--text);
+            font-size:11px; font-weight:normal; line-height:1.5; letter-spacing:0; text-transform:none;
+            white-space:normal; box-shadow:0 6px 18px rgba(0,0,0,.35);
+          }
+          .qbalken rect { transition:opacity .1s; } .qbalken rect:hover { opacity:.7; }
+        </style>
+
+        <!-- Anbieter-Tempo im Verlauf -->
+        <div class="scard" style="margin-top:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+            <div class="scard-title" style="margin:0;">📈 <span class="qtip" tabindex="0" data-tip="Wie schnell die Bildstücke vom Anbieter bei SelfStream ankamen (durch das VPN). Hohe Balken = der Anbieter liefert schnell. Fallen die Balken ab, schwächelt der Anbieter oder das VPN. Die helle Linie darunter zeigt, wie viel davon wirklich gebraucht wurde.">Anbieter-Tempo im Verlauf</span></div>
+            <select id="q-verlauf" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="loadQualitaet()">
+              <option value="60" selected>Letzte Stunde</option>
+              <option value="360">Letzte 6 Stunden</option>
+              <option value="1440">Letzte 24 Stunden</option>
+              <option value="10080">Letzte 7 Tage</option>
+            </select>
+          </div>
+          <div id="q-verlauf-bild" style="margin-top:8px;"><div class="empty-state">Lade…</div></div>
+          <div id="q-verlauf-text" style="margin-top:8px;font-size:11px;color:var(--text2);"></div>
+        </div>
+
         <!-- Störungen -->
         <div class="scard" style="margin-top:16px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
@@ -1635,7 +1662,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
           <div class="form-hint" style="margin-bottom:10px;">
             <strong>Geladen in</strong> = so lange brauchte SelfStream, um das Bildstück beim Anbieter zu holen (durch das VPN).
             Die Reserve dahinter vergleicht das mit der Spielzeit des Bildstücks: 🔴 unter 1× · 🟡 unter 1,7× · 🟢 darüber.
-            <strong>Rückstand</strong> = um wie viele Bildstücke der Player hinter seinem üblichen Abstand zum neuesten liegt: 🟢 0 · 🟡 1 · 🔴 2 und mehr. Überspringt er Bildstücke, hat der Zuschauer einen Sprung oder Hänger gesehen.
+            <strong>Rückstand</strong> = um wie viele Bildstücke der Player hinter seinem üblichen Abstand zum neuesten liegt: 🟢 0–1 · 🟡 2 · 🔴 3 und mehr. Überspringt er Bildstücke, hat der Zuschauer einen Sprung oder Hänger gesehen.
             <span id="seg-total-count" style="margin-left:8px;color:var(--teal);font-family:var(--mono);font-size:10px;"></span>
           </div>
           <div id="tr-seg-events" style="font-family:var(--mono);font-size:11px;">
@@ -5318,9 +5345,65 @@ function qReserve(r) {
 function qRueck(r, skip) {
   if (skip > 0) return `<span style="color:${skip >= 2 ? Q_FARBE.schlecht : Q_FARBE.knapp};">${skip} ${skip === 1 ? 'Bildstück' : 'Bildstücke'} übersprungen</span>`;
   if (r == null) return '<span style="color:var(--text3);">noch keine Messung</span>';
-  if (r <= 0) return `<span style="color:${Q_FARBE.gut};">hält Schritt</span>`;
-  const f = r >= 2 ? Q_FARBE.schlecht : Q_FARBE.knapp;
+  if (r <= 1) return `<span style="color:${Q_FARBE.gut};">hält Schritt</span>`;
+  const f = r >= 3 ? Q_FARBE.schlecht : Q_FARBE.knapp;
   return `<span style="color:${f};">${r} ${r === 1 ? 'Bildstück' : 'Bildstücke'} zurück</span>`;
+}
+
+const Q_TIPP = {
+  anbieter: 'Strecke Anbieter → VPN → SelfStream. Mbit/s = Tempo, mit dem die Bildstücke abgeholt werden. Reserve = wie viel schneller das ist, als die Bildstücke abgespielt werden. Unter 1× ruckelt es.',
+  vpn: 'Steht der Tunnel und trägt er den Verkehr? Bei einer Störung macht SelfStream einen kurzen Test-Download durch den Tunnel, um Anbieter und VPN zu unterscheiden.',
+  selfstream: 'Auslastung von SelfStream selbst. 100 % CPU = ein Prozessorkern voll.',
+  geraete: 'Ob die Player der Zuschauer Schritt halten. Wie schnell die Leitung eines Zuschauers höchstens wäre, lässt sich hinter dem Reverse-Proxy nicht messen – wohl aber, ob er zurückfällt.',
+  rein: 'Strecke Anbieter → VPN → SelfStream für den Sender dieses Zuschauers. Mbit/s = Tempo beim Abholen der Bildstücke. Reserve = wie viel schneller ein Bildstück ankommt, als es abgespielt wird. Steht kein Tempo da, lagen die Bildstücke schon bereit, weil noch jemand denselben Sender schaut.',
+  schritt: 'Ein Player bleibt normalerweise immer gleich weit hinter dem neuesten Bildstück. „Hält Schritt“ heißt: Er holt die Bildstücke im normalen Takt ab – ein Bildstück Abstand mehr oder weniger ist normal. Fällt er zwei oder mehr zurück oder überspringt er Bildstücke, kommt das Gerät oder dessen Leitung nicht hinterher. „Verbraucht“ = so viele Mbit/s gehen für diesen Sender zum Gerät.',
+};
+
+function qTip(text, tipp) {
+  return `<span class="qtip" tabindex="0" data-tip="${esc(tipp)}">${text}</span>`;
+}
+
+function qMbit(v) {
+  if (v == null) return '';
+  return `${v >= 100 ? Math.round(v) : String(v).replace('.', ',')} Mbit/s`;
+}
+
+function qVerlaufZeichnen(q) {
+  const bild = document.getElementById('q-verlauf-bild');
+  const text = document.getElementById('q-verlauf-text');
+  if (!bild || !text) return;
+  const v = q.verlauf || [];
+  const mit = v.filter(x => x.mbps != null);
+  if (!mit.length) {
+    bild.innerHTML = '<div class="empty-state">In diesem Zeitraum hat niemand geschaut</div>';
+    text.textContent = '';
+    return;
+  }
+  const max = Math.max(...mit.map(x => x.mbps), 1);
+  const maxV = Math.max(...v.map(x => x.verbrauch || 0), 0);
+  const W = 600, H = 120, n = v.length, bw = W / n;
+  const uhr = t => new Date(t * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const tag = t => new Date(t * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  const lang = (q.verlauf_min || 60) > 1440;
+  let balken = '', linie = [];
+  v.forEach((x, i) => {
+    const xx = i * bw;
+    if (x.mbps != null) {
+      const h = Math.max(2, x.mbps / max * (H - 14));
+      const f = x.spaet > 0 ? '#eab308' : '#14b8a6';
+      balken += `<rect x="${(xx + 0.5).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${Math.max(1, bw - 1).toFixed(1)}" height="${h.toFixed(1)}" fill="${f}"><title>${lang ? tag(x.t) + ' ' : ''}${uhr(x.t)} · Tempo ${qMbit(x.mbps)} · verbraucht ${qMbit(x.verbrauch)} · ${x.n} Bildstücke${x.spaet ? ', ' + x.spaet + ' zu spät' : ''}</title></rect>`;
+    }
+    linie.push(`${(xx + bw / 2).toFixed(1)},${(H - Math.max(0, (x.verbrauch || 0) / max * (H - 14))).toFixed(1)}`);
+  });
+  bild.innerHTML = `<svg class="qbalken" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:120px;display:block;background:var(--bg2);border-radius:6px;">
+      ${balken}<polyline points="${linie.join(' ')}" fill="none" stroke="var(--text)" stroke-opacity=".55" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:3px;">
+      <span>${lang ? tag(v[0].t) + ' ' : ''}${uhr(v[0].t)}</span><span>oben = ${qMbit(max)}</span><span>jetzt</span></div>`;
+  const schwach = mit.reduce((a, b) => (b.mbps < a.mbps ? b : a));
+  const gesamtB = mit.reduce((a, x) => a + x.mbps * x.n, 0), gesamtN = mit.reduce((a, x) => a + x.n, 0);
+  const spaet = v.reduce((a, x) => a + (x.spaet || 0), 0);
+  text.innerHTML = `<span style="color:#14b8a6;">■</span> Tempo beim Abholen · <span style="color:#eab308;">■</span> mit späten Bildstücken · <span style="opacity:.6;">―</span> davon gebraucht (höchstens ${qMbit(maxV)})<br>`
+    + `Im Schnitt <strong>${qMbit(Math.round(gesamtB / Math.max(1, gesamtN) * 10) / 10)}</strong> · schwächster Abschnitt <strong>${qMbit(schwach.mbps)}</strong> um ${lang ? tag(schwach.t) + ' ' : ''}${uhr(schwach.t)} · ${spaet ? spaet + ' späte Bildstücke' : 'keine späten Bildstücke'}`;
 }
 
 function qLevelVonPassiv(l) { return l === 'bad' ? 'schlecht' : l === 'slow' ? 'knapp' : l === 'ok' ? 'gut' : 'unbekannt'; }
@@ -5351,14 +5434,15 @@ function qStoerungText(s) {
 
 async function loadQualitaet() {
   const days = document.getElementById('q-days')?.value || '7';
-  const q = await api('GET', `/api/qualitaet?days=${days}`).catch(() => null);
+  const vmin = document.getElementById('q-verlauf')?.value || '60';
+  const q = await api('GET', `/api/qualitaet?days=${days}&verlauf_min=${vmin}`).catch(() => null);
   if (!q || !q.kette) return;
   window._qualitaet = q;
   const k = q.kette;
 
   // Kette
   const anbL = qLevelVonPassiv(k.anbieter.level);
-  const anbText = k.anbieter.reserve != null ? `liefert ${String(k.anbieter.reserve).replace('.', ',')}× schneller als nötig`
+  const anbText = k.anbieter.reserve != null ? `liefert mit ${qMbit(k.anbieter.mbps)}, ${String(k.anbieter.reserve).replace('.', ',')}× schneller als nötig${k.anbieter.verbrauch_mbps ? ' · gebraucht werden gerade ' + qMbit(k.anbieter.verbrauch_mbps) : ''}`
     : (k.anbieter.level ? 'Reserve noch unbekannt' : 'niemand schaut gerade');
   let vpnL = 'unbekannt', vpnText = 'VPN ist ausgeschaltet';
   if (k.vpn.an) {
@@ -5374,12 +5458,13 @@ async function loadQualitaet() {
   const ssText = `${cpu != null ? String(cpu).replace('.', ',') + ' % CPU' : 'CPU wird gemessen'}${ram != null ? ', ' + ram + ' MB' : ''}`;
   const gerL = !k.geraete.gesamt ? 'unbekannt' : (k.geraete.knapp ? 'knapp' : 'gut');
   const gerText = !k.geraete.gesamt ? 'niemand schaut gerade' : (k.geraete.knapp ? `${k.geraete.knapp} von ${k.geraete.gesamt} ${k.geraete.knapp === 1 ? 'fällt' : 'fallen'} zurück` : `${k.geraete.gesamt} von ${k.geraete.gesamt} ${k.geraete.gesamt === 1 ? 'hält' : 'halten'} Schritt`);
-  const kachel = (icon, name, text, level) => `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${Q_FARBE[level]};border-radius:6px;padding:10px 12px;min-width:0;">
-      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">${icon} ${name}</div>
+  const kachel = (icon, name, text, level, tipp) => `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${Q_FARBE[level]};border-radius:6px;padding:10px 12px;min-width:0;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">${icon} ${qTip(name, tipp)}</div>
       <div style="font-size:12px;margin-bottom:8px;">${esc(text)}</div>${qPill(level)}</div>`;
   document.getElementById('q-kette').innerHTML =
-    kachel('🛰️', 'Anbieter', anbText, anbL) + kachel('🛡️', 'VPN', vpnText, vpnL) +
-    kachel('⚙️', 'SelfStream', ssText, ssL) + kachel('📺', 'Geräte', gerText, gerL);
+    kachel('🛰️', 'Anbieter', anbText, anbL, Q_TIPP.anbieter) + kachel('🛡️', 'VPN', vpnText, vpnL, Q_TIPP.vpn) +
+    kachel('⚙️', 'SelfStream', ssText, ssL, Q_TIPP.selfstream) + kachel('📺', 'Geräte', gerText, gerL, Q_TIPP.geraete);
+  qVerlaufZeichnen(q);
 
   // Urteil
   const u = document.getElementById('q-urteil');
@@ -5395,13 +5480,13 @@ async function loadQualitaet() {
     zEl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
       <thead><tr style="border-bottom:1px solid var(--border);">
         <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ZUSCHAUER</th>
-        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" title="Anbieter → VPN → SelfStream">KOMMT BEI SELFSTREAM AN</th>
-        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" title="Fragt der Player immer ältere Bildstücke an?">HÄLT DAS GERÄT SCHRITT?</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" >${qTip('KOMMT BEI SELFSTREAM AN', Q_TIPP.rein)}</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" >${qTip('HÄLT DAS GERÄT SCHRITT?', Q_TIPP.schritt)}</th>
         <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">URTEIL</th>
       </tr></thead><tbody>${q.zuschauer.map(z => `<tr style="border-bottom:1px solid var(--border);">
         <td style="padding:6px 8px;"><strong>${esc(z.user)}</strong><br><span style="font-size:10px;color:var(--text2);">${esc(z.channel || '')}</span></td>
-        <td style="padding:6px 8px;">${qReserve(z.rein)} <span style="font-size:10px;color:var(--text3);">Reserve</span></td>
-        <td style="padding:6px 8px;">${qRueck(z.rueck, z.skips)}</td>
+        <td style="padding:6px 8px;">${z.rein_mbps != null ? `<span style="font-family:var(--mono);">${qMbit(z.rein_mbps)}</span> <span style="color:var(--text3);">·</span> ` : ''}${qReserve(z.rein)} <span style="font-size:10px;color:var(--text3);">Reserve</span></td>
+        <td style="padding:6px 8px;">${qRueck(z.rueck, z.skips)}${z.bedarf_mbps != null ? ` <span style="color:var(--text3);">·</span> <span style="font-size:11px;color:var(--text2);">verbraucht ${qMbit(z.bedarf_mbps)}</span>` : ''}</td>
         <td style="padding:6px 8px;">${qPill(z.level, z.urteil)}</td>
       </tr>`).join('')}</tbody></table>`;
   }

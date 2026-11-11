@@ -209,6 +209,15 @@ class Database:
                     ts   REAL PRIMARY KEY,
                     mbps REAL
                 );
+                CREATE TABLE IF NOT EXISTS anlieferung_min (
+                    minute          INTEGER PRIMARY KEY,
+                    geholt_bytes    INTEGER NOT NULL DEFAULT 0,
+                    geholt_s        REAL    NOT NULL DEFAULT 0,
+                    geholt_n        INTEGER NOT NULL DEFAULT 0,
+                    spaet           INTEGER NOT NULL DEFAULT 0,
+                    geliefert_bytes INTEGER NOT NULL DEFAULT 0,
+                    geliefert_n     INTEGER NOT NULL DEFAULT 0
+                );
 
                 CREATE TABLE IF NOT EXISTS canary_events (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -865,6 +874,7 @@ class Database:
             con.execute("DELETE FROM segment_events")
             con.execute("DELETE FROM segment_tage")
             con.execute("DELETE FROM netz_proben")
+            con.execute("DELETE FROM anlieferung_min")
 
     # ── Qualitätsseite (1.91) ────────────────────────────────────────────────
 
@@ -901,6 +911,30 @@ class Database:
             rows = con.execute(
                 "SELECT ts, user_name AS user, channel, type, elapsed, dur FROM segment_events "
                 "WHERE ts >= ? AND type != 'ok' ORDER BY ts DESC LIMIT ?", (cutoff, limit)).fetchall()
+            return [dict(r) for r in rows]
+
+    def add_anlieferung(self, minuten: Dict) -> None:
+        """Minutenwerte der Anlieferung fortschreiben.
+
+        minuten: {minute: [geholt_bytes, geholt_s, geholt_n, spaet, geliefert_bytes, geliefert_n]}."""
+        if not minuten:
+            return
+        with self.conn() as con:
+            con.executemany(
+                "INSERT INTO anlieferung_min (minute, geholt_bytes, geholt_s, geholt_n, spaet, "
+                "geliefert_bytes, geliefert_n) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(minute) DO UPDATE SET geholt_bytes = geholt_bytes + excluded.geholt_bytes, "
+                "geholt_s = geholt_s + excluded.geholt_s, geholt_n = geholt_n + excluded.geholt_n, "
+                "spaet = spaet + excluded.spaet, geliefert_bytes = geliefert_bytes + excluded.geliefert_bytes, "
+                "geliefert_n = geliefert_n + excluded.geliefert_n",
+                [(int(m), int(w[0]), float(w[1]), int(w[2]), int(w[3]), int(w[4]), int(w[5]))
+                 for m, w in minuten.items()])
+            con.execute("DELETE FROM anlieferung_min WHERE minute < ?", (int(time.time() // 60) - 8 * 1440,))
+
+    def get_anlieferung(self, seit_ts: float) -> List[Dict]:
+        with self.conn() as con:
+            rows = con.execute("SELECT * FROM anlieferung_min WHERE minute >= ? ORDER BY minute",
+                               (int(seit_ts // 60),)).fetchall()
             return [dict(r) for r in rows]
 
     def add_netz_probe(self, ts: float, mbps: Optional[float]) -> None:

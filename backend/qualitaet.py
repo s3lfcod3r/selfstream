@@ -23,8 +23,11 @@ RESERVE_MAX = 99.0            # Anzeige-Obergrenze
 GERAET_URTEIL = "Gerät kommt nicht hinterher"
 ZUSCHAUER_FENSTER = 120.0     # s: so alte Proben zählen für „wer schaut gerade“
 RUECK_PROBEN = 3              # so viele Anfragen am Stück müssen den Rückstand zeigen
-RUECK_KNAPP = 1               # Segmente über dem Start-Abstand: ab hier „knapp“
-RUECK_SCHLECHT = 2            # … ab hier kommt das Gerät nicht mehr hinterher
+# Segmente über dem kleinsten je gesehenen Abstand. 1 ist Normalbetrieb: Gesunde Player
+# liegen über lange Strecken genau ein Segment über ihrem Bestwert (gemessen am 11.11.2026
+# bei zwei flüssig laufenden Zuschauern in 55–64 % der Anfragen).
+RUECK_KNAPP = 2               # ab hier „knapp“
+RUECK_SCHLECHT = 3            # ab hier kommt das Gerät nicht mehr hinterher
 SKIP_SCHLECHT = 2             # übersprungene Segmente im Fenster: ab hier „schlecht“
 STOER_LUECKE = 120.0          # s ohne späte Segmente → Störung zu Ende
 STOER_MIN = 3                 # ab so vielen späten Segmenten ist es eine Störung
@@ -116,8 +119,16 @@ def zuschauer(proben: list, jetzt: float, fenster: float = ZUSCHAUER_FENSTER) ->
             urteil, level = "noch keine Messung", "unbekannt"
         else:
             urteil, level = "flüssig", "gut"
+        geholt = [p for p in ps if not p.get("cached") and (p.get("elapsed") or 0) > 0 and p.get("kb")]
+        zeit = sum(p["elapsed"] for p in geholt)
+        rein_mbps = round(sum(p["kb"] for p in geholt) * 1024 * 8 / zeit / 1e6, 1) if zeit > 0 else None
+        mit_dauer = [p for p in ps if p.get("dur") and p.get("kb")]
+        spielzeit = sum(p["dur"] for p in mit_dauer)
+        bedarf = round(sum(p["kb"] for p in mit_dauer) * 1024 * 8 / spielzeit / 1e6, 1) if spielzeit > 0 else None
         out.append({
             "user": name,
+            "rein_mbps": rein_mbps,      # Tempo beim Abholen der Segmente dieses Senders
+            "bedarf_mbps": bedarf,       # so viel braucht/verbraucht der Sender (Größe ÷ Spielzeit)
             "channel": max(ps, key=lambda p: p.get("ts", 0)).get("channel", ""),
             "rein": round(r_rein, 1) if r_rein is not None else None,
             "rueck": rueck, "skips": skips,
@@ -126,6 +137,36 @@ def zuschauer(proben: list, jetzt: float, fenster: float = ZUSCHAUER_FENSTER) ->
         })
     out.sort(key=lambda z: z["user"].lower())
     return out
+
+
+def verlauf(zeilen: list, jetzt: float, minuten: int, punkte: int = 60) -> list:
+    """Anlieferung über die Zeit, in höchstens ``punkte`` gleich breite Abschnitte gefasst.
+
+    zeilen: je Minute {"minute","geholt_bytes","geholt_s","geholt_n","spaet","geliefert_bytes"}
+    (minute = Unixzeit // 60). Je Abschnitt:
+      mbps      Tempo beim Abholen vom Anbieter (Bytes ÷ Ladezeit) – None ohne Abruf
+      verbrauch so viel ging im Schnitt an die Zuschauer (Bytes ÷ Länge des Abschnitts)
+    """
+    minuten = max(1, int(minuten))
+    breite = max(1, -(-minuten // max(1, int(punkte))))          # Minuten je Abschnitt, aufgerundet
+    ende = int(jetzt // 60) + 1
+    start = ende - minuten
+    anzahl = -(-minuten // breite)
+    faecher = [{"t": (start + i * breite) * 60, "b": 0, "s": 0.0, "n": 0, "spaet": 0, "g": 0}
+               for i in range(anzahl)]
+    for z in zeilen:
+        i = (int(z.get("minute") or 0) - start) // breite
+        if 0 <= i < anzahl:
+            f = faecher[i]
+            f["b"] += int(z.get("geholt_bytes") or 0)
+            f["s"] += float(z.get("geholt_s") or 0.0)
+            f["n"] += int(z.get("geholt_n") or 0)
+            f["spaet"] += int(z.get("spaet") or 0)
+            f["g"] += int(z.get("geliefert_bytes") or 0)
+    return [{"t": f["t"], "min": breite,
+             "mbps": round(f["b"] * 8 / f["s"] / 1e6, 1) if f["s"] > 0 and f["n"] else None,
+             "verbrauch": round(f["g"] * 8 / (breite * 60) / 1e6, 1),
+             "n": f["n"], "spaet": f["spaet"]} for f in faecher]
 
 
 def _gruppen(ereignisse: list, luecke: float) -> list:

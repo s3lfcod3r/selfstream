@@ -2,6 +2,53 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-95"></a>
+
+## v1.95 — Traffic-Seite: Mbit/s, Anbieter-Tempo im Verlauf, Erklärungen
+
+**Anlass (11.11.2026):** Neben der Reserve sollen die Mbit/s stehen, „hält Schritt“ soll erklärt
+werden, und es soll sichtbar sein, was der Anbieter hergibt und was zum Nutzer geht.
+
+**Neu:**
+- **Je Zuschauer:** `rein_mbps` = Tempo beim Abholen der Segmente seines Senders (Bytes ÷
+  Ladezeit, ohne Treffer aus dem Zwischenspeicher) und `bedarf_mbps` = was der Sender
+  verbraucht (Bytes ÷ Spielzeit). Anzeige: „410 Mbit/s · 14× Reserve“ und „hält Schritt ·
+  verbraucht 6,2 Mbit/s“.
+- **Anbieter-Ampel:** Tempo in Mbit/s und was gerade insgesamt gebraucht wird.
+- **Anbieter-Tempo im Verlauf:** Minutenwerte in `anlieferung_min` (geholte Bytes, Ladezeit,
+  Anzahl, späte Segmente, ausgelieferte Bytes; 8 Tage Aufbewahrung, geschrieben höchstens
+  einmal je Minute). Das Bild fasst sie in bis zu 60 Balken: Höhe = Tempo beim Abholen,
+  gelb = Abschnitt mit späten Segmenten, Linie = tatsächlich gebraucht. Darunter Schnitt,
+  schwächster Abschnitt mit Uhrzeit und Zahl später Segmente.
+- **Erklärungen:** Ampeln und Spaltenköpfe zeigen beim Darüberfahren (oder Antippen), was
+  gemessen wird.
+
+**Bewusst nicht enthalten:** die Höchstgeschwindigkeit der Leitung eines Zuschauers. Hinter
+dem Reverse-Proxy sieht SelfStream nur, was der Sender verbraucht und ob der Player Schritt
+hält – nicht, wie viel die Leitung mehr könnte.
+
+**Hinweis:** Der Verlauf beginnt mit dieser Version; ältere Zeiträume bleiben leer.
+
+**Tests:** `tests/test_qualitaet.py` erweitert (Mbit je Zuschauer, Verlauf).
+
+<a id="v1-94"></a>
+
+## v1.94 — Rückstand: Grenzen an echte Zuschauer angepasst
+
+**Anlass (11.11.2026):** Erste Minuten mit 1.93 und zwei flüssig laufenden Zuschauern. Der
+gesicherte Rückstand stand bei ihnen in 55 % bzw. 64 % der Anfragen auf 1 – die Seite hätte
+„Gerät knapp“ gemeldet, obwohl nichts hakte.
+
+**Ursache:** Der Bezugspunkt ist der kleinste Abstand zum neuesten Segment, den eine Sitzung
+je hatte. Diesen Bestwert erreicht ein Player nur, wenn er genau vor der Ankündigung des
+nächsten Segments anfragt; den größten Teil der Zeit liegt er ein Segment darüber.
+
+**Geändert:** `RUECK_KNAPP = 2`, `RUECK_SCHLECHT = 3` (vorher 1 und 2). Die Anzeige nennt 0
+und 1 „hält Schritt“. Übersprungene Segmente bleiben das harte Zeichen (1 = knapp, 2 = schlecht).
+
+**Nicht geprüft:** ein echter Zuschauer mit schwacher Leitung. Ob die Grenzen dort früh genug
+anschlagen, zeigt erst der Betrieb.
+
 <a id="v1-93"></a>
 
 ## v1.93 — Geräte-Strecke über den Rückstand des Players

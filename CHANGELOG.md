@@ -8,6 +8,16 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.95 · November 2026
+- 🇬🇧 **Traffic page: Mbit/s, provider speed over time, explanations:** Each viewer now shows the speed at which their channel arrives at SelfStream (Mbit/s next to the reserve) and how much the channel consumes on the way to the device. New chart "provider speed over time" (last hour up to 7 days) with average, weakest section and late segments – so you can see whether the provider or the VPN is weakening. Hovering over the lights and column headings explains what each value means. Contains 1.94.
+- 🇩🇪 **Traffic-Seite: Mbit/s, Anbieter-Tempo im Verlauf, Erklärungen:** Je Zuschauer steht jetzt das Tempo, mit dem sein Sender bei SelfStream ankommt (Mbit/s neben der Reserve), und wie viel der Sender auf dem Weg zum Gerät verbraucht. Neues Bild „Anbieter-Tempo im Verlauf“ (letzte Stunde bis 7 Tage) mit Schnitt, schwächstem Abschnitt und späten Bildstücken – so sieht man, ob der Anbieter oder das VPN schwächelt. Fährt man über die Ampeln und Spaltenköpfe, wird erklärt, was der Wert bedeutet. Enthält 1.94.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-95)
+
+## 1.94 · November 2026
+- 🇬🇧 **No false "device falls behind":** With real viewers the new lag value sat at 1 in more than half of all requests although playback was smooth – one segment above the best value is normal. The limits are now 2 (tight) and 3 (cannot keep up); skipped segments count as before.
+- 🇩🇪 **Kein falsches „Gerät fällt zurück“:** Bei echten Zuschauern stand der neue Rückstand in mehr als der Hälfte der Anfragen auf 1, obwohl alles flüssig lief – ein Bildstück über dem Bestwert ist normal. Die Grenzen liegen jetzt bei 2 (knapp) und 3 (kommt nicht hinterher); übersprungene Bildstücke zählen wie bisher.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-94)
+
 ## 1.93 · November 2026
 - 🇬🇧 **Device leg measured properly:** The "to the device" time introduced in 1.91 was practically always 0, because a reverse proxy in front of SelfStream takes each segment at once – it said nothing about the viewer's device. The Traffic page now shows whether a player **keeps up**: if it asks for ever older segments or skips segments while SelfStream delivered on time, the device or its line cannot keep up. Viewers, the "devices" light, incidents and the single values use this signal.
 - 🇩🇪 **Geräte-Strecke richtig gemessen:** Die in 1.91 eingeführte Zeit „zum Gerät“ war praktisch immer 0, weil ein Reverse-Proxy vor SelfStream jedes Bildstück sofort abnimmt – sie sagte nichts über das Gerät des Zuschauers. Die Traffic-Seite zeigt jetzt, ob ein Player **Schritt hält**: Fragt er immer ältere Bildstücke an oder überspringt er welche, obwohl SelfStream pünktlich geliefert hat, kommt das Gerät oder dessen Leitung nicht hinterher. Zuschauer, Ampel „Geräte“, Störungen und Einzelwerte nutzen dieses Zeichen.
