@@ -2,6 +2,48 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-91"></a>
+
+## v1.91 — Traffic-Seite neu: wo hakt es?
+
+**Anlass (11.11.2026):** Die Seite zeigte „Buffering-Ereignisse“, ohne zu sagen, wessen Buffering
+das ist. Gemessen wurde nur, wie lange SelfStream ein Segment beim Anbieter holt (durchs VPN),
+bewertet starr ab 1 s / 2 s. Ein 6-s-Segment, das in 2 s lädt, galt als „langsam“. Treffer aus
+dem Zwischenspeicher ergaben Geschwindigkeiten bis 10.000 Mbit/s.
+
+**Messung:**
+- Maßstab ist die **Reserve** = Spielzeit ÷ Laufzeit des Segments (`qualitaet.py`). Unter 1×
+  ruckelt es, unter 1,7× ist es knapp. Ohne bekannte Spielzeit gelten 1,5 s / 3 s.
+- Zwei Strecken je Segment: **rein** (Anbieter → VPN → SelfStream) und **raus**
+  (SelfStream → Gerät). Die Auslieferzeit wird jetzt je Segment gespeichert
+  (`segment_events.out_s`, dazu `dur` und `cached`).
+- Segmente aus dem Zwischenspeicher zählen nicht für die Anlieferung und haben keine Mbit-Angabe.
+- Tageszähler je Sender (`segment_tage`) liefern den Nenner für Prozentwerte, auch wenn nur
+  späte Segmente einzeln gespeichert werden. Geschrieben wird höchstens einmal je Minute.
+
+**Störungen:** Späte Segmente mit höchstens 2 min Abstand bilden eine Störung (ab drei Segmenten).
+- ein Sender → Anbieter, einzelner Sender
+- mehrere Sender → ein neutraler 5-MB-Download durch den Tunnel entscheidet (höchstens alle
+  5 min, Tabelle `netz_proben`): schnell → Anbieter, langsam oder gescheitert → VPN/Leitung,
+  keine Probe → „Anbieter oder VPN“. Steht der Tunnel nicht, wird nichts gemessen und die
+  Probe gilt als gescheitert – es geht nie etwas am VPN vorbei.
+- nur ein Zuschauer bei pünktlicher Anlieferung → dessen Leitung (Typ `geraet`)
+
+**Seite:** Karte „Wo hakt es gerade?“ (vier Ampeln, Urteil, Zuschauer mit beiden Strecken),
+„Störungen“, „Sender-Rangliste“ in Prozent, darunter aufklappbar die Einzelwerte. Die
+Einzelwerte werden nur noch geladen, wenn sie aufgeklappt sind (vorher alle 5 s bis zu 10.000
+Zeilen). Neue Schnittstelle `GET /api/qualitaet?days=`.
+
+**Altbestand:** Zeilen von vor 1.91 kennen keine Spielzeit und werden für die Störungsliste mit
+den Sekunden-Grenzen neu eingestuft. Die Tageszähler werden einmalig aus vorhandenen Zeilen
+gefüllt, soweit dort auch pünktliche Segmente gespeichert sind.
+
+**Grenze:** Die Strecke „raus“ misst, wie schnell der Player die Daten abnimmt. Ein Player, der
+absichtlich langsam liest, sähe wie eine schwache Leitung aus. Beim eingebauten VLC-Player ist
+das nicht so (gemessen an der TV-Box).
+
+**Tests:** `tests/test_qualitaet.py`.
+
 <a id="v1-90"></a>
 
 ## v1.90 — Vorladen trifft den Startpunkt des Players

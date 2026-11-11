@@ -1,0 +1,166 @@
+"""Tests für die Qualitätsauswertung (qualitaet.py)."""
+import qualitaet as q
+
+
+# ── Stufe und Reserve ───────────────────────────────────────────────────────
+
+def test_stufe_misst_an_der_spielzeit():
+    assert q.stufe(2.5, 6.0) == "ok"         # früher „langsam (>2 s)“, läuft aber flüssig
+    assert q.stufe(4.0, 6.0) == "delayed"
+    assert q.stufe(6.5, 6.0) == "slow"
+
+
+def test_stufe_ohne_spielzeit_nutzt_sekundengrenzen():
+    assert q.stufe(1.0, None) == "ok"
+    assert q.stufe(2.0, None) == "delayed"
+    assert q.stufe(3.5, 0) == "slow"
+
+
+def test_reserve():
+    assert q.reserve(0.5, 6.0) == 12.0
+    assert q.reserve(6.0, 6.0) == 1.0
+    assert q.reserve(0.0, 6.0) == q.RESERVE_MAX
+    assert q.reserve(0.001, 6.0) == q.RESERVE_MAX
+    assert q.reserve(1.0, None) is None
+    assert q.reserve(None, 6.0) is None
+
+
+def test_ampel():
+    assert q.ampel(12.0) == "gut"
+    assert q.ampel(1.3) == "knapp"
+    assert q.ampel(0.8) == "schlecht"
+    assert q.ampel(None) == "unbekannt"
+
+
+# ── Wer schaut gerade ───────────────────────────────────────────────────────
+
+def _p(ts, user, elapsed, out, cached=False, dur=6.0, channel="RTL HD"):
+    return {"ts": ts, "user": user, "channel": channel, "elapsed": elapsed,
+            "dur": dur, "out": out, "cached": cached}
+
+
+def test_zuschauer_fluessig():
+    z = q.zuschauer([_p(100, "Sven", 0.5, 0.6), _p(106, "Sven", 0.4, 0.7)], jetzt=110)
+    assert z[0]["user"] == "Sven" and z[0]["urteil"] == "flüssig"
+    assert z[0]["rein"] == 13.5 and z[0]["raus"] == 9.3
+
+
+def test_zuschauer_eigene_leitung_knapp():
+    z = q.zuschauer([_p(100, "Dennis", 0.5, 4.5), _p(106, "Dennis", 0.5, 4.7)], jetzt=110)
+    assert z[0]["urteil"] == "Leitung zum Gerät knapp"
+    assert z[0]["rein_level"] == "gut" and z[0]["raus_level"] == "knapp"
+
+
+def test_zuschauer_anlieferung_langsam_geht_vor():
+    z = q.zuschauer([_p(100, "Sven", 7.0, 7.5), _p(106, "Sven", 8.0, 8.0)], jetzt=110)
+    assert z[0]["urteil"] == "Anlieferung langsam" and z[0]["level"] == "schlecht"
+
+
+def test_zwischenspeicher_zaehlt_nicht_fuer_die_anlieferung():
+    z = q.zuschauer([_p(100, "Sven", 0.0, 0.6, cached=True)], jetzt=110)
+    assert z[0]["rein"] is None and z[0]["raus"] == 10.0 and z[0]["urteil"] == "flüssig"
+
+
+def test_alte_proben_zaehlen_nicht():
+    assert q.zuschauer([_p(100, "Sven", 0.5, 0.6)], jetzt=100 + q.ZUSCHAUER_FENSTER + 1) == []
+
+
+# ── Störungen ───────────────────────────────────────────────────────────────
+
+def _e(ts, typ="slow", user="Sven", channel="RTL HD"):
+    return {"ts": ts, "type": typ, "user": user, "channel": channel}
+
+
+def test_ein_sender_ist_ein_sender_problem():
+    r = q.stoerungen([_e(100), _e(110), _e(130)])
+    assert len(r["stoerungen"]) == 1
+    s = r["stoerungen"][0]
+    assert s["ursache"] == "sender" and s["anzahl"] == 3 and s["dauer"] == 30
+
+
+def test_mehrere_sender_ohne_probe_bleibt_offen():
+    r = q.stoerungen([_e(100), _e(105, channel="VOX HD", user="Dennis"), _e(108)])
+    assert r["stoerungen"][0]["ursache"] == "netz"
+    assert r["stoerungen"][0]["nutzer_anzahl"] == 2
+
+
+def test_mehrere_sender_mit_schneller_probe_ist_der_anbieter():
+    r = q.stoerungen([_e(100), _e(105, channel="VOX HD"), _e(108)], [{"ts": 120, "mbps": 300.0}])
+    assert r["stoerungen"][0]["ursache"] == "anbieter"
+    assert r["stoerungen"][0]["probe_mbps"] == 300.0
+
+
+def test_mehrere_sender_mit_langsamer_oder_gescheiterter_probe_ist_das_vpn():
+    ereignisse = [_e(100), _e(105, channel="VOX HD"), _e(108)]
+    assert q.stoerungen(ereignisse, [{"ts": 120, "mbps": 4.0}])["stoerungen"][0]["ursache"] == "vpn"
+    assert q.stoerungen(ereignisse, [{"ts": 120, "mbps": None}])["stoerungen"][0]["ursache"] == "vpn"
+
+
+def test_probe_von_einem_anderen_tag_zaehlt_nicht():
+    r = q.stoerungen([_e(100), _e(105, channel="VOX HD"), _e(108)], [{"ts": 90000, "mbps": 300.0}])
+    assert r["stoerungen"][0]["ursache"] == "netz"
+
+
+def test_luecke_trennt_stoerungen_und_neueste_steht_oben():
+    r = q.stoerungen([_e(100), _e(110), _e(120), _e(1000), _e(1010), _e(1020)])
+    assert [s["von"] for s in r["stoerungen"]] == [1000, 100]
+
+
+def test_zwei_spaete_stuecke_sind_noch_keine_stoerung():
+    r = q.stoerungen([_e(100), _e(105, channel="VOX HD")])
+    assert r["stoerungen"] == [] and r["einzelne"] == 2
+
+
+def test_einzelner_aussetzer_ist_keine_stoerung():
+    r = q.stoerungen([_e(100), _e(5000)])
+    assert r["stoerungen"] == [] and r["einzelne"] == 2
+
+
+def test_geraete_strecke_wird_je_nutzer_gebuendelt():
+    r = q.stoerungen([_e(100, "geraet", "Dennis"), _e(110, "geraet", "Dennis"),
+                      _e(120, "geraet", "Dennis"), _e(105, "geraet", "Sven")])
+    assert [(s["ursache"], s["nutzer"]) for s in r["stoerungen"]] == [("geraet", ["Dennis"])]
+    assert r["einzelne"] == 1
+
+
+# ── Rangliste ───────────────────────────────────────────────────────────────
+
+def test_rangliste_nach_anteil_nicht_nach_menge():
+    r = q.rangliste([
+        {"channel": "RTL HD", "gesamt": 5000, "spaet": 10},
+        {"channel": "VOX HD", "gesamt": 1000, "spaet": 20},
+        {"channel": "VOX HD", "gesamt": 900, "spaet": 18},     # zweiter Tag
+        {"channel": "Selten", "gesamt": 10, "spaet": 5},        # zu wenig Segmente
+    ])
+    assert [(x["channel"], x["anteil"]) for x in r] == [("VOX HD", 2.0), ("RTL HD", 0.2)]
+    assert r[0]["gesamt"] == 1900 and r[0]["spaet"] == 38
+
+
+# ── Urteil ──────────────────────────────────────────────────────────────────
+
+def test_urteil_tunnel_steht_nicht():
+    assert q.urteil("ok", True, False, None, False, [])["level"] == "schlecht"
+
+
+def test_urteil_anbieter_langsam_vpn_schnell():
+    u = q.urteil("bad", True, True, 300.0, True, [])
+    assert u["level"] == "schlecht" and "Anbieter liefert langsam" in u["text"]
+
+
+def test_urteil_vpn_langsam():
+    assert "VPN" in q.urteil("slow", True, True, 3.0, True, [])["text"]
+    assert q.urteil("slow", True, True, None, True, [])["level"] == "knapp"
+
+
+def test_urteil_ohne_probe_legt_sich_nicht_fest():
+    assert "noch nicht gemessen" in q.urteil("bad", True, True, None, False, [])["text"]
+
+
+def test_urteil_nur_ein_geraet_knapp():
+    u = q.urteil("ok", True, True, None, False, ["Dennis"])
+    assert u["level"] == "knapp" and "Dennis" in u["text"]
+
+
+def test_urteil_alles_gut_und_niemand_schaut():
+    assert q.urteil("ok", True, True, None, False, [])["text"] == "Alles flüssig."
+    assert q.urteil(None, False, False, None, False, [])["level"] == "unbekannt"

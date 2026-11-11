@@ -36,6 +36,7 @@ from timeparse import (
 )
 from hls import rewrite_hls_playlist, segment_durations
 import vorladen
+import qualitaet
 import alerting
 import vpnwahl
 import vpnpflicht
@@ -2140,6 +2141,101 @@ def _outbound_record(elapsed: float, nbytes: int, user: str = ""):
         pass
 
 
+# ── Qualitätsseite: jede Auslieferung mit beiden Strecken (rein/raus) ──────────
+_liefer_proben: list = []        # letzte Auslieferungen (siehe qualitaet.zuschauer)
+LIEFER_PROBEN_MAX = 600
+_tage_zaehler: dict = {}         # {(tag, sender): [gesamt, spät]} seit dem letzten Speichern
+_tage_zaehler_ts = 0.0
+TAGE_ZAEHLER_SEC = 60.0
+_netz_probe_ts = 0.0
+NETZ_PROBE_ABSTAND = 300.0       # höchstens alle 5 min ein neutraler Mess-Download
+
+
+def _tage_zaehler_speichern(sofort: bool = False) -> None:
+    """Tageszähler je Sender in die Datenbank schreiben (höchstens einmal je Minute)."""
+    global _tage_zaehler_ts
+    if not _tage_zaehler or (not sofort and time.time() - _tage_zaehler_ts < TAGE_ZAEHLER_SEC):
+        return
+    stand = dict(_tage_zaehler)
+    _tage_zaehler.clear()
+    _tage_zaehler_ts = time.time()
+    try:
+        db.add_segment_tage(stand)
+    except Exception as e:
+        logger.debug(f"Tageszähler nicht gespeichert: {e}")
+
+
+def _netz_probe_anstossen() -> None:
+    """Bei später Anlieferung einmal neutral durch den Tunnel messen.
+
+    Trennt Anbieter und VPN: Ist der neutrale Download schnell, liegt es am Anbieter.
+    Läuft nie am VPN vorbei – steht der Tunnel nicht, gilt das als gescheiterte Probe.
+    """
+    global _netz_probe_ts
+    if time.time() - _netz_probe_ts < NETZ_PROBE_ABSTAND:
+        return
+    _netz_probe_ts = time.time()
+
+    def lauf():
+        try:
+            if db.get_setting("vpn_enabled", "0") == "1" and not _vpn_tunnel_traegt():
+                mbps = None
+            else:
+                mbps = _wg_ein_download(WG_MESS_FRIST_NOTFALL)
+            db.add_netz_probe(time.time(), mbps)
+        except Exception as e:
+            logger.debug(f"Netz-Probe gescheitert: {e}")
+
+    threading.Thread(target=lauf, daemon=True).start()
+
+
+def _segment_festhalten(user: str, channel: str, provider_id, seg_name: str, size_kb: float,
+                        elapsed: float, dur, out_s, cached: bool, debug: bool) -> None:
+    """Eine Auslieferung bewerten und festhalten (Hot Path, wirft nie).
+
+    rein = Abruf beim Anbieter (durchs VPN), raus = Auslieferung ans Gerät. Bewertet wird
+    gegen die Spielzeit des Segments, nicht mehr gegen starre 1 s / 2 s.
+    """
+    try:
+        jetzt = time.time()
+        rein = "ok" if cached else qualitaet.stufe(elapsed, dur)
+        raus_spaet = out_s is not None and qualitaet.stufe(out_s, dur) == "slow"
+        _liefer_proben.append({"ts": jetzt, "user": user, "channel": channel, "elapsed": elapsed,
+                               "dur": dur, "out": out_s, "cached": cached})
+        if len(_liefer_proben) > LIEFER_PROBEN_MAX:
+            del _liefer_proben[:len(_liefer_proben) - LIEFER_PROBEN_MAX]
+        z = _tage_zaehler.setdefault((time.strftime("%Y-%m-%d"), channel or "?"), [0, 0])
+        z[0] += 1
+        if rein != "ok":
+            z[1] += 1
+        _tage_zaehler_speichern()
+
+        typ = rein if rein != "ok" else ("geraet" if raus_spaet else "ok")
+        if typ == "ok" and not debug:
+            return
+        mbps = 0.0 if cached else round(min((size_kb * 1024 * 8) / (max(elapsed, 0.001) * 1_000_000), 10000.0), 1)
+        ev = {"time": jetzt, "user": user, "channel": channel, "type": typ,
+              "elapsed": round(elapsed, 2), "size_kb": round(size_kb), "mbps": mbps,
+              "seg": seg_name, "provider_id": provider_id,
+              "dur": round(dur, 2) if dur else None,
+              "out_s": round(out_s, 2) if out_s is not None else None, "cached": cached}
+        _segment_events.append(ev)
+        if len(_segment_events) > 500:
+            _segment_events.pop(0)
+        try:
+            db.add_segment_event(ev)
+        except Exception:
+            pass
+        if rein == "slow":
+            logger.warning(f"⚠️ SLOW SEGMENT [{user}] {seg_name}: {elapsed:.1f}s, {mbps:.1f}Mbit/s")
+            diag_log("WARNING", "segment",
+                     f"SLOW SEGMENT [{user}] {channel} {seg_name}: {elapsed:.1f}s, {mbps:.1f}Mbit/s")
+        if rein != "ok":
+            _netz_probe_anstossen()
+    except Exception as e:
+        logger.debug(f"Segment nicht festgehalten: {e}")
+
+
 def _outbound_stats(samples: list) -> dict:
     lat = [s["elapsed"] for s in samples]
     median = _passive_pct(lat, 50)
@@ -3649,62 +3745,25 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 total = len(data)
 
                 size_kb = total / 1024
-                safe_elapsed = max(elapsed, 0.001)
-                speed_mbps = min((total * 8) / (safe_elapsed * 1_000_000), 10000.0)
                 seg_name = decoded_url.split("/")[-1].split("?")[0]
                 user_name = _sessions.get(session_key, {}).get("user_name") or token[:8]
                 channel_name_log = _sessions.get(session_key, {}).get("channel", "")
                 debug_mode = db.get_setting("segment_debug", "0") == "1"
 
-                if _from_cache:
-                    if debug_mode:
-                        _ev_cache = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                                "type": "ok", "elapsed": round(elapsed, 2),
-                                "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                                "seg": f"⚡ {seg_name}", "provider_id": user.get("provider_id")}
-                        _segment_events.append(_ev_cache)
-                        try: db.add_segment_event(_ev_cache)
-                        except Exception: pass
-                elif elapsed > 2.0:
-                    logger.warning(f"⚠️ SLOW SEGMENT [{user_name}] {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s")
-                    diag_log(
-                        "WARNING",
-                        "segment",
-                        f"SLOW SEGMENT [{user_name}] {channel_name_log} {seg_name}: {elapsed:.1f}s, {speed_mbps:.1f}Mbit/s",
-                    )
-                    _ev1 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                            "type": "slow", "elapsed": round(elapsed, 2),
-                            "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                            "seg": seg_name, "provider_id": user.get("provider_id")}
-                    _segment_events.append(_ev1)
-                    try: db.add_segment_event(_ev1)
-                    except Exception: pass
-                elif elapsed > 1.0:
-                    _ev2 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                            "type": "delayed", "elapsed": round(elapsed, 2),
-                            "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                            "seg": seg_name, "provider_id": user.get("provider_id")}
-                    _segment_events.append(_ev2)
-                    try: db.add_segment_event(_ev2)
-                    except Exception: pass
-                elif debug_mode:
-                    _ev3 = {"time": time.time(), "user": user_name, "channel": channel_name_log,
-                            "type": "ok", "elapsed": round(elapsed, 2),
-                            "size_kb": round(size_kb), "mbps": round(speed_mbps, 1),
-                            "seg": seg_name, "provider_id": user.get("provider_id")}
-                    _segment_events.append(_ev3)
-                    try: db.add_segment_event(_ev3)
-                    except Exception: pass
-
-                if len(_segment_events) > 500: _segment_events.pop(0)
-
                 chunk_size = 524288
                 _out_t0 = time.time()
-                for i in range(0, len(data), chunk_size):
-                    yield data[i:i + chunk_size]
-                # Ausliefer-Zeit ans Gerät messen (→ USER-Strecke): die yield-Schleife
-                # blockt bei langsamem Client (Backpressure) → misst dessen echtes Tempo.
-                _outbound_record(time.time() - _out_t0, len(data), user_name)
+                _out_s = None   # bleibt None, wenn der Player vorher abbricht
+                try:
+                    for i in range(0, len(data), chunk_size):
+                        yield data[i:i + chunk_size]
+                    # Ausliefer-Zeit ans Gerät (→ USER-Strecke): die yield-Schleife blockt bei
+                    # langsamem Client (Backpressure) → misst dessen echtes Tempo.
+                    _out_s = time.time() - _out_t0
+                    _outbound_record(_out_s, len(data), user_name)
+                finally:
+                    _segment_festhalten(user_name, channel_name_log, user.get("provider_id"), seg_name,
+                                        size_kb, elapsed, _segment_dauer.get(decoded_url), _out_s,
+                                        bool(_from_cache), debug_mode)
                 return
 
             _unter_text = await _playlist_holen(decoded_url, hls)
@@ -7570,6 +7629,74 @@ def get_segment_events(days: int = 30, limit: int = 500, debug: int = 0, _=Depen
         if not include_ok:
             evs = [e for e in evs if e.get("type") != "ok"]
         return evs
+
+_cpu_stand = {"t": 0.0, "cpu": 0.0, "pct": None}
+
+
+def _cpu_prozent():
+    """CPU-Last dieses Prozesses seit dem letzten Aufruf (100 = ein Kern voll)."""
+    jetzt, cpu = time.monotonic(), time.process_time()
+    if _cpu_stand["t"] and jetzt - _cpu_stand["t"] >= 1.0:
+        _cpu_stand["pct"] = round((cpu - _cpu_stand["cpu"]) / (jetzt - _cpu_stand["t"]) * 100, 1)
+    if not _cpu_stand["t"] or jetzt - _cpu_stand["t"] >= 1.0:
+        _cpu_stand["t"], _cpu_stand["cpu"] = jetzt, cpu
+    return _cpu_stand["pct"]
+
+
+def _rss_mb_jetzt():
+    try:
+        with open("/proc/self/status", "r") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return round(int(line.split()[1]) / 1024)
+    except Exception:
+        pass
+    return None
+
+
+@admin_app.get("/api/qualitaet")
+def get_qualitaet(days: int = 7, _=Depends(check_admin)):
+    """Alles für die Qualitätsseite: Kette, Urteil, Zuschauer, Störungen, Rangliste."""
+    days = max(1, min(int(days), 90))
+    _tage_zaehler_speichern(sofort=True)
+    jetzt = time.time()
+    passiv = _passive_health()
+    vpn_an = db.get_setting("vpn_enabled", "0") == "1"
+    traegt = _vpn_tunnel_traegt() if vpn_an else False
+    proben = db.get_netz_proben(days)
+    letzte = proben[-1] if proben else None
+    frisch = bool(letzte and jetzt - letzte["ts"] <= qualitaet.PROBE_FENSTER)
+    zs = qualitaet.zuschauer(list(_liefer_proben), jetzt)
+    knapp = [z["user"] for z in zs if z["urteil"] == "Leitung zum Gerät knapp"]
+    quote = passiv.get("quote")
+    # Alte Zeilen (vor 1.91) wurden starr ab 1 s / 2 s als spät gezählt und kennen keine
+    # Spielzeit: hier mit den Sekunden-Grenzen neu einstufen, sonst entstehen Scheinstörungen.
+    spaete = []
+    for e in db.get_spaete_segmente(days):
+        if e["type"] in ("slow", "delayed") and not e.get("dur"):
+            neu = qualitaet.stufe(e.get("elapsed") or 0.0, None)
+            if neu == "ok":
+                continue
+            e = {**e, "type": neu}
+        spaete.append(e)
+    return {
+        "tage": days,
+        "kette": {
+            "anbieter": {"level": passiv.get("level"), "samples": passiv.get("samples", 0),
+                         "reserve": min(qualitaet.RESERVE_MAX, round(1.0 / quote, 1)) if quote else None},
+            "vpn": {"an": vpn_an, "traegt": traegt,
+                    "probe_mbps": letzte["mbps"] if frisch else None,
+                    "probe_ts": letzte["ts"] if letzte else None, "probe_frisch": frisch},
+            "selfstream": {"cpu": _cpu_prozent(), "rss_mb": _rss_mb_jetzt()},
+            "geraete": {"gesamt": len(zs), "knapp": len(knapp)},
+        },
+        "urteil": qualitaet.urteil(passiv.get("level"), vpn_an, traegt,
+                                   letzte["mbps"] if frisch else None, frisch, knapp),
+        "zuschauer": zs,
+        **qualitaet.stoerungen(spaete, proben),
+        "rangliste": qualitaet.rangliste(db.get_segment_tage(days)),
+    }
+
 
 @admin_app.get("/api/segment-events/outbound")
 def get_outbound_health(_=Depends(check_admin)):

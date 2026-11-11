@@ -379,7 +379,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.90</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.91</div>
       </div>
     </div>
 
@@ -1200,7 +1200,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.90</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.91</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1522,6 +1522,17 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
         </div>
 
+        <!-- Qualität: Kette + Urteil + Zuschauer -->
+        <div class="scard" style="margin-bottom:16px;">
+          <div class="scard-title" style="margin:0 0 4px 0;">🧭 Wo hakt es gerade?</div>
+          <div class="form-hint" style="margin-bottom:12px;">Jede Strecke hat ihre eigene Ampel. <strong>Reserve</strong> = wie viel schneller ein Bildstück ankommt, als es abgespielt wird. Unter 1× ruckelt es.</div>
+          <div id="q-kette" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
+            <div class="empty-state">Lade…</div>
+          </div>
+          <div id="q-urteil" style="margin-top:12px;padding:9px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);font-size:13px;">–</div>
+          <div id="q-zuschauer" style="margin-top:14px;"></div>
+        </div>
+
         <!-- Live Sessions Detail -->
         <div class="scard" style="margin-bottom:16px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border);">
@@ -1559,30 +1570,41 @@ tr:hover td{background:rgba(255,255,255,.02);}
             <span>Jetzt →</span>
           </div>
         </div>
-        <!-- Channel Buffering Stats -->
+        <!-- Störungen -->
         <div class="scard" style="margin-top:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div class="scard-title" style="margin:0;">📺 Sender-Statistik (Buffering-Ranking)</div>
-            <button class="btn sm" onclick="exportChannelReport()">📋 Bericht kopieren</button>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+            <div class="scard-title" style="margin:0;">⚠️ Störungen</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="q-days" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="loadQualitaet()">
+                <option value="1">Heute</option>
+                <option value="7" selected>7 Tage</option>
+                <option value="30">30 Tage</option>
+              </select>
+              <button class="btn sm" onclick="exportChannelReport()">📋 Bericht kopieren</button>
+            </div>
           </div>
           <div class="form-hint" style="margin-bottom:10px;">
-            Zeigt welche Sender am häufigsten stocken – sortiert nach Schweregrad. Nutze "Bericht kopieren" um Beweise an deinen IPTV-Anbieter zu schicken.
+            Späte Bildstücke werden zu einer Störung zusammengefasst. Die Ursache ergibt sich daraus, wer betroffen war:
+            <strong>ein Sender</strong> → Anbieter (dieser Sender) · <strong>mehrere Sender</strong> → Anbieter oder VPN, entschieden durch einen Test-Download durch den Tunnel · <strong>nur ein Zuschauer</strong> bei pünktlicher Anlieferung → dessen Leitung.
           </div>
-          <div id="tr-channel-stats">
-            <div class="empty-state">Noch keine Daten – tritt auf sobald Buffering-Ereignisse vorliegen</div>
-          </div>
+          <div id="q-stoerungen"><div class="empty-state">Lade…</div></div>
         </div>
 
-        <!-- Buffering Events -->
+        <!-- Sender-Rangliste -->
         <div class="scard" style="margin-top:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-            <div class="scard-title" style="margin:0;">⚠️ Buffering-Ereignisse</div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <div class="scard-title" style="margin:0 0 4px 0;">📺 Sender-Rangliste</div>
+          <div class="form-hint" style="margin-bottom:10px;">Anteil der Bildstücke, die zu spät bei SelfStream ankamen – in Prozent, damit viel geschaute Sender nicht automatisch oben stehen. Sender mit weniger als 50 Bildstücken fehlen.</div>
+          <div id="q-rangliste"><div class="empty-state">Lade…</div></div>
+        </div>
+
+        <!-- Einzelwerte -->
+        <details id="seg-details" class="scard" style="margin-top:16px;" ontoggle="if(this.open){window._segManualReload=true;loadSegmentEvents();}">
+          <summary style="cursor:pointer;font-size:13px;color:var(--text2);">🔬 Einzelwerte (jedes gemessene Bildstück)</summary>
+          <div style="display:flex;justify-content:flex-end;align-items:center;margin:12px 0;flex-wrap:wrap;gap:8px;">
               <select id="seg-days" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="window._segManualReload=true;loadSegmentEvents()">
-                <option value="1">Heute</option>
+                <option value="1" selected>Heute</option>
                 <option value="7">7 Tage</option>
-                <option value="30" selected>30 Tage</option>
-                <option value="90">90 Tage</option>
+                <option value="30">30 Tage</option>
               </select>
               <select id="seg-day" class="form-select" style="width:auto;padding:3px 6px;font-size:10px;" onchange="window._segEventsPage=1;renderSegEvents()" title="Nach Tag filtern">
                 <option value="">Alle Tage</option>
@@ -1595,29 +1617,25 @@ tr:hover td{background:rgba(255,255,255,.02);}
                 <option value="50">50 / Seite</option>
                 <option value="100" selected>100 / Seite</option>
                 <option value="250">250 / Seite</option>
-                <option value="500">500 / Seite</option>
               </select>
-              <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;" title="Aus: nur späte Bildstücke werden gespeichert. An: alle.">
                 <input type="checkbox" id="tr-debug-mode" style="accent-color:var(--teal);" onchange="window._segManualReload=true;toggleDebugMode(this)">
-                <span style="color:var(--text2);">🔬 Debug</span>
+                <span style="color:var(--text2);">Auch pünktliche speichern</span>
               </label>
               <button class="btn sm" onclick="window._segManualReload=true;loadSegmentEvents()">↻</button>
-              <button class="btn sm danger" onclick="clearSegmentEvents()">🗑</button>
-            </div>
+              <button class="btn sm danger" onclick="clearSegmentEvents()" title="Alle Messwerte, Tageszähler und Test-Downloads löschen">🗑</button>
           </div>
           <div class="form-hint" style="margin-bottom:10px;">
-            🔴 <strong>Langsam (&gt;2s)</strong> = Buffering sehr wahrscheinlich &nbsp;|&nbsp;
-            🟡 <strong>Verzögert (&gt;1s)</strong> = Buffering möglich &nbsp;|&nbsp;
-            ✅ <strong>OK (&lt;1s)</strong> = nur im Debug-Modus sichtbar<br>
-            💡 Buffering-Ereignisse werden auf <strong>selfstream-Seite</strong> gemessen — d.h. sie zeigen wie schnell der IPTV-Anbieter die Segmente liefert, nicht ob der Benutzer puffert. Langsame Segmente = Anbieter-Problem.
+            <strong>Geladen in</strong> = so lange brauchte SelfStream, um das Bildstück beim Anbieter zu holen (durch das VPN).
+            <strong>Zum Gerät</strong> = so lange dauerte die Auslieferung an den Player.
+            Die Reserve dahinter vergleicht das mit der Spielzeit des Bildstücks: 🔴 unter 1× · 🟡 unter 1,7× · 🟢 darüber.
             <span id="seg-total-count" style="margin-left:8px;color:var(--teal);font-family:var(--mono);font-size:10px;"></span>
           </div>
-          <div id="seg-outbound" style="margin-bottom:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text2);">📡 <strong>→ USER-Strecke (SelfStream → Gerät):</strong> <span id="seg-outbound-val">– messe… (läuft, sobald jemand schaut) –</span><br><span style="font-size:10px;color:var(--text3);">Niedrig, obwohl der Anbieter schnell liefert → Flaschenhals ist die Verbindung zum Gerät (z.B. 5G/mobil), nicht SelfStream.</span></div>
           <div id="tr-seg-events" style="font-family:var(--mono);font-size:11px;">
-            <div class="empty-state">Noch keine Ereignisse – tritt auf wenn ein Segment &gt;1s braucht</div>
+            <div class="empty-state">Noch keine Messwerte</div>
           </div>
           <div id="tr-seg-pager" style="display:flex;gap:8px;align-items:center;margin-top:10px;"></div>
-        </div>
+        </details>
       </div>
 <div class="modal-bg" id="modal-canary-stats">
   <div class="modal" style="width:760px;max-width:96vw;">
@@ -5250,107 +5268,165 @@ const TRAFFIC_MAX_POINTS = 720; // up to 720 data points (1h @ 5s = 720)
 
 async function toggleDebugMode(checkbox) {
   await api('POST', '/api/settings', { segment_debug: checkbox.checked ? '1' : '0' });
-  showToast(checkbox.checked ? '🔬 Debug-Modus AN – alle Segmente werden geloggt' : 'Debug-Modus AUS');
+  showToast(checkbox.checked ? 'Ab jetzt werden alle Bildstücke gespeichert' : 'Ab jetzt werden nur späte Bildstücke gespeichert');
   loadSegmentEvents();
 }
 
+const Q_FARBE = { gut: '#14b8a6', knapp: '#eab308', schlecht: '#ef4444', unbekannt: 'var(--text3)' };
+const Q_WORT = { gut: 'gut', knapp: 'knapp', schlecht: 'schlecht', unbekannt: 'keine Messung' };
+const Q_URSACHE = {
+  sender:   { name: 'Anbieter · ein Sender', farbe: '#eab308' },
+  anbieter: { name: 'Anbieter',              farbe: '#ef4444' },
+  vpn:      { name: 'VPN / Leitung',         farbe: '#ef4444' },
+  netz:     { name: 'Anbieter oder VPN',     farbe: '#ef4444' },
+  geraet:   { name: 'Gerät',                 farbe: '#eab308' },
+};
+
+function qPill(level, text) {
+  const f = Q_FARBE[level] || Q_FARBE.unbekannt;
+  return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;border:1px solid ${f};color:${f};font-size:10px;white-space:nowrap;">${esc(text || Q_WORT[level] || level)}</span>`;
+}
+
+function qReserve(r) {
+  if (r == null) return '<span style="color:var(--text3);">–</span>';
+  const level = r < 1 ? 'schlecht' : (r < 1.67 ? 'knapp' : 'gut');
+  const zahl = r >= 99 ? '&gt;99' : String(r).replace('.', ',');
+  return `<span style="color:${Q_FARBE[level]};font-family:var(--mono);">${zahl}×</span>`;
+}
+
+function qLevelVonPassiv(l) { return l === 'bad' ? 'schlecht' : l === 'slow' ? 'knapp' : l === 'ok' ? 'gut' : 'unbekannt'; }
+
+function qZeitraum(von, bis) {
+  const wd = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  const a = new Date(von * 1000), b = new Date(bis * 1000);
+  const uhr = d => d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const heute = new Date(); heute.setHours(0, 0, 0, 0);
+  const tag = a >= heute ? 'Heute' : `${wd[a.getDay()]} ${String(a.getDate()).padStart(2, '0')}.${String(a.getMonth() + 1).padStart(2, '0')}.`;
+  const sek = Math.max(0, Math.round(bis - von));
+  const dauer = sek < 90 ? `${Math.max(sek, 1)} Sekunden` : (sek < 5400 ? `${Math.round(sek / 60)} Minuten` : `${(sek / 3600).toFixed(1).replace('.', ',')} Stunden`);
+  return `${tag} ${uhr(a)}${uhr(a) !== uhr(b) ? ' bis ' + uhr(b) : ''} · ${dauer}`;
+}
+
+function qStoerungText(s) {
+  const sender = s.sender_anzahl === 1 ? `Nur ${s.sender[0]}` : `${s.sender_anzahl} Sender (${s.sender.join(', ')}${s.sender_anzahl > s.sender.length ? ' …' : ''})`;
+  const nutzer = s.nutzer_anzahl === 1 ? s.nutzer[0] : `${s.nutzer_anzahl} Zuschauer`;
+  const stuecke = `${s.anzahl} späte Bildstücke`;
+  if (s.ursache === 'geraet') return `Nur ${nutzer}. SelfStream hatte die Bildstücke rechtzeitig, die Auslieferung ans Gerät war langsam (${stuecke}).`;
+  let t = `${sender}, ${nutzer}, ${stuecke}.`;
+  if (s.ursache === 'anbieter') t += ` Test-Download durch den Tunnel war schnell (${s.probe_mbps} Mbit/s).`;
+  else if (s.ursache === 'vpn') t += s.probe_mbps == null ? ' Test-Download durch den Tunnel ist gescheitert.' : ` Test-Download durch den Tunnel war langsam (${s.probe_mbps} Mbit/s).`;
+  else if (s.ursache === 'netz') t += ' Kein Test-Download aus der Zeit, deshalb nicht zu trennen.';
+  else if (s.ursache === 'sender') t += ' Andere Sender waren nicht betroffen.';
+  return t;
+}
+
+async function loadQualitaet() {
+  const days = document.getElementById('q-days')?.value || '7';
+  const q = await api('GET', `/api/qualitaet?days=${days}`).catch(() => null);
+  if (!q || !q.kette) return;
+  window._qualitaet = q;
+  const k = q.kette;
+
+  // Kette
+  const anbL = qLevelVonPassiv(k.anbieter.level);
+  const anbText = k.anbieter.reserve != null ? `liefert ${String(k.anbieter.reserve).replace('.', ',')}× schneller als nötig`
+    : (k.anbieter.level ? 'Reserve noch unbekannt' : 'niemand schaut gerade');
+  let vpnL = 'unbekannt', vpnText = 'VPN ist ausgeschaltet';
+  if (k.vpn.an) {
+    vpnL = k.vpn.traegt ? 'gut' : 'schlecht';
+    vpnText = k.vpn.traegt ? 'Tunnel steht' : 'Tunnel steht nicht';
+    if (k.vpn.traegt && k.vpn.probe_frisch) {
+      vpnText += k.vpn.probe_mbps != null ? `, Test-Download ${k.vpn.probe_mbps} Mbit/s` : ', Test-Download gescheitert';
+      if (k.vpn.probe_mbps == null || k.vpn.probe_mbps < 20) vpnL = 'knapp';
+    }
+  }
+  const cpu = k.selfstream.cpu, ram = k.selfstream.rss_mb;
+  const ssL = cpu == null ? 'unbekannt' : (cpu > 150 ? 'schlecht' : cpu > 90 ? 'knapp' : 'gut');
+  const ssText = `${cpu != null ? String(cpu).replace('.', ',') + ' % CPU' : 'CPU wird gemessen'}${ram != null ? ', ' + ram + ' MB' : ''}`;
+  const gerL = !k.geraete.gesamt ? 'unbekannt' : (k.geraete.knapp ? 'knapp' : 'gut');
+  const gerText = !k.geraete.gesamt ? 'niemand schaut gerade' : (k.geraete.knapp ? `${k.geraete.knapp} von ${k.geraete.gesamt} knapp` : `${k.geraete.gesamt} von ${k.geraete.gesamt} flüssig`);
+  const kachel = (icon, name, text, level) => `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${Q_FARBE[level]};border-radius:6px;padding:10px 12px;min-width:0;">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px;">${icon} ${name}</div>
+      <div style="font-size:12px;margin-bottom:8px;">${esc(text)}</div>${qPill(level)}</div>`;
+  document.getElementById('q-kette').innerHTML =
+    kachel('🛰️', 'Anbieter', anbText, anbL) + kachel('🛡️', 'VPN', vpnText, vpnL) +
+    kachel('⚙️', 'SelfStream', ssText, ssL) + kachel('📺', 'Geräte', gerText, gerL);
+
+  // Urteil
+  const u = document.getElementById('q-urteil');
+  const uf = Q_FARBE[q.urteil.level] || Q_FARBE.unbekannt;
+  u.style.borderColor = uf;
+  u.innerHTML = `<span style="color:${uf};">●</span> <strong>Urteil:</strong> ${esc(q.urteil.text)}`;
+
+  // Zuschauer
+  const zEl = document.getElementById('q-zuschauer');
+  if (!q.zuschauer.length) {
+    zEl.innerHTML = '';
+  } else {
+    zEl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="border-bottom:1px solid var(--border);">
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ZUSCHAUER</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" title="Anbieter → VPN → SelfStream">KOMMT BEI SELFSTREAM AN</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);" title="SelfStream → Gerät">GEHT ZUM GERÄT</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">URTEIL</th>
+      </tr></thead><tbody>${q.zuschauer.map(z => `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:6px 8px;"><strong>${esc(z.user)}</strong><br><span style="font-size:10px;color:var(--text2);">${esc(z.channel || '')}</span></td>
+        <td style="padding:6px 8px;">${qReserve(z.rein)} <span style="font-size:10px;color:var(--text3);">Reserve</span></td>
+        <td style="padding:6px 8px;">${qReserve(z.raus)} <span style="font-size:10px;color:var(--text3);">Reserve</span></td>
+        <td style="padding:6px 8px;">${qPill(z.level, z.urteil)}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  // Störungen
+  const sEl = document.getElementById('q-stoerungen');
+  const einzel = q.einzelne ? `<div style="font-size:11px;color:var(--text3);margin-top:8px;">Dazu ${q.einzelne} einzelne späte Bildstücke ohne Folge (ein Stück allein ruckelt in der Regel nicht).</div>` : '';
+  if (!q.stoerungen.length) {
+    sEl.innerHTML = `<div class="empty-state">Keine Störung im Zeitraum</div>${einzel}`;
+  } else {
+    sEl.innerHTML = q.stoerungen.slice(0, 50).map(s => {
+      const ur = Q_URSACHE[s.ursache] || { name: s.ursache, farbe: 'var(--text2)' };
+      return `<div style="display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--border);">
+        <span style="flex:0 0 150px;"><span style="display:inline-block;padding:1px 8px;border-radius:10px;border:1px solid ${ur.farbe};color:${ur.farbe};font-size:10px;">${ur.name}</span></span>
+        <div style="min-width:0;"><div style="font-size:12px;">${qZeitraum(s.von, s.bis)}</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px;">${esc(qStoerungText(s))}</div></div></div>`;
+    }).join('') + (q.stoerungen.length > 50 ? `<div style="font-size:11px;color:var(--text3);margin-top:8px;">… und ${q.stoerungen.length - 50} ältere</div>` : '') + einzel;
+  }
+
+  // Rangliste
+  const rEl = document.getElementById('q-rangliste');
+  if (!q.rangliste.length) {
+    rEl.innerHTML = '<div class="empty-state">Noch zu wenig Messwerte</div>';
+  } else {
+    const max = Math.max(1, ...q.rangliste.map(r => r.anteil));
+    rEl.innerHTML = q.rangliste.slice(0, 25).map(r => {
+      const f = r.anteil >= 5 ? '#ef4444' : r.anteil >= 1 ? '#eab308' : '#14b8a6';
+      return `<div style="display:grid;grid-template-columns:minmax(120px,220px) 1fr 170px;gap:10px;align-items:center;padding:4px 0;font-size:12px;">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.channel)}</span>
+        <div style="background:var(--bg);border-radius:3px;height:8px;overflow:hidden;"><div style="width:${Math.max(1, Math.round(r.anteil / max * 100))}%;height:100%;background:${f};"></div></div>
+        <span style="text-align:right;font-family:var(--mono);font-size:11px;color:${f};">${String(r.anteil).replace('.', ',')} % <span style="color:var(--text3);">(${r.spaet} von ${r.gesamt.toLocaleString('de-DE')})</span></span>
+      </div>`;
+    }).join('');
+  }
+}
+
 async function loadSegmentEvents() {
-  const days = document.getElementById('seg-days')?.value || '30';
+  if (!document.getElementById('seg-details')?.open) return;
+  const days = document.getElementById('seg-days')?.value || '1';
   const debugOn = document.getElementById('tr-debug-mode')?.checked ? 1 : 0;
-  // Load ALL events for the time range - pagination is client-side
-  const serverLimit = 10000;
-  const [events, stats, channels, providers, outbound] = await Promise.all([
-    api('GET', `/api/segment-events?days=${days}&limit=${serverLimit}&debug=${debugOn}`),
-    api('GET', `/api/segment-events/stats?days=${days}`),
-    api('GET', '/api/channels').catch(()=>[]),
-    api('GET', '/api/providers').catch(()=>[]),
-    api('GET', '/api/segment-events/outbound').catch(()=>null),
-  ]);
-  // → USER-Strecke (SelfStream → Gerät) anzeigen
-  const outEl = document.getElementById('seg-outbound-val');
-  if (outEl) {
-    if (outbound && outbound.mbps != null) {
-      let html = `Gesamt: <strong style="color:var(--teal);">${outbound.mbps} Mbit/s</strong> · Median ${outbound.median_s}s · ${outbound.samples} Proben`;
-      const pu = (outbound.per_user || []);
-      if (pu.length) {
-        html += '<div style="margin-top:6px;display:flex;flex-direction:column;gap:2px;">'
-          + pu.map(u => {
-              // langsam ans Gerät (z.B. dessen 5G/Netz)? farblich markieren
-              const col = u.mbps < 15 ? '#ef4444' : (u.mbps < 40 ? '#eab308' : '#14b8a6');
-              return `<div style="font-family:var(--mono);font-size:10px;">👤 <strong>${esc(u.user)}</strong>: <span style="color:${col};">${u.mbps} Mbit/s</span> · Median ${u.median_s}s · ${u.samples} Segmente</div>`;
-            }).join('')
-          + '</div><div style="font-size:9px;color:var(--text3);margin-top:4px;">🔴 &lt;15 = Geräte-Verbindung sehr wahrscheinlich der Flaschenhals · 🟡 &lt;40 grenzwertig · 🟢 ok</div>';
-      }
-      outEl.innerHTML = html;
-    } else {
-      outEl.textContent = '– noch keine Auslieferung gemessen (läuft, sobald jemand schaut) –';
-    }
-  }
-  // Build channel name → provider name map
-  const provNameMap = {};
-  (providers||[]).forEach(p => provNameMap[p.id] = p.name);
-  const chProvMap = {};
-  (channels||[]).forEach(ch => { if(ch.provider_id) chProvMap[ch.name] = provNameMap[ch.provider_id] || null; });
-  window.chProvMap = chProvMap;  // make available to renderSegEvents
-
-  // Channel stats table
-  const statsEl = document.getElementById('tr-channel-stats');
-  if (statsEl) {
-    if (!stats?.length) {
-      statsEl.innerHTML = '<div class="empty-state">Noch keine Daten</div>';
-    } else {
-      const maxScore = stats[0].score || 1;
-      statsEl.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-        <thead><tr style="border-bottom:1px solid var(--border);">
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SENDER</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">PROBLEM-SCORE</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">🔴 LANGSAM</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">🟡 VERZÖGERT</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">Ø DAUER</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">Ø SPEED</th>
-          <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">MIN SPEED</th>
-        </tr></thead>
-        <tbody>${stats.map((s, i) => {
-          const barW = Math.round((s.score / maxScore) * 100);
-          const color = s.slow > 0 ? '#ef4444' : '#f59e0b';
-          const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
-          return `<tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:6px 8px;font-weight:bold;color:var(--teal);">${medal} ${esc(s.channel)}</td>
-            <td style="padding:6px 8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <div style="flex:1;background:var(--bg);border-radius:3px;height:8px;overflow:hidden;">
-                  <div style="width:${barW}%;height:100%;background:${color};border-radius:3px;"></div>
-                </div>
-                <span style="font-family:var(--mono);font-size:11px;color:${color};min-width:20px;">${s.score}</span>
-              </div>
-            </td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:#ef4444;">${s.slow}x</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:#f59e0b;">${s.delayed}x</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:var(--text2);">${s.avg_elapsed}s</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:${s.avg_mbps < 10 ? '#ef4444' : 'var(--teal)'};">${s.avg_mbps} Mbit/s</td>
-            <td style="padding:6px 8px;font-family:var(--mono);color:${s.min_mbps < 5 ? '#ef4444' : 'var(--text2)'};">${s.min_mbps} Mbit/s</td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table>`;
-    }
-  }
-
-  // Events table - keep current page on auto-refresh
+  const events = await api('GET', `/api/segment-events?days=${days}&limit=5000&debug=${debugOn}`).catch(() => []) || [];
   window._segEventsAll = events;
-  // User-Filter-Dropdown aus den geladenen Events füllen (Auswahl beibehalten)
   const userSel = document.getElementById('seg-user');
   if (userSel) {
     const keep = userSel.value;
-    const users = [...new Set((events || []).map(e => e.user_name || e.user).filter(Boolean))].sort();
+    const users = [...new Set(events.map(e => e.user_name || e.user).filter(Boolean))].sort();
     userSel.innerHTML = '<option value="">Alle User</option>' + users.map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
     if (keep && users.includes(keep)) userSel.value = keep;
   }
-  // Tages-Filter-Dropdown aus den geladenen Events füllen (nur Tage mit Daten, lokale Zeit)
   const daySel = document.getElementById('seg-day');
   if (daySel) {
     const keepD = daySel.value;
     const seen = new Map();
-    (events || []).forEach(e => {
+    events.forEach(e => {
       if (!e.ts) return;
       const d = new Date(e.ts * 1000); d.setHours(0, 0, 0, 0);
       const key = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
@@ -5391,56 +5467,47 @@ function renderSegEvents() {
   window._segEventsPage = Math.min(window._segEventsPage || 1, totalPages);
   const start = (window._segEventsPage - 1) * pageSize;
   const pageEvents = events.slice(start, start + pageSize);
+  const countEl = document.getElementById('seg-total-count');
+  if (countEl) countEl.textContent = events.length ? `· ${events.length} Einträge` : '';
 
   if (!pageEvents.length) {
-    el.innerHTML = '<div class="empty-state">Noch keine Ereignisse – tritt auf wenn ein Segment &gt;1s braucht</div>';
+    el.innerHTML = '<div class="empty-state">Keine Messwerte im Zeitraum</div>';
     if (pager) pager.innerHTML = '';
     return;
   }
-
-  // Build provider map from pre-loaded chProvMap
+  const th = t => `<th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">${t}</th>`;
+  const sek = v => String(v).replace('.', ',') + ' s';
   el.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-    <thead><tr style="border-bottom:1px solid var(--border);background:var(--bg2);">
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ZEIT</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">USER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">ANBIETER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SENDER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">DAUER</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SPEED</th>
-      <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--text2);">SEGMENT</th>
-    </tr></thead>
+    <thead><tr style="border-bottom:1px solid var(--border);background:var(--bg2);">${th('ZEIT')}${th('USER')}${th('SENDER')}${th('GELADEN IN')}${th('ZUM GERÄT')}${th('GRÖSSE')}${th('BILDSTÜCK')}</tr></thead>
     <tbody>${pageEvents.map(e => {
-      const isSlow = e.type === 'slow';
-      const isOk = e.type === 'ok';
-      const isEmpty = (e.seg||'').startsWith('⚠️ LEER');
-      const color = isEmpty ? '#ff6b6b' : isSlow ? '#ef4444' : isOk ? '#00e5c8' : '#f59e0b';
-      const icon = isEmpty ? '⚠️' : isSlow ? '🔴' : isOk ? '✅' : '🟡';
       const ts = e.ts || e.time || 0;
-      const userName = e.user_name || e.user || '—';
-      const provName = e.provider_name || (window.chProvMap||{})[e.channel] || '—';
       const dt = ts ? new Date(ts * 1000) : null;
       const timeStr = dt && !isNaN(dt.getTime())
-        ? dt.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'2-digit'}) + ' ' + dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'})
+        ? dt.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' + dt.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'})
         : '—';
-      const mbps = Number(e.mbps) || 0;
+      const seg = e.seg || '';
+      const leer = seg.startsWith('⚠️ LEER');
+      const cached = !!e.cached || seg.startsWith('⚡');
+      const dur = Number(e.dur) || 0;
       const elapsed = Number(e.elapsed) || 0;
-      return `<tr style="border-bottom:1px solid var(--border);${isEmpty ? 'background:rgba(255,107,107,0.05);' : ''}">
-        <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;font-family:var(--mono);font-size:11px;">${timeStr}</td>
-        <td style="padding:4px 8px;"><strong>${esc(userName)}</strong></td>
-        <td style="padding:4px 8px;font-size:10px;color:var(--teal);">${esc(provName)}</td>
-        <td style="padding:4px 8px;color:var(--text);font-size:11px;">${esc(e.channel||'—')}</td>
-        <td style="padding:4px 8px;color:${color};font-weight:bold;">${icon} ${isEmpty ? 'LEER!' : elapsed === 0 ? '—' : elapsed+'s'}</td>
-        <td style="padding:4px 8px;font-family:var(--mono);color:${mbps < 4 && mbps > 0 ? '#ef4444' : mbps === 0 ? 'var(--text3)' : 'var(--teal)'};">${isEmpty || mbps === 0 ? '—' : (mbps > 9999 ? '>10 Gbit/s' : mbps+' Mbit/s')}</td>
-        <td style="padding:4px 8px;color:var(--text3);font-family:var(--mono);font-size:10px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(e.seg||'')}">${esc(e.seg||'—')}</td>
+      const res = (zeit) => dur > 0 && zeit > 0 ? Math.min(99, Math.round(dur / zeit * 10) / 10) : null;
+      let rein;
+      if (leer) rein = '<span style="color:#ef4444;">leer geliefert</span>';
+      else if (cached) rein = '<span style="color:var(--text3);">lag schon bereit</span>';
+      else rein = `${sek(elapsed)} ${dur > 0 ? '· ' + qReserve(res(elapsed)) : `<span style="color:${e.type === 'slow' ? '#ef4444' : e.type === 'delayed' ? '#eab308' : 'var(--text3)'};">●</span>`}`;
+      const raus = e.out_s == null ? '<span style="color:var(--text3);">–</span>' : `${sek(e.out_s)} ${dur > 0 ? '· ' + qReserve(res(Number(e.out_s))) : ''}`;
+      return `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;">${timeStr}</td>
+        <td style="padding:4px 8px;"><strong>${esc(e.user_name || e.user || '—')}</strong></td>
+        <td style="padding:4px 8px;">${esc(e.channel || '—')}</td>
+        <td style="padding:4px 8px;white-space:nowrap;">${rein}</td>
+        <td style="padding:4px 8px;white-space:nowrap;">${raus}</td>
+        <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;">${e.size_kb ? (e.size_kb / 1024).toFixed(1).replace('.', ',') + ' MB' : '—'}</td>
+        <td style="padding:4px 8px;color:var(--text3);font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(seg)}">${esc(seg.replace(/^⚡\s*/, '') || '—')}</td>
       </tr>`;
     }).join('')}</tbody>
   </table>`;
 
-  // Total count in header
-  const countEl = document.getElementById('seg-total-count');
-  if (countEl) countEl.textContent = events.length ? `· ${events.length} Einträge gesamt` : '';
-
-  // Pager
   if (pager) {
     const showing = `${start+1}–${Math.min(start+pageSize, events.length)} von ${events.length}`;
     pager.innerHTML = totalPages <= 1
@@ -5454,40 +5521,29 @@ function renderSegEvents() {
 }
 
 async function exportChannelReport() {
-  const [stats, events] = await Promise.all([
-    api('GET', '/api/segment-events/stats'),
-    api('GET', '/api/segment-events'),
-  ]);
-  if (!stats?.length) return showToast('Keine Daten zum Exportieren');
-
-  const now = new Date().toLocaleString('de-DE');
-  let report = `SELFSTREAM – BUFFERING-BERICHT\n`;
-  report += `Erstellt: ${now}\n`;
-  report += `Gesamt-Ereignisse: ${events.length}\n`;
-  report += `${'='.repeat(60)}\n\n`;
-
-  report += `SENDER-RANKING (nach Schweregrad):\n`;
-  report += `${'─'.repeat(60)}\n`;
-  stats.forEach((s, i) => {
-    report += `${i+1}. ${s.channel}\n`;
-    report += `   Langsam (>2s): ${s.slow}x  |  Verzögert (>1s): ${s.delayed}x  |  Gesamt: ${s.total}x\n`;
-    report += `   Ø Download-Zeit: ${s.avg_elapsed}s  |  Ø Speed: ${s.avg_mbps} Mbit/s  |  Min Speed: ${s.min_mbps} Mbit/s\n\n`;
+  const days = document.getElementById('q-days')?.value || '7';
+  const q = await api('GET', `/api/qualitaet?days=${days}`).catch(() => null);
+  if (!q) return showToast('Keine Daten zum Exportieren');
+  const fuerAnbieter = q.stoerungen.filter(s => s.ursache === 'sender' || s.ursache === 'anbieter');
+  if (!q.rangliste.length && !fuerAnbieter.length) return showToast('Keine Daten zum Exportieren');
+  let report = `SELFSTREAM – QUALITÄTSBERICHT\nErstellt: ${new Date().toLocaleString('de-DE')}\nZeitraum: ${days === '1' ? 'heute' : 'letzte ' + days + ' Tage'}\n${'='.repeat(60)}\n\n`;
+  report += `SENDER MIT SPÄTEN BILDSTÜCKEN (Anteil):\n${'─'.repeat(60)}\n`;
+  q.rangliste.filter(r => r.spaet > 0).forEach((r, i) => {
+    report += `${i + 1}. ${r.channel}: ${String(r.anteil).replace('.', ',')} % (${r.spaet} von ${r.gesamt} zu spät)\n`;
   });
-
-  report += `${'='.repeat(60)}\n`;
-  report += `DETAIL-EREIGNISSE (letzte ${Math.min(events.length, 50)}):\n`;
-  report += `${'─'.repeat(60)}\n`;
-  events.slice(0, 50).forEach(e => {
-    const dt = new Date(e.time * 1000).toLocaleTimeString('de-DE');
-    const type = e.type === 'slow' ? '🔴 LANGSAM ' : '🟡 VERZÖGERT';
-    report += `${dt}  ${type}  ${e.channel||'?'}  ${e.elapsed}s  ${e.size_kb}KB  ${e.mbps}Mbit/s\n`;
+  report += `\nSTÖRUNGEN, DIE AUF DEN ANBIETER ZEIGEN:\n${'─'.repeat(60)}\n`;
+  if (!fuerAnbieter.length) report += 'keine\n';
+  fuerAnbieter.slice(0, 50).forEach(s => {
+    const d = new Date(s.von * 1000).toLocaleString('de-DE');
+    report += `${d} · ${Math.max(1, Math.round(s.dauer / 60))} min · ${s.sender.join(', ')} · ${s.anzahl} späte Bildstücke\n`;
   });
-
   navigator.clipboard.writeText(report).then(() => showToast('✅ Bericht in Zwischenablage kopiert!'));
 }
 
 async function clearSegmentEvents() {
+  if (!confirm('Alle Messwerte, Tageszähler und Test-Downloads löschen?')) return;
   await api('DELETE', '/api/segment-events');
+  loadQualitaet();
   loadSegmentEvents();
 }
 
@@ -5504,10 +5560,12 @@ async function startTrafficMonitor() {
     if (cb) cb.checked = s.segment_debug === '1';
   }
   await updateTraffic();
+  await loadQualitaet();
   await loadSegmentEvents();
   const secs = parseInt(document.getElementById('traffic-interval')?.value || '5');
   _trafficInterval = setInterval(async () => {
     await updateTraffic();
+    await loadQualitaet();
     await loadSegmentEvents();
   }, secs * 1000);
 }

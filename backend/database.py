@@ -126,6 +126,18 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_seg_events_ts ON segment_events(ts);
 
+                CREATE TABLE IF NOT EXISTS segment_tage (
+                    tag     TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    gesamt  INTEGER NOT NULL DEFAULT 0,
+                    spaet   INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (tag, channel)
+                );
+                CREATE TABLE IF NOT EXISTS netz_proben (
+                    ts   REAL PRIMARY KEY,
+                    mbps REAL
+                );
+
                 CREATE TABLE IF NOT EXISTS canary_events (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
                     ts           REAL NOT NULL,
@@ -685,14 +697,16 @@ class Database:
         """Store a segment timing event in DB for long-term retention."""
         with self.conn() as con:
             con.execute("""
-                INSERT INTO segment_events (ts, user_name, channel, provider_id, type, elapsed, size_kb, mbps, seg)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO segment_events (ts, user_name, channel, provider_id, type, elapsed, size_kb, mbps, seg,
+                                            dur, out_s, cached)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event.get("time", 0), event.get("user", ""),
                 event.get("channel", ""), event.get("provider_id"),
                 event.get("type", ""), event.get("elapsed", 0),
                 event.get("size_kb", 0), event.get("mbps", 0),
-                event.get("seg", "")
+                event.get("seg", ""),
+                event.get("dur"), event.get("out_s"), 1 if event.get("cached") else 0,
             ))
         # Aufbewahrung erzwingen: gelegentlich alte Zeilen (>30 Tage) löschen,
         # damit die Tabelle nicht unbegrenzt wächst (nicht nur beim Lesen filtern).
@@ -729,6 +743,7 @@ class Database:
                     se.id, se.ts, se.user_name, se.channel,
                     se.provider_id, se.type, se.elapsed,
                     se.size_kb, se.mbps, se.seg,
+                    se.dur, se.out_s, se.cached,
                     se.created_at,
                     p.name as provider_name
                 FROM segment_events se
@@ -767,6 +782,55 @@ class Database:
     def clear_segment_events(self):
         with self.conn() as con:
             con.execute("DELETE FROM segment_events")
+            con.execute("DELETE FROM segment_tage")
+            con.execute("DELETE FROM netz_proben")
+
+    # ── Qualitätsseite (1.91) ────────────────────────────────────────────────
+
+    def add_segment_tage(self, zaehler: Dict) -> None:
+        """Tageszähler je Sender fortschreiben. zaehler: {(tag, sender): [gesamt, spät]}."""
+        if not zaehler:
+            return
+        with self.conn() as con:
+            con.executemany(
+                "INSERT INTO segment_tage (tag, channel, gesamt, spaet) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(tag, channel) DO UPDATE SET "
+                "gesamt = gesamt + excluded.gesamt, spaet = spaet + excluded.spaet",
+                [(tag, ch, int(w[0]), int(w[1])) for (tag, ch), w in zaehler.items()])
+            con.execute("DELETE FROM segment_tage WHERE tag < ?", (self._tag_vor(90),))
+
+    @staticmethod
+    def _tag_vor(tage: int) -> str:
+        """Datum (wie in segment_tage.tag, Uhr des Containers) vor so vielen Tagen."""
+        return (datetime.now() - timedelta(days=tage)).strftime("%Y-%m-%d")
+
+    def get_segment_tage(self, days: int = 7) -> List[Dict]:
+        d = max(1, min(int(days), 90))
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT channel, SUM(gesamt) AS gesamt, SUM(spaet) AS spaet FROM segment_tage "
+                "WHERE tag >= ? GROUP BY channel", (self._tag_vor(d - 1),)).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_spaete_segmente(self, days: int = 7, limit: int = 20000) -> List[Dict]:
+        """Alle nicht rechtzeitigen Segmente im Zeitraum (für die Störungsliste)."""
+        cutoff = time.time() - max(1, int(days)) * 86400
+        with self.conn() as con:
+            rows = con.execute(
+                "SELECT ts, user_name AS user, channel, type, elapsed, dur FROM segment_events "
+                "WHERE ts >= ? AND type != 'ok' ORDER BY ts DESC LIMIT ?", (cutoff, limit)).fetchall()
+            return [dict(r) for r in rows]
+
+    def add_netz_probe(self, ts: float, mbps: Optional[float]) -> None:
+        with self.conn() as con:
+            con.execute("INSERT OR REPLACE INTO netz_proben (ts, mbps) VALUES (?, ?)", (ts, mbps))
+            con.execute("DELETE FROM netz_proben WHERE ts < ?", (time.time() - 90 * 86400,))
+
+    def get_netz_proben(self, days: int = 7) -> List[Dict]:
+        cutoff = time.time() - max(1, int(days)) * 86400
+        with self.conn() as con:
+            rows = con.execute("SELECT ts, mbps FROM netz_proben WHERE ts >= ? ORDER BY ts", (cutoff,)).fetchall()
+            return [dict(r) for r in rows]
 
     # ── Alarm-Mail-Verlauf (90 Tage) ─────────────────────────────────────────────
     def add_alert_mail(self, art: str, betreff: str, ok: bool, fehler: str = ""):
@@ -1409,8 +1473,27 @@ class Database:
                     con.execute("ALTER TABLE m3u_providers ADD COLUMN refresh_hours INTEGER DEFAULT 0")
                 if "last_refresh" not in prov_cols:
                     con.execute("ALTER TABLE m3u_providers ADD COLUMN last_refresh REAL DEFAULT 0")
+                # segment_events: Spielzeit, Auslieferung ans Gerät, Zwischenspeicher (1.91)
+                seg_cols = [r[1] for r in con.execute("PRAGMA table_info(segment_events)").fetchall()]
+                if "dur" not in seg_cols:
+                    con.execute("ALTER TABLE segment_events ADD COLUMN dur REAL DEFAULT NULL")
+                if "out_s" not in seg_cols:
+                    con.execute("ALTER TABLE segment_events ADD COLUMN out_s REAL DEFAULT NULL")
+                if "cached" not in seg_cols:
+                    con.execute("ALTER TABLE segment_events ADD COLUMN cached INTEGER DEFAULT 0")
+                # Tageszähler einmalig aus vorhandenen Zeilen füllen – nur Tage/Sender, für die
+                # auch pünktliche Segmente gespeichert sind (Debug-Modus), sonst wäre alles „spät“.
+                if not con.execute("SELECT 1 FROM segment_tage LIMIT 1").fetchone():
+                    con.execute("""
+                        INSERT INTO segment_tage (tag, channel, gesamt, spaet)
+                        SELECT date(ts, 'unixepoch', 'localtime'), channel, COUNT(*),
+                               SUM(CASE WHEN seg NOT LIKE '⚡%' AND elapsed >= 1.5 THEN 1 ELSE 0 END)
+                        FROM segment_events
+                        GROUP BY 1, 2
+                        HAVING SUM(CASE WHEN type = 'ok' THEN 1 ELSE 0 END) > 0
+                    """)
                 # channels migration: provider_id
-                ch_cols = [r[1] for r in con.execute("PRAGMA table_info(channels)").fetchall()]
+                ch_cols =[r[1] for r in con.execute("PRAGMA table_info(channels)").fetchall()]
                 if "provider_id" not in ch_cols:
                     con.execute("ALTER TABLE channels ADD COLUMN provider_id INTEGER DEFAULT NULL")
                 if "stable_uid" not in ch_cols:
