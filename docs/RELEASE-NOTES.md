@@ -2,6 +2,19 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-99"></a>
+
+## v1.99 — Kanäle und Gruppen unter einem Menüpunkt
+
+Vierter Schritt des Umbaus zu einer einfacheren Oberfläche.
+
+- Menü: „Kanäle & Gruppen“ statt „Kanäle“ und „Gruppen“.
+- Beide Seiten bekommen oben zwei Reiter (Kanäle, Gruppen). Die Seiten selbst und ihr Laden
+  (`nav('channels')`, `nav('groups')`) bleiben unverändert; der Menüpunkt bleibt in beiden
+  Fällen markiert.
+- Der Knopf „Gruppen“ in der Senderliste heißt jetzt „Anbieter-Gruppen“, damit er nicht mit
+  dem Reiter verwechselt wird.
+
 <a id="v1-98"></a>
 
 ## v1.98 — VPN-Seite aufgeräumt

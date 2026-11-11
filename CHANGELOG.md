@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.99 · November 2026
+- 🇬🇧 **Channels and groups on one menu item:** "Channels & groups" replaces the two separate menu items; two tabs at the top switch between the channel list and the groups. Nothing else changed on the two pages.
+- 🇩🇪 **Kanäle und Gruppen unter einem Menüpunkt:** „Kanäle & Gruppen“ ersetzt die beiden einzelnen Menüpunkte; zwei Reiter oben wechseln zwischen Senderliste und Gruppen. An den beiden Seiten selbst hat sich sonst nichts geändert.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-99)
+
 ## 1.98 · November 2026
 - 🇬🇧 **VPN page tidied up:** Four cards instead of eight: status (with what is flowing through the tunnel right now, the top speed and the target for the current number of users), server, VPN required and automatic server choice. The tunnel log and the Auto-Best settings fold away; latency search, speed test and self-viewer moved into "More tools". No function was removed.
 - 🇩🇪 **VPN-Seite aufgeräumt:** Vier Karten statt acht: Status (mit dem, was gerade durch den Tunnel fließt, dem Höchsttempo und dem Ziel für die aktuelle Nutzerzahl), Server, VPN-Pflicht und Automatik. Das Tunnel-Protokoll und die Auto-Best-Einstellungen sind eingeklappt; Latenz-Suche, Speedtest und Selbst-Zuschauer liegen unter „Weitere Werkzeuge“. Es ist keine Funktion weggefallen.

@@ -371,8 +371,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-item" onclick="nav('logs',this)" title="Verlauf – wer hat was geschaut"><span class="nav-icon">📋</span><span class="nav-label">Verlauf</span></div>
       <div class="nav-section">Sender</div>
       <div class="nav-item" onclick="nav('providers',this)" title="Anbieter"><span class="nav-icon">🌐</span><span class="nav-label">Anbieter</span></div>
-      <div class="nav-item" onclick="nav('channels',this)" title="Kanäle"><span class="nav-icon">📺</span><span class="nav-label">Kanäle</span></div>
-      <div class="nav-item" onclick="nav('groups',this)" title="Gruppen"><span class="nav-icon">🏷</span><span class="nav-label">Gruppen</span></div>
+      <div class="nav-item" id="nav-kanaele" onclick="nav('channels',this)" title="Kanäle und Gruppen – Sender ein- und ausschalten, in Gruppen ordnen"><span class="nav-icon">📺</span><span class="nav-label">Kanäle &amp; Gruppen</span></div>
       <div class="nav-item" onclick="nav('epg',this)" title="EPG"><span class="nav-icon">📅</span><span class="nav-label">EPG</span></div>
       <div class="nav-section">Betrieb</div>
       <div class="nav-item" onclick="nav('traffic',this)" title="Qualität – wo hakt es, Störungen, Anbieter-Tempo"><span class="nav-icon">🧭</span><span class="nav-label">Qualität</span></div>
@@ -381,7 +380,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.98</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.99</div>
       </div>
     </div>
 
@@ -468,14 +467,18 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
       <!-- Channels -->
       <div id="page-channels" class="content-area" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+          <button class="btn primary" style="min-width:120px;" onclick="nav('channels',document.getElementById('nav-kanaele'))">📺 Kanäle</button>
+          <button class="btn" style="min-width:120px;" onclick="nav('groups',document.getElementById('nav-kanaele'))">🏷 Gruppen</button>
+        </div>
         <div class="section-hdr">
-          <span class="section-title">Kanal-Manager <span id="ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
+          <span class="section-title">Kanäle <span id="ch-count" class="mono" style="margin-left:8px;font-size:10px;"></span></span>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <select class="group-filter" id="ch-provider-filter" onchange="filterCh()" style="font-size:11px;padding:5px 8px;" title="Nach Anbieter filtern">
               <option value="">Alle Anbieter</option>
             </select>
             <button class="btn" onclick="refreshCh()">↻ Neu laden</button>
-            <button class="btn" onclick="openGroupManager()">🏷 Gruppen</button>
+            <button class="btn" onclick="openGroupManager()" title="Gruppen des Anbieters umbenennen und ordnen">🏷 Anbieter-Gruppen</button>
           </div>
         </div>
         <div class="ch-toolbar">
@@ -496,6 +499,10 @@ tr:hover td{background:rgba(255,255,255,.02);}
 
       <!-- User Groups -->
       <div id="page-groups" class="content-area" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+          <button class="btn" style="min-width:120px;" onclick="nav('channels',document.getElementById('nav-kanaele'))">📺 Kanäle</button>
+          <button class="btn primary" style="min-width:120px;" onclick="nav('groups',document.getElementById('nav-kanaele'))">🏷 Gruppen</button>
+        </div>
         <div class="section-hdr">
           <span class="section-title">Gruppen</span>
           <div style="display:flex;gap:8px;align-items:center;">
@@ -1209,7 +1216,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.98</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.99</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
