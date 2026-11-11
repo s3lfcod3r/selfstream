@@ -7872,6 +7872,38 @@ def _cpu_prozent():
     return _cpu_stand["pct"]
 
 
+_tunnel_stand = {"iface": "", "t": 0.0, "rx": 0, "tx": 0, "rx_mbps": None, "tx_mbps": None}
+TUNNEL_SCHNITTSTELLEN = (WG_IFACE, "tun0")
+
+
+def _tunnel_tempo() -> dict:
+    """Was gerade durch den Tunnel fließt (Mbit/s), aus den Zählern der Schnittstelle.
+
+    Vergleich mit dem Stand des vorigen Aufrufs; ändert nichts am Tunnel und kostet keinen
+    Verkehr. rx = kommt herein (Anbieter → SelfStream), tx = geht hinaus."""
+    st = _tunnel_stand
+    iface = next((i for i in TUNNEL_SCHNITTSTELLEN if os.path.exists(f"/sys/class/net/{i}/statistics/rx_bytes")), "")
+    if not iface:
+        st.update({"iface": "", "t": 0.0, "rx_mbps": None, "tx_mbps": None})
+        return {"laeuft_mbps": None, "sendet_mbps": None}
+    try:
+        with open(f"/sys/class/net/{iface}/statistics/rx_bytes") as f:
+            rx = int(f.read().strip())
+        with open(f"/sys/class/net/{iface}/statistics/tx_bytes") as f:
+            tx = int(f.read().strip())
+    except (OSError, ValueError):
+        return {"laeuft_mbps": st["rx_mbps"], "sendet_mbps": st["tx_mbps"]}
+    jetzt = time.monotonic()
+    neu = st["iface"] != iface or not st["t"] or rx < st["rx"] or tx < st["tx"]   # neu aufgebaut → Zähler bei 0
+    if neu:
+        st.update({"iface": iface, "t": jetzt, "rx": rx, "tx": tx, "rx_mbps": None, "tx_mbps": None})
+    elif jetzt - st["t"] >= 1.0:
+        dt = jetzt - st["t"]
+        st.update({"t": jetzt, "rx_mbps": round((rx - st["rx"]) * 8 / dt / 1e6, 1),
+                   "tx_mbps": round((tx - st["tx"]) * 8 / dt / 1e6, 1), "rx": rx, "tx": tx})
+    return {"laeuft_mbps": st["rx_mbps"], "sendet_mbps": st["tx_mbps"]}
+
+
 def _rss_mb_jetzt():
     try:
         with open("/proc/self/status", "r") as f:
@@ -7918,7 +7950,10 @@ def get_qualitaet(days: int = 7, verlauf_min: int = 60, _=Depends(check_admin)):
                          "reserve": min(qualitaet.RESERVE_MAX, round(1.0 / quote, 1)) if quote else None},
             "vpn": {"an": vpn_an, "traegt": traegt,
                     "probe_mbps": letzte["mbps"] if frisch else None,
-                    "probe_ts": letzte["ts"] if letzte else None, "probe_frisch": frisch},
+                    "probe_ts": letzte["ts"] if letzte else None, "probe_frisch": frisch,
+                    **_tunnel_tempo(),
+                    "schafft_mbps": _wg_aktiv_stand().get("mbps"), "schafft_ts": _wg_aktiv_stand().get("ts"),
+                    "server": _wg_aktiv_stand().get("server")},
             "selfstream": {"cpu": _cpu_prozent(), "rss_mb": _rss_mb_jetzt()},
             "geraete": {"gesamt": len(zs), "knapp": len(knapp)},
         },

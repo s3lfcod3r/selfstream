@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.96 · November 2026
+- 🇬🇧 **Menu reordered, tunnel speed, Mbit/s in the single values:** The menu is grouped by task: Overview · Viewers (users, history) · Channels (providers, channels, groups, EPG) · Operation (quality, VPN, alerts and log) · System. "Traffic" is now called "Quality", "Diagnose" is "Alerts & log". The VPN light shows what is flowing through the tunnel right now and the top speed from the last server check. The single values show the fetch speed and the consumption of each segment in Mbit/s.
+- 🇩🇪 **Menü neu sortiert, Tunnel-Tempo, Mbit/s bei den Einzelwerten:** Das Menü ist nach Aufgaben gruppiert: Übersicht · Zuschauer (Benutzer, Verlauf) · Sender (Anbieter, Kanäle, Gruppen, EPG) · Betrieb (Qualität, VPN, Alarm und Protokoll) · System. „Traffic“ heißt jetzt „Qualität“, „Diagnose“ heißt „Alarm & Protokoll“. Die VPN-Ampel zeigt, was gerade durch den Tunnel fließt, und das Höchsttempo aus der letzten Server-Prüfung. Die Einzelwerte nennen je Bildstück das Tempo beim Abholen und den Verbrauch in Mbit/s.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-96)
+
 ## 1.95 · November 2026
 - 🇬🇧 **Traffic page: Mbit/s, provider speed over time, explanations:** Each viewer now shows the speed at which their channel arrives at SelfStream (Mbit/s next to the reserve) and how much the channel consumes on the way to the device. New chart "provider speed over time" (last hour up to 7 days) with average, weakest section and late segments – so you can see whether the provider or the VPN is weakening. Hovering over the lights and column headings explains what each value means. Contains 1.94.
 - 🇩🇪 **Traffic-Seite: Mbit/s, Anbieter-Tempo im Verlauf, Erklärungen:** Je Zuschauer steht jetzt das Tempo, mit dem sein Sender bei SelfStream ankommt (Mbit/s neben der Reserve), und wie viel der Sender auf dem Weg zum Gerät verbraucht. Neues Bild „Anbieter-Tempo im Verlauf“ (letzte Stunde bis 7 Tage) mit Schnitt, schwächstem Abschnitt und späten Bildstücken – so sieht man, ob der Anbieter oder das VPN schwächelt. Fährt man über die Ampeln und Spaltenköpfe, wird erklärt, was der Wert bedeutet. Enthält 1.94.

@@ -366,20 +366,22 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <button class="menu-toggle" id="menu-toggle-btn" onclick="toggleSidebar()" title="Menü ein-/ausklappen">☰</button>
       </div>
       <div class="nav-item active" onclick="nav('dashboard',this)" title="Dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></div>
+      <div class="nav-section">Zuschauer</div>
       <div class="nav-item" onclick="nav('users',this)" title="Benutzer"><span class="nav-icon">👥</span><span class="nav-label">Benutzer</span></div>
-      <div class="nav-section">Quellen</div>
+      <div class="nav-item" onclick="nav('logs',this)" title="Verlauf – wer hat was geschaut"><span class="nav-icon">📋</span><span class="nav-label">Verlauf</span></div>
+      <div class="nav-section">Sender</div>
       <div class="nav-item" onclick="nav('providers',this)" title="Anbieter"><span class="nav-icon">🌐</span><span class="nav-label">Anbieter</span></div>
       <div class="nav-item" onclick="nav('channels',this)" title="Kanäle"><span class="nav-icon">📺</span><span class="nav-label">Kanäle</span></div>
       <div class="nav-item" onclick="nav('groups',this)" title="Gruppen"><span class="nav-icon">🏷</span><span class="nav-label">Gruppen</span></div>
       <div class="nav-item" onclick="nav('epg',this)" title="EPG"><span class="nav-icon">📅</span><span class="nav-label">EPG</span></div>
-      <div class="nav-section">System</div>
-      <div class="nav-item" onclick="nav('logs',this)" title="Verlauf"><span class="nav-icon">📋</span><span class="nav-label">Verlauf</span></div>
-      <div class="nav-item" onclick="nav('traffic',this)" title="Traffic"><span class="nav-icon">📊</span><span class="nav-label">Traffic</span></div>
-      <div class="nav-item" onclick="nav('diagnose',this)" title="Diagnose"><span class="nav-icon">🔧</span><span class="nav-label">Diagnose</span></div>
+      <div class="nav-section">Betrieb</div>
+      <div class="nav-item" onclick="nav('traffic',this)" title="Qualität – wo hakt es, Störungen, Anbieter-Tempo"><span class="nav-icon">🧭</span><span class="nav-label">Qualität</span></div>
       <div class="nav-item" onclick="nav('vpn',this)" title="VPN"><span class="nav-icon">🔒</span><span class="nav-label">VPN</span></div>
+      <div class="nav-item" onclick="nav('diagnose',this)" title="Alarm und Protokoll – E-Mail-Alarm, Selbst-Check, technisches Protokoll"><span class="nav-icon">🔔</span><span class="nav-label">Alarm &amp; Protokoll</span></div>
+      <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.95</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v1.96</div>
       </div>
     </div>
 
@@ -913,7 +915,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         </div>
 
         <div class="section-hdr">
-          <span class="section-title">🔧 Diagnose</span>
+          <span class="section-title">📋 Protokoll</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <label style="font-size:11px;color:var(--text2);">Zeitraum</label>
             <select id="diag-days" class="form-select" style="width:auto;padding:5px 8px;font-size:11px;" onchange="loadDiagnosticLogs(1)">
@@ -1200,7 +1202,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.95</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v1.96</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1487,7 +1489,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <!-- Traffic Page -->
       <div id="page-traffic" class="content-area" style="display:none">
         <div class="section-hdr">
-          <span class="section-title">📊 Traffic-Analyse</span>
+          <span class="section-title">🧭 Qualität</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px;">
               Speichern:
@@ -1660,9 +1662,9 @@ tr:hover td{background:rgba(255,255,255,.02);}
               <button class="btn sm danger" onclick="clearSegmentEvents()" title="Alle Messwerte, Tageszähler und Test-Downloads löschen">🗑</button>
           </div>
           <div class="form-hint" style="margin-bottom:10px;">
-            <strong>Geladen in</strong> = so lange brauchte SelfStream, um das Bildstück beim Anbieter zu holen (durch das VPN).
+            <strong>Geladen in</strong> = so lange brauchte SelfStream, um das Bildstück beim Anbieter zu holen (durch das VPN), dahinter das Tempo in Mbit/s.
             Die Reserve dahinter vergleicht das mit der Spielzeit des Bildstücks: 🔴 unter 1× · 🟡 unter 1,7× · 🟢 darüber.
-            <strong>Rückstand</strong> = um wie viele Bildstücke der Player hinter seinem üblichen Abstand zum neuesten liegt: 🟢 0–1 · 🟡 2 · 🔴 3 und mehr. Überspringt er Bildstücke, hat der Zuschauer einen Sprung oder Hänger gesehen.
+            <strong>Rückstand</strong> = um wie viele Bildstücke der Player hinter seinem üblichen Abstand zum neuesten liegt: 🟢 0–1 · 🟡 2 · 🔴 3 und mehr. Überspringt er Bildstücke, hat der Zuschauer einen Sprung oder Hänger gesehen. Die Mbit/s dahinter sind der Verbrauch dieses Bildstücks (Größe ÷ Spielzeit).
             <span id="seg-total-count" style="margin-left:8px;color:var(--teal);font-family:var(--mono);font-size:10px;"></span>
           </div>
           <div id="tr-seg-events" style="font-family:var(--mono);font-size:11px;">
@@ -5352,7 +5354,7 @@ function qRueck(r, skip) {
 
 const Q_TIPP = {
   anbieter: 'Strecke Anbieter → VPN → SelfStream. Mbit/s = Tempo, mit dem die Bildstücke abgeholt werden. Reserve = wie viel schneller das ist, als die Bildstücke abgespielt werden. Unter 1× ruckelt es.',
-  vpn: 'Steht der Tunnel und trägt er den Verkehr? Bei einer Störung macht SelfStream einen kurzen Test-Download durch den Tunnel, um Anbieter und VPN zu unterscheiden.',
+  vpn: 'Steht der Tunnel und trägt er den Verkehr? „Läuft gerade“ = so viel fließt in diesem Moment durch den Tunnel. „Schafft“ = das Höchsttempo aus der letzten Server-Prüfung; die läuft nur, wenn niemand schaut. Bei einer Störung macht SelfStream zusätzlich einen kurzen Test-Download, um Anbieter und VPN zu unterscheiden.',
   selfstream: 'Auslastung von SelfStream selbst. 100 % CPU = ein Prozessorkern voll.',
   geraete: 'Ob die Player der Zuschauer Schritt halten. Wie schnell die Leitung eines Zuschauers höchstens wäre, lässt sich hinter dem Reverse-Proxy nicht messen – wohl aber, ob er zurückfällt.',
   rein: 'Strecke Anbieter → VPN → SelfStream für den Sender dieses Zuschauers. Mbit/s = Tempo beim Abholen der Bildstücke. Reserve = wie viel schneller ein Bildstück ankommt, als es abgespielt wird. Steht kein Tempo da, lagen die Bildstücke schon bereit, weil noch jemand denselben Sender schaut.',
@@ -5448,6 +5450,11 @@ async function loadQualitaet() {
   if (k.vpn.an) {
     vpnL = k.vpn.traegt ? 'gut' : 'schlecht';
     vpnText = k.vpn.traegt ? 'Tunnel steht' : 'Tunnel steht nicht';
+    if (k.vpn.traegt) {
+      if (k.vpn.laeuft_mbps != null) vpnText += ` · läuft gerade ${qMbit(k.vpn.laeuft_mbps)}`;
+      if (k.vpn.schafft_mbps != null && k.vpn.schafft_ts) vpnText += ` · schafft ${qMbit(k.vpn.schafft_mbps)} (gemessen ${_agoText(Math.floor(Date.now() / 1000) - k.vpn.schafft_ts)})`;
+      else vpnText += ' · Höchsttempo noch nicht gemessen';
+    }
     if (k.vpn.traegt && k.vpn.probe_frisch) {
       vpnText += k.vpn.probe_mbps != null ? `, Test-Download ${k.vpn.probe_mbps} Mbit/s` : ', Test-Download gescheitert';
       if (k.vpn.probe_mbps == null || k.vpn.probe_mbps < 20) vpnL = 'knapp';
@@ -5608,8 +5615,9 @@ function renderSegEvents() {
       let rein;
       if (leer) rein = '<span style="color:#ef4444;">leer geliefert</span>';
       else if (cached) rein = '<span style="color:var(--text3);">lag schon bereit</span>';
-      else rein = `${sek(elapsed)} ${dur > 0 ? '· ' + qReserve(res(elapsed)) : `<span style="color:${e.type === 'slow' ? '#ef4444' : e.type === 'delayed' ? '#eab308' : 'var(--text3)'};">●</span>`}`;
-      const raus = qRueck(e.rueck, e.skip);
+      else rein = `${sek(elapsed)}${Number(e.mbps) > 0 ? ' · ' + qMbit(Number(e.mbps)) : ''} ${dur > 0 ? '· ' + qReserve(res(elapsed)) : `<span style="color:${e.type === 'slow' ? '#ef4444' : e.type === 'delayed' ? '#eab308' : 'var(--text3)'};">●</span>`}`;
+      const verbrauch = dur > 0 && e.size_kb ? Math.round(e.size_kb * 1024 * 8 / dur / 1e5) / 10 : null;
+      const raus = qRueck(e.rueck, e.skip) + (verbrauch != null ? ` <span style="color:var(--text3);">·</span> <span style="color:var(--text2);">${qMbit(verbrauch)}</span>` : '');
       return `<tr style="border-bottom:1px solid var(--border);">
         <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;">${timeStr}</td>
         <td style="padding:4px 8px;"><strong>${esc(e.user_name || e.user || '—')}</strong></td>

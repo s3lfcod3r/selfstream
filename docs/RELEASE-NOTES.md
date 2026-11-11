@@ -2,6 +2,28 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-96"></a>
+
+## v1.96 — Menü neu sortiert, Tunnel-Tempo, Mbit/s bei den Einzelwerten
+
+Erster Schritt des Umbaus zu einer einfacheren Oberfläche (Entwurf vom 11.11.2026).
+
+**Menü:** Übersicht (Dashboard) · Zuschauer (Benutzer, Verlauf) · Sender (Anbieter, Kanäle,
+Gruppen, EPG) · Betrieb (Qualität, VPN, Alarm & Protokoll) · System (Einstellungen). Nur
+Reihenfolge und Namen ändern sich; die Seiten und ihre Adressen im Code bleiben dieselben
+(`traffic` heißt jetzt „Qualität“, `diagnose` heißt „Alarm & Protokoll“).
+
+**VPN-Ampel:** „läuft gerade“ = Mbit/s aus den Zählern der Tunnel-Schnittstelle
+(`/sys/class/net/wg0/statistics`), verglichen mit dem vorigen Abruf – kostet keinen Verkehr.
+„schafft“ = Höchsttempo des aktiven Servers aus der letzten Auto-Best-Prüfung.
+
+**Einzelwerte:** „Geladen in 0,1 s · 410 Mbit/s · 14×“ und „hält Schritt · 5,1 Mbit/s“
+(Verbrauch = Größe ÷ Spielzeit).
+
+**Noch offen aus dem Entwurf:** Dashboard mit Ampeln, VPN-Seite auf drei Karten, Kanäle und
+Gruppen auf einer Seite, aufgeräumte Seiten für Benutzer, Verlauf, Anbieter, EPG, Alarm und
+Einstellungen.
+
 <a id="v1-95"></a>
 
 ## v1.95 — Traffic-Seite: Mbit/s, Anbieter-Tempo im Verlauf, Erklärungen
