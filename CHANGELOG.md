@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 1.89 · November 2026
+- 🇬🇧 **Faster channel switching:** The channel address answers directly instead of redirecting (one request less per switch), playlists use the already open connection to the provider, "now playing" is looked up per channel instead of scanning the whole guide, and settings are kept for two seconds instead of being read from the database on every request. Prefetching was reworked: on a switch the segments the player starts with are fetched right away, afterwards the segment the player asks for next – before, segments the player had already passed were fetched.
+- 🇩🇪 **Schnelleres Umschalten:** Die Sender-Adresse antwortet direkt statt umzuleiten (eine Anfrage weniger je Umschalten), Playlists nutzen die schon offene Verbindung zum Anbieter, „läuft gerade“ wird je Sender nachgeschlagen statt das ganze Programm zu durchsuchen, und Einstellungen werden zwei Sekunden gemerkt statt bei jedem Abruf aus der Datenbank gelesen. Das Vorladen wurde überarbeitet: Beim Umschalten werden sofort die Segmente geholt, mit denen der Player beginnt, danach jeweils das Segment, das er als Nächstes anfragt – bisher wurden Segmente geholt, an denen der Player schon vorbei war.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v1-89)
+
 ## 1.88 · November 2026
 - 🇬🇧 **VPN kill switch:** New setting "VPN required" (VPN page). When it is on, no request leaves the container while the tunnel does not carry the traffic – including during a tunnel restart, switch or crash. Until now the normal route was restored on teardown and running streams fetched their segments directly. Viewers see a "VPN disturbed" notice and the channel resumes by itself. LAN targets given as IP stay reachable; the alert mail still bypasses the tunnel on purpose.
 - 🇩🇪 **VPN-Notschalter:** Neue Einstellung „VPN-Pflicht“ (Seite VPN). Ist sie an, verlässt kein Abruf den Container, solange der Tunnel den Verkehr nicht trägt – auch nicht beim Neustart, Wechsel oder Absturz des Tunnels. Bisher wurde beim Abbau die normale Route wiederhergestellt, und laufende Streams holten ihre Segmente direkt. Zuschauer sehen den Hinweis „VPN gestört“, der Sender startet von selbst wieder. Ziele im eigenen Netz (als IP) bleiben erreichbar; die Alarm-Mail geht weiterhin bewusst am Tunnel vorbei.

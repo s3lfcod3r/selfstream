@@ -2,6 +2,34 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v1-89"></a>
+
+## v1.89 — Schnelleres Umschalten
+
+**Anlass (11.11.2026):** Ein Senderwechsel dauerte rund 3 Sekunden. Die Strecke zum Anbieter
+war dabei schnell; Zeit ging in SelfStream selbst und in einer überflüssigen Anfrage verloren.
+
+**Geändert:**
+- **Keine Umleitung mehr:** `/iptv/<token>/live/<uid>` liefert die Playlist direkt. Bisher kam
+  eine Weiterleitung auf `/stream?url=…`, der Player musste also zweimal anfragen.
+- **Offene Verbindung für Playlists:** Live-Playlists (auch Unterplaylists) laufen über den
+  geteilten Keep-Alive-Client, den die Segmente schon nutzen. Bisher entstand je Playlist ein
+  neuer Client mit neuer Verbindung zum Anbieter. Ist eine Verbindung aus dem Vorrat tot, wird
+  der Client einmal neu aufgebaut und der Abruf wiederholt. Die VPN-Pflicht gilt unverändert.
+- **„Läuft gerade“ je Sender:** Die Sendungen werden einmal je EPG-Stand nach Sender sortiert.
+  Vorher ging jede Abfrage alle Sendungen aller Sender durch. Das Verzeichnis wird zusammen
+  mit dem EPG-Baum verworfen und hält keine alten Daten im Speicher.
+- **Einstellungen gemerkt:** `get_setting` liest alle Einstellungen höchstens alle 2 Sekunden
+  aus der Datenbank; `set_setting` verwirft den Stand sofort. Vorher öffnete jede Abfrage eine
+  eigene Datenbankverbindung, ein Senderwechsel rund zwanzig.
+- **Vorladen neu** (`vorladen.py`, Einstellung „Segmente vorladen“ wie bisher, 0 = aus):
+  Beim Umschalten werden die letzten drei Segmente der Playlist geholt – dort beginnt ein
+  Player. Danach wird bei jeder Segment-Anfrage das Segment geholt, das als Nächstes kommt.
+  Geladen wird nacheinander über die offene Verbindung, nicht parallel. Bisher wurden die
+  ersten Segmente der Playlist geholt, also die ältesten, die kein Player mehr anfragt.
+
+**Tests:** `tests/test_vorladen.py` (Segmentauswahl, Nachfolger, Einstellungs-Zwischenspeicher).
+
 <a id="v1-88"></a>
 
 ## v1.88 — VPN-Pflicht (Notschalter)

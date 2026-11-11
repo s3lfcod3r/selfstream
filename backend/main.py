@@ -35,6 +35,7 @@ from timeparse import (
     _DVR_PATH_RE, _dvr_wall_time_from_url,
 )
 from hls import rewrite_hls_playlist, segment_durations
+import vorladen
 import alerting
 import vpnwahl
 import vpnpflicht
@@ -571,6 +572,7 @@ async def _epg_neu_laden() -> int:
 
         # Alten Baum jetzt schon verwerfen, nicht erst nach dem Filtern.
         _epg_tree_cache["root"] = None
+        _epg_kanal_index.clear()
         _tvg_id_cache.clear()
 
         now = int(time.time())
@@ -596,6 +598,7 @@ async def _epg_neu_laden() -> int:
         groesse = os.path.getsize("/data/epg_cache.xml")
         _epg_cache = {"fetched_at": now, "url": source_url, "size": groesse}
         _epg_tree_cache["root"] = None
+        _epg_kanal_index.clear()
         _tvg_id_cache.clear()
         logger.info(f"EPG auto-fetched and cached ({groesse//1024}KB)")
         # Mitschreiben, solange die Sendungen noch geliefert werden — das Fenster
@@ -1489,12 +1492,9 @@ async def proxy_live(token: str, uid: str, utc: str = None, lutc: str = None, re
     if not ch or not (ch.get("stream_url") or "").strip():
         _log_player_request("live:not_found", request, token, {"uid": uid}, level="WARNING")
         raise HTTPException(status_code=404, detail="Unknown channel")
-    target = f"/iptv/{token}/stream?url={urllib.parse.quote(ch['stream_url'], safe='')}"
-    if utc:
-        target += f"&utc={urllib.parse.quote(str(utc), safe='')}"
-    if lutc:
-        target += f"&lutc={urllib.parse.quote(str(lutc), safe='')}"
-    return RedirectResponse(url=target)
+    # Direkt beantworten statt auf /stream umzuleiten: spart dem Player bei jedem
+    # Umschalten eine komplette Anfrage (über Internet/Mobilfunk schnell 100 ms und mehr).
+    return await proxy_stream(token, ch["stream_url"], utc, lutc, request)
 
 
 @proxy_app.get("/iptv/{token}/stream")
@@ -1946,20 +1946,8 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
             return HTMLResponse(content=_ms_m3u, media_type="application/x-mpegURL", headers={"Cache-Control": "no-cache"})
 
     try:
-        live_timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
-        live_headers = make_headers(hls)
-
-        # For .ts URLs (Xtream live streams): check if it's really an M3U8 or a direct TS stream
         # HLS .m3u8 stream — fetch playlist and rewrite segment URLs
-        async with make_iptv_client(
-            ssrf_guard=True,
-            timeout=live_timeout,
-            follow_redirects=hls["hls_follow_redirects"],
-            headers=live_headers
-        ) as client:
-            resp = await client.get(decoded_url)
-            resp.raise_for_status()
-            playlist_content = resp.text
+        playlist_content = await _playlist_holen(decoded_url, hls)
 
         # Generate stable SID: same device = same SID = same session
         _fwd2 = _fwd_client_ip(request)
@@ -1972,9 +1960,10 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
 
         # Keep live session alive on playlist refreshes (ExoPlayer polls m3u8 frequently).
         # Without this, cleanup can kill an active session while segments are still slow/blocked.
+        _sk_ls = f"{token}::sid::{sid}"
+        _ist_zap = _sessions.get(_sk_ls, {}).get("channel") != channel_name
         try:
             _now_ls = time.time()
-            _sk_ls = f"{token}::sid::{sid}"
             if _sk_ls in _sessions:
                 _sessions[_sk_ls]["last_seen"] = _now_ls
                 db.session_refresh(token)
@@ -2024,22 +2013,13 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
         except Exception as _e_ls_sess:
             logger.warning(f"Live session touch failed: {_e_ls_sess}")
 
-        # Prefetch next segments in background
+        # Vorladen: Reihenfolge der Segmente merken (für das laufende Vorladen im
+        # Segment-Pfad) und beim Umschalten die Segmente holen, mit denen der Player beginnt.
         try:
-            base_url = "/".join(decoded_url.split("/")[:-1])
-            seg_urls = []
-            prefetch_count = get_prefetch_count()
-            for line in playlist_content.splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and (".ts" in line or ".aac" in line):
-                    full_url = line if line.startswith("http") else f"{base_url}/{line}"
-                    if full_url not in _prefetch_cache:
-                        seg_urls.append(full_url)
-                    if len(seg_urls) >= prefetch_count:
-                        break
-            if prefetch_count > 0:
-                for seg_url in seg_urls:
-                    _track_background_task(asyncio.create_task(_prefetch_segment(seg_url, hls)))
+            _seg_liste = vorladen.segment_urls(playlist_content, decoded_url)
+            vorladen.folge_merken(_segment_folge, _seg_liste)
+            if _ist_zap and get_prefetch_count() > 0:
+                _vorladen_starten(vorladen.zap_auswahl(_seg_liste), hls)
         except Exception:
             pass
         _log_player_request(
@@ -2323,6 +2303,62 @@ async def _prefetch_segment(url: str, hls: dict):
         await _get_segment(url, hls)
     except Exception:
         pass
+
+
+# Nachfolger je Segment-Adresse aus den durchgereichten Live-Playlists (siehe vorladen.py).
+_segment_folge: dict = {}
+
+
+async def _vorladen_reihe(urls: list, hls: dict) -> None:
+    """Segmente nacheinander in den gemeinsamen Cache holen (wie ein Player, nicht parallel)."""
+    for url in urls:
+        if url in _segment_cache or url in _segment_in_progress:
+            continue
+        try:
+            daten, _dauer, _aus_cache = await _get_segment(url, hls)
+        except Exception:
+            return
+        if len(daten) <= 100:
+            return   # Anbieter liefert gerade nicht – nicht weiter nachfassen
+
+
+def _vorladen_starten(urls: list, hls: dict) -> None:
+    """Vorladen im Hintergrund anstoßen; schon vorhandene oder laufende Segmente auslassen."""
+    offen = [u for u in urls if u not in _segment_cache and u not in _segment_in_progress]
+    if offen:
+        _track_background_task(asyncio.create_task(_vorladen_reihe(offen, hls)))
+
+
+_POOL_FEHLER = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError,
+                httpx.RemoteProtocolError, httpx.PoolTimeout)
+
+
+async def _playlist_holen(url: str, hls: dict) -> str:
+    """Playlist über den geteilten Keep-Alive-Client holen.
+
+    Vorher entstand für jede Playlist ein eigener Client samt neuer Verbindung zum
+    Anbieter. Ist eine Verbindung aus dem Vorrat tot (z. B. nach einem VPN-Wechsel),
+    wird der Client einmal neu aufgebaut und der Abruf wiederholt.
+    """
+    req_kw = dict(
+        timeout=httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"]),
+        follow_redirects=hls["hls_follow_redirects"],
+        headers=make_headers(hls),
+    )
+    for versuch in range(2):
+        client = await _get_iptv_client()
+        try:
+            resp = await client.get(url, **req_kw)
+        except VpnNichtBereit:
+            raise
+        except _POOL_FEHLER:
+            await _reset_iptv_client()
+            if versuch == 1:
+                raise
+            continue
+        resp.raise_for_status()
+        return resp.text
+    raise RuntimeError("unerreichbar")
 # Catchup session tracking (log_id → {start, last_seen, token})
 _catchup_sessions: dict = {}
 
@@ -3600,6 +3636,10 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             raise HTTPException(status_code=502, detail="Empty segment after retries")
 
         ts_prefetch = (data_pf, elapsed_pf, from_cache_pf)
+        # Laufendes Vorladen: die Segmente holen, die der Player als Nächstes anfragt.
+        _voraus = get_prefetch_count()
+        if _voraus > 0:
+            _vorladen_starten(vorladen.naechste(_segment_folge, decoded_url, _voraus), hls)
 
     async def stream_segment():
         try:
@@ -3667,19 +3707,12 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                 _outbound_record(time.time() - _out_t0, len(data), user_name)
                 return
 
-            timeout = httpx.Timeout(hls["hls_timeout"], read=hls["hls_read_timeout"])
-            async with make_iptv_client(
-                ssrf_guard=True,
-                timeout=timeout,
-                follow_redirects=hls["hls_follow_redirects"],
-                headers=make_headers(hls)
-            ) as client:
-                resp = await client.get(decoded_url)
-                resp.raise_for_status()
-                _segment_dauern_merken(resp.text, decoded_url)
-                rewritten = rewrite_hls_playlist(resp.text, decoded_url, public_url_seg, token)
-                yield rewritten.encode()
-                return
+            _unter_text = await _playlist_holen(decoded_url, hls)
+            _segment_dauern_merken(_unter_text, decoded_url)
+            vorladen.folge_merken(_segment_folge, vorladen.segment_urls(_unter_text, decoded_url))
+            rewritten = rewrite_hls_playlist(_unter_text, decoded_url, public_url_seg, token)
+            yield rewritten.encode()
+            return
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -5316,6 +5349,7 @@ def _get_epg_root():
         if _epg_tree_cache["root"] is not None and _epg_tree_cache["key"] == key:
             return _epg_tree_cache["root"]
         _epg_tree_cache["root"] = None   # alten Baum freigeben, bevor der neue entsteht
+        _epg_kanal_index.clear()         # hält sonst die alten Sendungen fest
         try:
             root = _epg_schlank_einlesen(pfad)
         except Exception:
@@ -5328,6 +5362,24 @@ def _get_epg_root():
 
 # Channel name → tvg_id lookup cache
 _tvg_id_cache: dict = {}
+
+# Sendungen je Sender, damit „läuft gerade“ nicht bei jedem Umschalten alle
+# Sendungen aller Sender durchgeht. Gehört zu genau einem EPG-Baum und wird mit
+# ihm verworfen (siehe _epg_tree_cache["root"] = None).
+_epg_kanal_index: dict = {}
+
+
+def _epg_programme_von(root, tvg_id: str) -> list:
+    """Sendungen eines Senders aus dem EPG-Baum (Verzeichnis entsteht beim ersten Zugriff)."""
+    nach_kanal = _epg_kanal_index.get("nach_kanal")
+    if nach_kanal is None or _epg_kanal_index.get("baum") != id(root):
+        nach_kanal = {}
+        for programme in root.findall("programme"):
+            nach_kanal.setdefault(programme.get("channel", ""), []).append(programme)
+        _epg_kanal_index["baum"] = id(root)
+        _epg_kanal_index["nach_kanal"] = nach_kanal
+    return nach_kanal.get(tvg_id, [])
+
 
 def _get_now_playing(channel_name: str) -> dict:
     """Look up what is currently playing on a channel from the EPG cache."""
@@ -5355,9 +5407,7 @@ def _get_now_playing(channel_name: str) -> dict:
             return {}
 
         # Find currently running programme
-        for programme in root.findall("programme"):
-            if programme.get("channel", "") != tvg_id:
-                continue
+        for programme in _epg_programme_von(root, tvg_id):
             start = _parse_xmltv_datetime(programme.get("start", ""))
             stop = _parse_xmltv_datetime(programme.get("stop", ""))
             if start is None or stop is None:

@@ -9,11 +9,13 @@ from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 
 DB_PATH = os.getenv("DB_PATH", "/data/selfstream.db")
+SETTINGS_CACHE_SEC = 2.0
 
 
 class Database:
     def __init__(self):
         self.db_path = DB_PATH
+        self._settings_cache = None   # (db_path, Zeitpunkt, {key: value})
 
     @contextmanager
     def conn(self):
@@ -434,18 +436,36 @@ class Database:
                 (time.time(), provider_id)
             )
 
+    def _settings_gemerkt(self) -> Dict:
+        """Alle Einstellungen, höchstens SETTINGS_CACHE_SEC alt.
+
+        Ein Senderwechsel fragt rund 20 Einstellungen ab; jede Abfrage öffnete bisher
+        eine eigene Datenbankverbindung. set_setting() verwirft den Stand sofort.
+        """
+        jetzt = time.monotonic()
+        stand = self._settings_cache
+        if stand is not None and stand[0] == self.db_path and jetzt - stand[1] < SETTINGS_CACHE_SEC:
+            return stand[2]
+        werte = self.get_all_settings()
+        self._settings_cache = (self.db_path, jetzt, werte)
+        return werte
+
+    def settings_cache_leeren(self) -> None:
+        self._settings_cache = None
+
     def get_setting(self, key: str, default: str = None) -> Optional[str]:
-        with self.conn() as con:
-            row = con.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-            return row["value"] if row else default
+        return self._settings_gemerkt().get(key, default)
 
     def set_setting(self, key: str, value: str):
-        with self.conn() as con:
-            con.execute(
-                "INSERT INTO settings (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (key, value)
-            )
+        try:
+            with self.conn() as con:
+                con.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, value)
+                )
+        finally:
+            self._settings_cache = None
 
     def get_all_settings(self) -> Dict:
         with self.conn() as con:
@@ -884,6 +904,7 @@ class Database:
                 ))
                 moved += 1
             con.execute("DELETE FROM settings WHERE key='canary_history'")
+        self._settings_cache = None
         return moved
 
     def add_diagnostic_log(self, level: str, source: str, message: str):
