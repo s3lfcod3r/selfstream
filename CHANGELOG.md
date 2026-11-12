@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 2.02 · November 2026
+- 🇬🇧 **Tunnel log with date and time:** Every line of the tunnel log on the VPN page now starts with date and time (in the time zone from the settings), so you can see when a check, a switch or a restart happened.
+- 🇩🇪 **Tunnel-Protokoll mit Datum und Uhrzeit:** Jede Zeile im Protokoll des Tunnels auf der VPN-Seite beginnt jetzt mit Datum und Uhrzeit (in der Zeitzone aus den Einstellungen). So sieht man, wann eine Prüfung, ein Wechsel oder ein Neustart war.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v2-02)
+
 ## 2.01 · November 2026
 - 🇬🇧 **Alerts and settings tidied up:** On "Alerts & log" only the switch, the recipient and the daily sign of life stay visible; the mail server and the fine tuning fold away. The settings cards are called Addresses, Stream, Security, Retention and Log time zone, with plain field names. In the stream card the identification towards the provider and the nine catch-up switches with the logging options fold away. No function was removed.
 - 🇩🇪 **Alarm und Einstellungen aufgeräumt:** Auf „Alarm & Protokoll“ bleiben nur der Schalter, der Empfänger und das tägliche Lebenszeichen sichtbar; Mail-Server und Feineinstellungen sind eingeklappt. Die Karten der Einstellungen heißen Adressen, Stream, Sicherheit, Speicherdauer und Zeitzone des Protokolls, mit verständlichen Feldnamen. In der Stream-Karte sind die Kennung gegenüber dem Anbieter und die neun Catchup-Schalter samt Protokollierung eingeklappt. Es ist keine Funktion weggefallen.

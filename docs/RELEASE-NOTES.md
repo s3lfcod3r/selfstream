@@ -2,6 +2,15 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v2-02"></a>
+
+## v2.02 — Tunnel-Protokoll mit Datum und Uhrzeit
+
+`_vpn_log_add` stellt jeder Zeile Datum und Uhrzeit voran („12.11. 08:14:03“), in der
+Zeitzone aus „Zeitzone des Protokolls“. Betrifft alle Einträge: Start, Auto-Best-Prüfungen,
+Wechsel, Meldungen des Wächters. Das Protokoll lebt weiter nur im Speicher (die letzten 200
+Zeilen, 50 davon im Panel) und beginnt nach einem Neustart neu.
+
 <a id="v2-01"></a>
 
 ## v2.01 — Alarm und Einstellungen aufgeräumt

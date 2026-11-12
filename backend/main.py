@@ -6148,8 +6148,16 @@ def _vpn_note_link_state(line: str):
         _vpn_link_last_event = line
 
 
+def _vpn_log_zeit() -> str:
+    """Datum und Uhrzeit für eine Protokollzeile, in der Zeitzone aus den Einstellungen."""
+    try:
+        return datetime.now(_alarm_zeitzone()).strftime("%d.%m. %H:%M:%S")
+    except Exception:
+        return time.strftime("%d.%m. %H:%M:%S")
+
+
 def _vpn_log_add(line: str):
-    _vpn_log.append(line)
+    _vpn_log.append(f"{_vpn_log_zeit()}  {line}")
     if len(_vpn_log) > VPN_LOG_MAX:
         _vpn_log.pop(0)
 
