@@ -176,3 +176,94 @@ def test_segment_durations():
     pl = "#EXTM3U\n#EXTINF:6.006,\nseg1.ts\n#EXTINF:5.5,title\nhttp://cdn/x/seg2.ts\nkeine_dauer.ts\n"
     d = segment_durations(pl, "http://host/live/chan/index.m3u8")
     assert d == {"http://host/live/chan/seg1.ts": 6.006, "http://cdn/x/seg2.ts": 5.5}
+
+
+# ── Anlässe wählbar, Wartezeit, neue Prüfungen (2.03) ───────────────────────
+
+def test_gruende_tragen_ihren_anlass():
+    assert a.stichprobe_gruende({"vpn_up": False, "source": "leerlauf", "ok": False}, 1000) == [
+        ("vpn", "VPN-Tunnel ist unten"), ("anbieter_tot", "Anbieter nicht erreichbar")]
+    g = a.stichprobe_gruende({"source": "leerlauf", "ok": True, "latency_ms": 2500}, 1000)
+    assert [k for k, _ in g] == ["anbieter_langsam"]
+    g = a.stichprobe_gruende({"source": "passiv", "level": "bad", "quote": 1.4}, 1000)
+    assert [k for k, _ in g] == ["streams"]
+
+
+def test_alte_bewertung_liefert_weiter_nur_den_klartext():
+    schlecht, gruende = a.stichprobe_bewerten({"vpn_up": False, "source": "leerlauf", "ok": True}, 1000)
+    assert schlecht and gruende == ["VPN-Tunnel ist unten"]
+    assert a.stichprobe_bewerten({"source": "leerlauf", "ok": True}, 1000) == (False, [])
+
+
+def test_abgewaehlter_anlass_loest_nichts_aus():
+    g = [("vpn", "VPN-Tunnel ist unten"), ("anbieter_langsam", "Anbieter antwortet langsam")]
+    assert a.gruende_filtern(g, a.aus_lesen("anbieter_langsam")) == ["VPN-Tunnel ist unten"]
+    assert a.gruende_filtern(g, a.aus_lesen("vpn,anbieter_langsam")) == []
+    assert a.gruende_filtern(g, a.aus_lesen("")) == ["VPN-Tunnel ist unten", "Anbieter antwortet langsam"]
+
+
+def test_aus_lesen_ignoriert_unbekanntes():
+    assert a.aus_lesen(" vpn , gibtsnicht ,, zertifikat") == frozenset({"vpn", "zertifikat"})
+    assert a.aus_lesen(None) == frozenset()
+
+
+def test_anlass_zu_ereignis():
+    assert a.anlass_von("epg") == "quellen"
+    assert a.anlass_von("m3u:3") == "quellen"
+    assert a.anlass_von("aussen") == "aussen"
+    assert set(a.ANLASS_TEXT) <= set(a.ANLAESSE)
+
+
+def test_wartezeit_und_serie():
+    assert a.wartezeit_lesen("5") == 5 and a.wartezeit_lesen("30") == 30
+    assert a.wartezeit_lesen("7") == a.WARTEZEIT_STANDARD and a.wartezeit_lesen(None) == a.WARTEZEIT_STANDARD
+    assert [a.serie_fuer(m) for m in (5, 15, 30)] == [1, 3, 6]
+
+
+def test_alarm_nach_gewaehlter_wartezeit():
+    z, aktion = a.alarm_schritt(a.AlarmZustand(), True, ["Grund"], 1000, "2026-11-12", serie=1)
+    assert aktion == "alarm"                                   # 5 Minuten: schon die erste zählt
+    z = a.AlarmZustand()
+    aktionen = []
+    for i in range(6):
+        z, akt = a.alarm_schritt(z, True, ["Grund"], 1000 + i * 300, "2026-11-12", serie=6)
+        aktionen.append(akt)
+    assert aktionen == [None] * 5 + ["alarm"]                  # 30 Minuten: erst die sechste
+
+
+def test_ereignis_mit_eigener_geduld():
+    ev, akt, _ = a.ereignis_schritt({}, "zertifikat", False, 100, "läuft in 9 Tagen ab", geduld=0)
+    assert akt == "stoerung"                                   # sofort
+    ev, akt, _ = a.ereignis_schritt({}, "aussen", False, 0, "Timeout", geduld=900)
+    assert akt is None
+    ev, akt, _ = a.ereignis_schritt(ev, "aussen", False, 900, "Timeout", geduld=900)
+    assert akt == "stoerung"
+    ev, akt, e = a.ereignis_schritt(ev, "aussen", True, 1200, geduld=900)
+    assert akt == "behoben" and e["seit"] == 0 and "aussen" not in ev
+
+
+def test_verbindungen_knapp():
+    assert a.verbindungen_knapp(18, 20) and a.verbindungen_knapp(20, 20)
+    assert not a.verbindungen_knapp(17, 20)
+    assert not a.verbindungen_knapp(5, 0)                      # keine Grenze eingetragen
+
+
+def test_auslastung():
+    assert a.auslastung_grund(200, 1024, 50_000, 500_000) == ""
+    assert "Speicher 900 von 1024 MB" in a.auslastung_grund(900, 1024, 50_000, 500_000)
+    assert "nur noch 800 MB" in a.auslastung_grund(200, 1024, 800, 500_000)
+    assert "nur noch 2000 MB" in a.auslastung_grund(200, None, 2000, 100_000)   # unter 5 %
+    assert a.auslastung_grund(None, None, None, None) == ""
+
+
+def test_zertifikat_tage():
+    assert a.zert_tage(1000 + 20 * 86400, 1000) == 20
+    assert a.zert_tage(1000 + 86399, 1000) == 0
+    assert a.zert_tage(1000 - 5, 1000) == -1
+
+
+def test_anlass_mail_nennt_messwert_und_rat():
+    betreff, text = a.anlass_mail("vpn_ziel", "110 Mbit/s gemessen, Ziel 135", "12.11.2026 10:00", False)
+    assert "VPN-Tempo" in betreff and "110 Mbit/s" in text and "Was du tun kannst" in text
+    betreff, text = a.anlass_mail("aussen", "Timeout", "12.11.2026 10:00", True, "20 Minuten")
+    assert betreff.startswith("✅") and "20 Minuten" in text

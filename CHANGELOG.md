@@ -8,6 +8,11 @@ Neueste Version zuerst. Die ausführlichen Release-Notes sind je Version verlink
 
 ---
 
+## 2.03 · November 2026
+- 🇬🇧 **Alerts only for your own side, each one selectable:** Every reason for a mail now has its own checkbox on "Alerts & log", and you choose after how many minutes a disturbance is reported (5, 15 or 30). New reasons: the VPN server no longer reaches the target for the number of users, provider connections are running out, SelfStream is filling up (memory or disk), SelfStream cannot be reached from outside (it calls its own internet address through the tunnel), the domain certificate is about to expire, and "internet was down". A single viewer with a weak line never triggers a mail. Each new mail says what is wrong, the measured value and what you can do.
+- 🇩🇪 **Alarm nur für die eigene Seite, jeder Anlass wählbar:** Jeder Anlass für eine Mail hat jetzt auf „Alarm & Protokoll“ ein eigenes Häkchen, und man wählt, nach wie vielen Minuten eine Störung gemeldet wird (5, 15 oder 30). Neue Anlässe: der VPN-Server schafft das Ziel für die Nutzerzahl nicht mehr, die Verbindungen beim Anbieter werden knapp, SelfStream läuft voll (Speicher oder Platte), SelfStream ist von außen nicht erreichbar (es ruft seine eigene Internet-Adresse durch den Tunnel auf), das Zertifikat der Domain läuft bald ab, und „Internet war weg“. Ein einzelner Zuschauer mit schwacher Leitung löst nie eine Mail aus. Jede neue Mail nennt, was los ist, den Messwert und was man tun kann.
+- 📄 [RELEASE-NOTES.md](docs/RELEASE-NOTES.md#v2-03)
+
 ## 2.02 · November 2026
 - 🇬🇧 **Tunnel log with date and time:** Every line of the tunnel log on the VPN page now starts with date and time (in the time zone from the settings), so you can see when a check, a switch or a restart happened.
 - 🇩🇪 **Tunnel-Protokoll mit Datum und Uhrzeit:** Jede Zeile im Protokoll des Tunnels auf der VPN-Seite beginnt jetzt mit Datum und Uhrzeit (in der Zeitzone aus den Einstellungen). So sieht man, wann eine Prüfung, ein Wechsel oder ein Neustart war.

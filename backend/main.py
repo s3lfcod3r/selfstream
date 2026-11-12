@@ -8581,6 +8581,16 @@ def _alarm_an() -> bool:
     return db.get_setting("alert_enabled", "0") == "1"
 
 
+def _alarm_aus() -> frozenset:
+    """Abgewählte Anlässe (Häkchen auf der Seite Alarm)."""
+    return alerting.aus_lesen(db.get_setting("alert_aus", ""))
+
+
+def _alarm_wartezeit() -> int:
+    """Minuten, die eine Störung andauern muss, bevor eine Mail kommt."""
+    return alerting.wartezeit_lesen(db.get_setting("alert_wait_min", str(alerting.WARTEZEIT_STANDARD)))
+
+
 def _alarm_zeitzone():
     """Zeitzone für Mailtexte: die Diagnose-Zeitzone aus den Einstellungen."""
     from zoneinfo import ZoneInfo
@@ -8691,7 +8701,7 @@ def _alarm_messwerte(p: dict) -> list:
     return werte
 
 
-async def _alarm_ereignis(schluessel: str, was: str, ok: bool, fehler: str = "") -> None:
+async def _alarm_ereignis(schluessel: str, was: str, ok: bool, fehler: str = "", geduld: float = None) -> None:
     """Dauerfehler beim EPG-Abruf oder bei der Senderliste melden (und die Behebung).
     Wirft nie – ein Fehler hier darf keinen Abruf stören."""
     global _alarm_ereignisse
@@ -8701,14 +8711,20 @@ async def _alarm_ereignis(schluessel: str, was: str, ok: bool, fehler: str = "")
         with _alarm_lock:
             vorher = _alarm_ereignisse.get(schluessel)
             _alarm_ereignisse, aktion, eintrag = alerting.ereignis_schritt(
-                _alarm_ereignisse, schluessel, ok, jetzt, fehler)
+                _alarm_ereignisse, schluessel, ok, jetzt, fehler, geduld)
             geaendert = vorher != _alarm_ereignisse.get(schluessel)
         if geaendert:
             await asyncio.to_thread(_alarm_zustand_speichern)
-        if not aktion or not _alarm_an():
+        anlass = alerting.anlass_von(schluessel)
+        aus = _alarm_aus()
+        if not aktion or not _alarm_an() or anlass in aus:
             return
-        mail = alerting.ereignis_mail(
-            was, eintrag.get("fehler", ""), _alarm_zeit(eintrag["seit"]), aktion == "behoben",
+        if aktion == "behoben" and "entwarnung" in aus and anlass != "internet":
+            return   # „Internet war weg“ meldet sich überhaupt erst, wenn es wieder da ist
+        bauen = alerting.anlass_mail if anlass in alerting.ANLASS_TEXT else alerting.ereignis_mail
+        mail = bauen(
+            anlass if anlass in alerting.ANLASS_TEXT else was,
+            eintrag.get("fehler", ""), _alarm_zeit(eintrag["seit"]), aktion == "behoben",
             alerting.dauer_text(jetzt - eintrag["seit"]), _alarm_panel())
         await asyncio.to_thread(_alarm_mail, schluessel.split(":")[0], mail)
     except Exception as e:
@@ -8838,7 +8854,7 @@ async def _neustart_melden() -> None:
         return
     lebte = vorher.get("lebt") or vorher.get("start")
     diag_log("WARNING", "alert", f"Unerwarteter Neustart – letztes Lebenszeichen {_alarm_zeit(lebte)}")
-    if _alarm_an():
+    if _alarm_an() and "neustart" not in _alarm_aus():
         mail = alerting.neustart_mail(_alarm_zeit(lebte), _alarm_zeit(_prozess_start), _alarm_panel())
         await asyncio.to_thread(_alarm_mail, "neustart", mail)
 
@@ -8864,7 +8880,8 @@ async def _alarm_auswerten(sample: dict, schlecht: bool, gruende: list) -> None:
     jetzt = time.time()
     vorher = _alarm
     neu, aktion = alerting.alarm_schritt(
-        vorher, schlecht, gruende, jetzt, datetime.now(_alarm_zeitzone()).date().isoformat())
+        vorher, schlecht, gruende, jetzt, datetime.now(_alarm_zeitzone()).date().isoformat(),
+        alerting.serie_fuer(_alarm_wartezeit(), HEALTH_SAMPLE_INTERVAL))
     if neu.aktiv and not vorher.aktiv:
         diag_log("WARNING", "health", f"Anhaltende Störung ({sample.get('source')}): " + "; ".join(gruende))
     if aktion in ("alarm", "alarm_letzter"):
@@ -8877,7 +8894,7 @@ async def _alarm_auswerten(sample: dict, schlecht: bool, gruende: list) -> None:
             neu = alerting.alarm_mail_gescheitert(neu)   # nächste Runde erneut versuchen
     elif aktion == "entwarnung":
         diag_log("INFO", "health", "Qualität wieder normal")
-        if _alarm_an():
+        if _alarm_an() and "entwarnung" not in _alarm_aus():
             mail = alerting.entwarnung_mail(_alarm_zeit(vorher.seit), _alarm_zeit(jetzt),
                                             alerting.dauer_text(jetzt - vorher.seit), _alarm_panel())
             await asyncio.to_thread(_alarm_mail, "entwarnung", mail)
@@ -8885,6 +8902,160 @@ async def _alarm_auswerten(sample: dict, schlecht: bool, gruende: list) -> None:
         _alarm = neu
     if neu != vorher:
         await asyncio.to_thread(_alarm_zustand_speichern)
+
+
+AUSSEN_JEDE_RUNDE = 3          # Erreichbarkeit von außen nur jede dritte Runde (alle 15 min)
+_zusatz_runde = 0
+_zusatz_stand: dict = {}       # letzter Stand der Zusatz-Prüfungen, fürs Panel
+
+
+def _speicher_limit_mb():
+    """Speicher-Limit des Containers in MB (None = keins gesetzt oder nicht lesbar)."""
+    for pfad in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            with open(pfad) as f:
+                roh = f.read().strip()
+            if roh.isdigit() and int(roh) < 1 << 50:
+                return int(roh) // (1024 * 1024)
+        except OSError:
+            continue
+    return None
+
+
+def _aussen_adresse() -> str:
+    """Öffentliche Adresse, unter der die Player SelfStream erreichen ('' = keine Domain gesetzt)."""
+    kurz = (db.get_setting("short_domain", "") or "").strip().rstrip("/")
+    url = kurz or (db.get_proxy_url() or "").strip().rstrip("/")
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if not host or vpnpflicht.ist_lan_ziel(host) or host.replace(".", "").isdigit():
+        return ""   # nur eine echte Domain von außen prüfen, keine LAN-Adresse
+    return url
+
+
+def _aussen_pruefen(url: str) -> dict:
+    """Die eigene Internet-Adresse aufrufen – durch den Tunnel, also wie ein Zuschauer von außen.
+
+    Blockierend. {"ok", "fehler", "zert_tage"}; None, wenn gerade nicht prüfbar (VPN-Pflicht sperrt)."""
+    import ssl
+    t = urllib.parse.urlsplit(url)
+    host, https = t.hostname, t.scheme == "https"
+    port = t.port or (443 if https else 80)
+    if vpn_sperre_aktiv(host):
+        return None
+    s, tage = None, None
+    try:
+        ip = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(8.0)
+        s.connect((ip, port))
+        if https:
+            s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
+            ablauf = (s.getpeercert() or {}).get("notAfter")
+            if ablauf:
+                tage = alerting.zert_tage(ssl.cert_time_to_seconds(ablauf), time.time())
+        s.sendall(f"GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: selfstream-selbsttest\r\n"
+                  f"Connection: close\r\n\r\n".encode())
+        kopf = s.recv(4096).decode("latin-1", "replace")
+        zeile = kopf.split("\r\n", 1)[0]
+        code = int(zeile.split()[1]) if len(zeile.split()) > 1 and zeile.split()[1].isdigit() else 0
+        if code and code < 500:
+            return {"ok": True, "fehler": "", "zert_tage": tage}
+        return {"ok": False, "fehler": f"Antwort: {zeile[:80] or 'keine'}", "zert_tage": tage}
+    except ssl.SSLCertVerificationError as e:
+        return {"ok": False, "fehler": f"Zertifikat ungültig: {e.verify_message or e}"[:200], "zert_tage": None}
+    except (OSError, ValueError, IndexError) as e:
+        return {"ok": False, "fehler": f"{type(e).__name__}: {e}"[:200], "zert_tage": None}
+    finally:
+        if s is not None:
+            try:
+                s.close()
+            except OSError:
+                pass
+
+
+def _mailserver_erreichbar():
+    """Ist der Mail-Server direkt erreichbar? Nur gefragt, wenn der Tunnel unten ist – dann
+    zeigt die Standard-Route ohnehin direkt nach draußen. None = kein Mail-Server eingetragen."""
+    host = (db.get_setting("smtp_host", "") or "").strip()
+    if not host:
+        return None
+    try:
+        port = int(db.get_setting("smtp_port", "587") or 587)
+        with socket.create_connection((host, port), timeout=6):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+async def _alarm_zusatz_pruefen(vpn_up) -> None:
+    """Prüfungen neben der Gesundheits-Stichprobe – alles, was auf der eigenen Seite liegt.
+
+    Läuft alle 5 Minuten im Sampler. Jede Prüfung ist gekapselt; ein Fehler meldet nichts."""
+    global _zusatz_runde
+    _zusatz_runde += 1
+    warten = _alarm_wartezeit() * 60
+    stand = {"ts": int(time.time())}
+
+    try:   # VPN-Server schafft das Ziel nicht
+        aktiv, ziel = _wg_aktiv_stand(), _wg_ziel()
+        if aktiv.get("mbps") is not None and aktiv.get("ts") and time.time() - aktiv["ts"] <= vpnwahl.GEDAECHTNIS_ALTER \
+                and ziel.get("ziel"):
+            ok = aktiv["mbps"] >= ziel["ziel"]
+            stand["vpn_ziel"] = ok
+            await _alarm_ereignis("vpn_ziel", "VPN-Tempo", ok,
+                                  f"{aktiv['mbps']} Mbit/s gemessen, Ziel {ziel['ziel']} Mbit/s für "
+                                  f"{ziel['nutzer']} Nutzer", warten)
+    except Exception as e:
+        logger.debug(f"Zusatzprüfung vpn_ziel: {e}")
+
+    try:   # Verbindungen beim Anbieter
+        grenze, belegt = _anbieter_grenze(), _viewer_count()
+        if grenze:
+            knapp = alerting.verbindungen_knapp(belegt, grenze)
+            stand["verbindungen"] = not knapp
+            await _alarm_ereignis("verbindungen", "Verbindungen beim Anbieter", not knapp,
+                                  f"{belegt} von {grenze} belegt", warten)
+    except Exception as e:
+        logger.debug(f"Zusatzprüfung verbindungen: {e}")
+
+    try:   # Speicher und Platte
+        platte = shutil.disk_usage(os.path.dirname(db.db_path) or "/data")
+        grund = alerting.auslastung_grund(_rss_mb_jetzt(), _speicher_limit_mb(),
+                                          platte.free // (1024 * 1024), platte.total // (1024 * 1024))
+        stand["auslastung"] = not grund
+        await _alarm_ereignis("auslastung", "Auslastung von SelfStream", not grund, grund, warten)
+    except Exception as e:
+        logger.debug(f"Zusatzprüfung auslastung: {e}")
+
+    try:   # Internet war weg: Tunnel unten UND der Mail-Server direkt nicht erreichbar
+        if vpn_up is False:
+            erreichbar = await asyncio.to_thread(_mailserver_erreichbar)
+            if erreichbar is not None:
+                stand["internet"] = erreichbar
+                await _alarm_ereignis("internet", "Internet", erreichbar,
+                                      "Tunnel unten, Mail-Server nicht erreichbar", 0)
+        elif vpn_up:
+            stand["internet"] = True
+            await _alarm_ereignis("internet", "Internet", True)
+    except Exception as e:
+        logger.debug(f"Zusatzprüfung internet: {e}")
+
+    try:   # von außen erreichbar + Zertifikat (nur jede dritte Runde)
+        if _zusatz_runde % AUSSEN_JEDE_RUNDE == 1:
+            url = _aussen_adresse()
+            if url:
+                erg = await asyncio.to_thread(_aussen_pruefen, url)
+                if erg is not None:
+                    stand["aussen"] = erg["ok"]
+                    await _alarm_ereignis("aussen", "Erreichbarkeit von außen", erg["ok"], erg["fehler"], warten)
+                    if erg.get("zert_tage") is not None:
+                        gut = erg["zert_tage"] >= alerting.ZERT_WARNUNG_TAGE
+                        stand["zertifikat"] = erg["zert_tage"]
+                        await _alarm_ereignis("zertifikat", "Zertifikat der Domain", gut,
+                                              f"läuft in {erg['zert_tage']} Tagen ab", 0)
+    except Exception as e:
+        logger.debug(f"Zusatzprüfung aussen: {e}")
+    _zusatz_stand.update(stand)
 
 
 async def _health_sampler():
@@ -8936,13 +9107,16 @@ async def _health_sampler():
                     "failed": prov.get("failed"), "source": "leerlauf",
                     "error": prov.get("error"), "kanaele": prov.get("kanaele") or [],
                 }
-            schlecht, gruende = alerting.stichprobe_bewerten(sample, grenze)
-            sample["bad"] = schlecht
+            alle_gruende = alerting.stichprobe_gruende(sample, grenze)
+            sample["bad"] = bool(alle_gruende)                    # Verlauf: unabhängig von den Häkchen
+            gruende = alerting.gruende_filtern(alle_gruende, _alarm_aus())
+            schlecht = bool(gruende)
 
             _health_history.append(sample)
             if len(_health_history) > HEALTH_HISTORY_MAX:
                 _health_history.pop(0)
             await _alarm_auswerten(sample, schlecht, gruende)
+            await _alarm_zusatz_pruefen(vpn_up)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -8986,11 +9160,17 @@ def get_alerts(_=Depends(check_admin)):
         "heartbeat_hour": _int_setting("alert_heartbeat_hour", 8, 0, 23),
         "latency_ms": _alarm_latenz_grenze(),
         "panel_url": s.get("alert_panel_url", ""),
+        "anlaesse": [{"key": k, "name": v[0], "hinweis": v[1], "an": k not in _alarm_aus()}
+                     for k, v in alerting.ANLAESSE.items()],
+        "wartezeit_min": _alarm_wartezeit(),
+        "wartezeiten": list(alerting.WARTEZEITEN),
+        "zusatz": dict(_zusatz_stand),
         "alert_active": _alarm.gemeldet,
         "alert_since": _alarm.seit if _alarm.aktiv else None,
         "alerts_today": _alarm.alarme_heute,
         "alerts_max": alerting.MAX_ALARME_PRO_TAG,
         "events": [{"key": k, "since": v.get("seit"), "error": v.get("fehler", ""),
+                    "name": alerting.ANLAESSE.get(alerting.anlass_von(k), (k,))[0],
                     "reported": bool(v.get("gemeldet"))} for k, v in _alarm_ereignisse.items()],
         "status": _selfcheck_status(),
     }
@@ -9026,6 +9206,12 @@ def set_alerts(body: dict, _=Depends(check_admin)):
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"{k}: Zahl {lo}–{hi}")
             db.set_setting(key, str(max(lo, min(hi, v))))
+    if "aus" in body:
+        if not isinstance(body["aus"], (list, tuple)):
+            raise HTTPException(status_code=400, detail="aus: Liste von Anlässen")
+        db.set_setting("alert_aus", ",".join(sorted(alerting.aus_lesen(",".join(str(x) for x in body["aus"])))))
+    if "wartezeit_min" in body:
+        db.set_setting("alert_wait_min", str(alerting.wartezeit_lesen(body["wartezeit_min"])))
     if "panel_url" in body:
         url = str(body["panel_url"] or "").strip()
         if url and (len(url) > 200 or not re.match(r"^https?://[^\s<>\"']+$", url)):

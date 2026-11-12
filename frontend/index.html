@@ -380,7 +380,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v2.02</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v2.03</div>
       </div>
     </div>
 
@@ -938,6 +938,15 @@ tr:hover td{background:rgba(255,255,255,.02);}
             </div>
           </div>
           </details>
+          <div style="margin:4px 0 14px;padding-top:12px;border-top:1px solid var(--border);">
+            <div class="form-label" style="margin-bottom:4px;">Worüber soll eine Mail kommen?</div>
+            <div class="form-hint" style="margin-bottom:10px;">Alle Anlässe betreffen deine Seite: Internet, VPN, Anbieter und SelfStream selbst. Hat ein einzelner Zuschauer schlechtes Internet, kommt keine Mail – das steht nur auf der Seite Qualität. Häkchen weg = dieser Anlass meldet sich nicht mehr.</div>
+            <div id="alert-anlaesse" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:6px 18px;margin-bottom:12px;"></div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <label class="form-label" style="margin:0;">Melden, wenn eine Störung so lange anhält:</label>
+              <select class="form-select" id="alert-wait" style="width:auto;"></select>
+            </div>
+          </div>
           <button class="btn primary" onclick="alertsSave(true)">💾 Speichern</button>
           <button class="btn" id="alert-test-btn" onclick="alertsTest()" style="margin-left:8px;">✉️ Test-E-Mail senden</button>
           <div class="form-hint" style="margin-top:10px;">Beispiel web.de: Server <code>smtp.web.de</code>, Port <code>587</code>, STARTTLS, Benutzer = deine web.de-Adresse. Bei manchen Anbietern brauchst du ein „App-Passwort" statt des normalen Passworts.</div>
@@ -1243,7 +1252,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v2.02</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v2.03</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -4012,12 +4021,25 @@ async function alertsLoad() {
   if (hh && document.activeElement !== hh) hh.value = String(a.heartbeat_hour ?? 8);
   setv('alert-latency', a.latency_ms || 1000);
   setv('alert-panel-url', a.panel_url || '');
+  const ab = document.getElementById('alert-anlaesse');
+  if (ab && !ab.contains(document.activeElement)) {
+    ab.innerHTML = (a.anlaesse || []).map(x => `<label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;line-height:1.45;" title="${esc(x.hinweis)}">
+        <input type="checkbox" data-anlass="${esc(x.key)}" ${x.an ? 'checked' : ''} style="margin-top:2px;accent-color:var(--teal);">
+        <span>${esc(x.name)}<br><span style="font-size:10px;color:var(--text3);">${esc(x.hinweis)}</span></span></label>`).join('');
+  }
+  const aw = document.getElementById('alert-wait');
+  if (aw && document.activeElement !== aw) {
+    aw.innerHTML = (a.wartezeiten || [5, 15, 30]).map(m => `<option value="${m}">${m} Minuten</option>`).join('');
+    aw.value = String(a.wartezeit_min || 15);
+  }
   alertsRenderStatus(a.status, a.alert_active, a);
   alertsLoadHistory();
 }
 
 const ALERT_ART = { alarm: '🔴 Störung', entwarnung: '✅ Entwarnung', epg: '🟠 EPG', m3u: '🟠 Senderliste',
-  neustart: '🟠 Neustart', lebenszeichen: '💚 Lebenszeichen', test: '🔔 Test' };
+  neustart: '🟠 Neustart', lebenszeichen: '💚 Lebenszeichen', test: '🔔 Test',
+  internet: '🟠 Internet', vpn_ziel: '🟠 VPN-Tempo', verbindungen: '🟠 Verbindungen', auslastung: '🟠 Auslastung',
+  aussen: '🟠 Von außen', zertifikat: '🟠 Zertifikat' };
 
 async function alertsLoadHistory() {
   const box = document.getElementById('alert-history');
@@ -4043,7 +4065,7 @@ function alertsRenderStatus(st, active, a) {
   if (st.issues && st.issues.length) t += ' — ' + st.issues.join(' · ');
   if (active) t += '   (Alarm-Mail verschickt – warte auf Entwarnung)';
   if (a && a.alerts_today) t += `   · Störungs-Mails heute: ${a.alerts_today}/${a.alerts_max}`;
-  if (a && a.events && a.events.length) t += '   · Dauerfehler: ' + a.events.map(e => e.key.startsWith('m3u') ? 'Senderliste' : 'EPG').join(', ');
+  if (a && a.events && a.events.length) t += '   · Dauerfehler: ' + a.events.map(e => e.key.startsWith('m3u') ? 'Senderliste' : (e.key === 'epg' ? 'EPG' : (e.name || e.key))).join(', ');
   box.textContent = t;
   box.style.borderColor = st.level === 'ok' ? 'var(--border)' : (st.level === 'warn' ? '#f0b400' : '#ef4444');
   box.style.color = st.level === 'ok' ? 'var(--text2)' : (st.level === 'warn' ? '#f0b400' : '#ef4444');
@@ -4062,6 +4084,8 @@ async function alertsSave(toast) {
     heartbeat_hour: parseInt(document.getElementById('alert-hb-hour').value || '8', 10),
     latency_ms: parseInt(document.getElementById('alert-latency').value || '1000', 10),
     panel_url: document.getElementById('alert-panel-url').value.trim(),
+    aus: [...document.querySelectorAll('#alert-anlaesse input[data-anlass]')].filter(c => !c.checked).map(c => c.dataset.anlass),
+    wartezeit_min: parseInt(document.getElementById('alert-wait')?.value || '15', 10),
   };
   const pass = document.getElementById('alert-pass').value;
   if (pass && pass !== '••••••••') body.smtp_password = pass;

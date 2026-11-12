@@ -2,6 +2,51 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v2-03"></a>
+
+## v2.03 — Alarm nur für die eigene Seite, jeder Anlass wählbar
+
+**Anlass (12.11.2026):** Alarme sollen nur melden, was auf der eigenen Seite liegt (Internet, VPN,
+Anbieter, SelfStream) – und einzelne Meldungen sollen sich abschalten lassen, wenn sie stören.
+
+**Wählbar (`alert_aus`, kommagetrennt; `alerting.ANLAESSE`):** VPN-Tunnel steht nicht · Anbieter
+liefert nichts · Streams laufen schlecht · Anbieter antwortet langsam · Internet war weg ·
+unerwarteter Neustart · VPN-Server schafft das Ziel nicht · Verbindungen werden knapp ·
+SelfStream läuft voll · Senderliste oder Programm-Daten · von außen nicht erreichbar ·
+Zertifikat läuft ab · Entwarnung. Abgewählte Anlässe werden weiter geprüft und im Zustand
+geführt, verschicken aber keine Mail.
+
+**Wartezeit (`alert_wait_min`: 5, 15, 30):** bestimmt, wie viele schlechte Stichproben am Stück
+(Takt 5 Minuten) einen Alarm auslösen, und die Geduld der neuen Prüfungen. Senderliste und
+Programm-Daten bleiben bei 30 Minuten.
+
+**Neue Prüfungen (`_alarm_zusatz_pruefen`, alle 5 Minuten im Sampler):**
+- **VPN-Ziel:** letztes gemessenes Höchsttempo des aktiven Servers (höchstens 48 h alt) gegen das
+  Ziel aus der Nutzerzahl.
+- **Verbindungen:** belegt ≥ 90 % der eingetragenen Grenze des Anbieters.
+- **Auslastung:** Speicher ≥ 85 % des Container-Limits, oder weniger als 1 GB bzw. 5 % Platz
+  im Datenordner.
+- **Von außen:** alle 15 Minuten ein Abruf der eigenen öffentlichen Adresse (`short_domain`,
+  sonst Proxy-Adresse; nur echte Domains) – durch den Tunnel, also aus Sicht eines Zuschauers
+  von außen. Jede Antwort unter 500 gilt als erreichbar. Sperrt die VPN-Pflicht, wird nicht
+  geprüft.
+- **Zertifikat:** aus demselben Abruf; Meldung sofort, wenn weniger als 14 Tage bleiben oder
+  das Zertifikat ungültig ist.
+- **Internet war weg:** Tunnel unten und der eingetragene Mail-Server direkt nicht erreichbar.
+  Die Mail kann erst raus, wenn die Leitung wieder steht, und nennt dann Beginn und Dauer.
+
+**Mails der neuen Anlässe** (`alerting.anlass_mail`): was los ist, seit wann, der Messwert und
+„Was du tun kannst“.
+
+**Bewusst nicht gemeldet:** einzelne Zuschauer, deren Gerät nicht hinterherkommt. Das steht nur
+auf der Seite Qualität.
+
+**Grenzen:** Blockt eine Sperrliste vor dem Reverse-Proxy die Ausgangsadresse des VPN-Servers,
+meldet „von außen nicht erreichbar“ einen Fehlalarm – dann das Häkchen entfernen. Prozessorlast
+wird nicht gemeldet (zu sprunghaft).
+
+**Tests:** `tests/test_alerting.py` erweitert.
+
 <a id="v2-02"></a>
 
 ## v2.02 — Tunnel-Protokoll mit Datum und Uhrzeit

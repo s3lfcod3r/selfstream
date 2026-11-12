@@ -88,9 +88,15 @@ def passiv_bewerten(proben: list) -> dict:
 
 def stichprobe_bewerten(probe: dict, latenz_grenze_ms: float) -> tuple:
     """(schlecht, gründe) für eine Gesundheits-Stichprobe – Gründe im Klartext für die Mail."""
+    gruende = [text for _anlass, text in stichprobe_gruende(probe, latenz_grenze_ms)]
+    return bool(gruende), gruende
+
+
+def stichprobe_gruende(probe: dict, latenz_grenze_ms: float) -> list:
+    """Gründe einer Stichprobe als [(Anlass, Klartext)] – der Anlass erlaubt das Abwählen."""
     gruende = []
     if probe.get("vpn_up") is False:
-        gruende.append("VPN-Tunnel ist unten")
+        gruende.append(("vpn", "VPN-Tunnel ist unten"))
     if probe.get("source") == "passiv":
         if probe.get("level") == "bad":
             teile = []
@@ -100,7 +106,7 @@ def stichprobe_bewerten(probe: dict, latenz_grenze_ms: float) -> tuple:
                 teile.append(f"Ladezeit ~{probe['median_s']} s je Segment")
             if probe.get("err_rate"):
                 teile.append(f"{int(probe['err_rate'] * 100)} % fehlgeschlagen")
-            gruende.append("Streams laufen schlecht" + (f" ({', '.join(teile)})" if teile else ""))
+            gruende.append(("streams", "Streams laufen schlecht" + (f" ({', '.join(teile)})" if teile else "")))
     else:
         if not probe.get("ok"):
             text = "Anbieter nicht erreichbar"
@@ -108,11 +114,11 @@ def stichprobe_bewerten(probe: dict, latenz_grenze_ms: float) -> tuple:
                 text += f" ({probe['error']})"
             if probe.get("kanaele"):
                 text += f" – geprüft: {', '.join(probe['kanaele'])}"
-            gruende.append(text)
+            gruende.append(("anbieter_tot", text))
         elif probe.get("latency_ms") is not None and probe["latency_ms"] > latenz_grenze_ms:
-            gruende.append(f"Anbieter antwortet langsam ({probe['latency_ms']:.0f} ms, "
-                           f"Grenze {latenz_grenze_ms:.0f} ms)")
-    return bool(gruende), gruende
+            gruende.append(("anbieter_langsam", f"Anbieter antwortet langsam ({probe['latency_ms']:.0f} ms, "
+                                                f"Grenze {latenz_grenze_ms:.0f} ms)"))
+    return gruende
 
 
 @dataclass(frozen=True)
@@ -147,7 +153,8 @@ class AlarmZustand:
             return cls()
 
 
-def alarm_schritt(z: AlarmZustand, schlecht: bool, gruende: list, jetzt: float, tag: str) -> tuple:
+def alarm_schritt(z: AlarmZustand, schlecht: bool, gruende: list, jetzt: float, tag: str,
+                  serie: int = None) -> tuple:
     """Eine Stichprobe einarbeiten. Rückgabe (neuer Zustand, Aktion).
 
     Aktion: None, "alarm", "alarm_letzter" (letzte Mail des Tages, danach still)
@@ -158,12 +165,14 @@ def alarm_schritt(z: AlarmZustand, schlecht: bool, gruende: list, jetzt: float, 
     Anders als früher gibt es keine 2-Stunden-Sperre mehr: Die schluckte eine
     neue Störung kurz nach einer Entwarnung komplett. Stattdessen ein Tageslimit.
     """
+    if serie is None:
+        serie = SCHLECHT_SERIE
     if z.tag != tag:
         z = replace(z, tag=tag, alarme_heute=0)
     if schlecht:
         z = replace(z, schlecht=z.schlecht + 1, gut=0,
                     erste_schlecht=jetzt if z.schlecht == 0 else z.erste_schlecht)
-        if not z.aktiv and z.schlecht >= SCHLECHT_SERIE:
+        if not z.aktiv and z.schlecht >= serie:
             z = replace(z, aktiv=True, seit=z.erste_schlecht, gruende=tuple(gruende))
             if z.alarme_heute < MAX_ALARME_PRO_TAG:
                 z = replace(z, gemeldet=True, alarme_heute=z.alarme_heute + 1)
@@ -181,7 +190,8 @@ def alarm_mail_gescheitert(z: AlarmZustand) -> AlarmZustand:
     return replace(z, aktiv=False, gemeldet=False, alarme_heute=max(0, z.alarme_heute - 1))
 
 
-def ereignis_schritt(ereignisse: dict, schluessel: str, ok: bool, jetzt: float, fehler: str = "") -> tuple:
+def ereignis_schritt(ereignisse: dict, schluessel: str, ok: bool, jetzt: float, fehler: str = "",
+                     geduld: float = None) -> tuple:
     """Dauerfehler (EPG-Abruf, Senderliste) verfolgen. Rückgabe (neue Ereignisse, Aktion, Eintrag).
 
     Aktion: None, "stoerung" (seit EREIGNIS_GEDULD durchgehend kaputt) oder
@@ -200,7 +210,9 @@ def ereignis_schritt(ereignisse: dict, schluessel: str, ok: bool, jetzt: float, 
     else:
         eintrag = {**eintrag, "fehler": fehler or eintrag.get("fehler", "")}
     aktion = None
-    if not eintrag["gemeldet"] and jetzt - eintrag["seit"] >= EREIGNIS_GEDULD:
+    if geduld is None:
+        geduld = EREIGNIS_GEDULD
+    if not eintrag["gemeldet"] and jetzt - eintrag["seit"] >= geduld:
         eintrag = {**eintrag, "gemeldet": True}
         aktion = "stoerung"
     neu[schluessel] = eintrag
@@ -282,3 +294,113 @@ def lebenszeichen_mail(level: str, hinweise: list, stoerungen_24h: int, panel_ur
     text += "Alles in Ordnung.\n" if not hinweise else "Hinweise:\n- " + "\n- ".join(hinweise) + "\n"
     text += f"\nStörungs-Mails in den letzten 24 Stunden: {stoerungen_24h}\n"
     return "✅ SelfStream: Tages-Lebenszeichen", text + _fuss(panel_url)
+
+
+# ── Anlässe: was eine Mail auslösen darf (alles auf der eigenen Seite) ─────────
+# Schlüssel → (Name im Panel, Erklärung). Reihenfolge = Reihenfolge der Häkchen.
+ANLAESSE = {
+    "vpn":              ("VPN-Tunnel steht nicht", "Mit VPN-Pflicht kommt dann bei niemandem ein Bild."),
+    "anbieter_tot":     ("Anbieter liefert nichts", "Der Test-Abruf scheitert, wenn niemand schaut."),
+    "streams":          ("Streams laufen schlecht", "Die Anlieferung ist für alle Zuschauer zu langsam oder bricht ab."),
+    "anbieter_langsam": ("Anbieter antwortet langsam", "Test-Abruf über der Antwortzeit-Grenze, wenn niemand schaut."),
+    "internet":         ("Internet war weg", "Tunnel unten und der Mail-Server nicht erreichbar. Die Mail kommt, sobald es wieder geht."),
+    "neustart":         ("SelfStream unerwartet neu gestartet", "Absturz, Speichermangel oder Stromausfall."),
+    "vpn_ziel":         ("VPN-Server schafft das Ziel nicht", "Das gemessene Höchsttempo liegt unter dem Ziel für die Nutzerzahl."),
+    "verbindungen":     ("Verbindungen beim Anbieter werden knapp", "Fast alle erlaubten Verbindungen sind belegt."),
+    "auslastung":       ("SelfStream läuft voll", "Speicher des Containers oder Platz für die Daten wird knapp."),
+    "quellen":          ("Senderliste oder Programm-Daten", "Die Aktualisierung schlägt seit 30 Minuten fehl."),
+    "aussen":           ("Von außen nicht erreichbar", "SelfStream ruft seine eigene Internet-Adresse durch den Tunnel auf."),
+    "zertifikat":       ("Zertifikat der Domain läuft ab", "Meldet sich 14 Tage vorher."),
+    "entwarnung":       ("Entwarnung", "Mail, sobald eine gemeldete Störung vorbei ist."),
+}
+WARTEZEITEN = (5, 15, 30)       # Minuten, zur Auswahl im Panel
+WARTEZEIT_STANDARD = 15
+ZERT_WARNUNG_TAGE = 14
+VERBINDUNGEN_KNAPP = 0.9        # ab diesem Anteil der erlaubten Verbindungen
+SPEICHER_KNAPP = 0.85           # Anteil des Container-Limits
+PLATTE_KNAPP_MB = 1024          # weniger frei als das …
+PLATTE_KNAPP_ANTEIL = 0.05      # … oder weniger als dieser Anteil
+
+# Texte für die neuen Anlässe: (Was, Satz bei Störung, Was du tun kannst)
+ANLASS_TEXT = {
+    "internet": ("Internet", "Die Internet-Verbindung war seit {seit} unterbrochen: Der VPN-Tunnel war unten "
+                             "und auch der Mail-Server war nicht erreichbar.",
+                 "Router und Leitung prüfen. SelfStream baut den Tunnel von selbst wieder auf."),
+    "vpn_ziel": ("VPN-Tempo", "Der aktive VPN-Server schafft seit {seit} das Ziel nicht.",
+                 "SelfStream sucht in ruhigen Zeiten selbst einen besseren Server. Bleibt es so, "
+                 "auf der VPN-Seite weitere Server importieren oder ein anderes Land wählen."),
+    "verbindungen": ("Verbindungen beim Anbieter", "Seit {seit} sind fast alle erlaubten Verbindungen beim Anbieter belegt.",
+                     "Kommt noch jemand dazu, bekommt er kein Bild. Beim Anbieter mehr Verbindungen buchen "
+                     "oder Nutzern weniger gleichzeitige Streams erlauben."),
+    "auslastung": ("Auslastung von SelfStream", "SelfStream läuft seit {seit} voll.",
+                   "Im Zweifel den Container neu starten und das Speicher-Limit oder den Platz für die Daten vergrößern."),
+    "aussen": ("Erreichbarkeit von außen", "SelfStream ist seit {seit} über seine Internet-Adresse nicht erreichbar, "
+                                           "obwohl es selbst läuft.",
+               "Domain, Portfreigabe im Router und den Reverse-Proxy prüfen. Zuschauer von außen bekommen so lange kein Bild."),
+    "zertifikat": ("Zertifikat der Domain", "Das Zertifikat der Internet-Adresse läuft bald ab.",
+                   "Die automatische Verlängerung im Reverse-Proxy prüfen. Nach Ablauf verweigern die Player die Verbindung."),
+}
+
+
+def anlass_von(schluessel: str) -> str:
+    """Anlass (Häkchen) zu einem Ereignis-Schlüssel: 'epg' und 'm3u:3' gehören zu 'quellen'."""
+    kopf = (schluessel or "").split(":")[0]
+    return "quellen" if kopf in ("epg", "m3u") else kopf
+
+
+def aus_lesen(wert: str) -> frozenset:
+    """Abgewählte Anlässe aus der Einstellung (kommagetrennt); Unbekanntes fällt weg."""
+    return frozenset(k for k in (x.strip() for x in (wert or "").split(",")) if k in ANLAESSE)
+
+
+def gruende_filtern(gruende: list, aus) -> list:
+    """Klartext-Gründe, deren Anlass nicht abgewählt ist."""
+    return [text for anlass, text in gruende if anlass not in aus]
+
+
+def wartezeit_lesen(wert) -> int:
+    try:
+        v = int(float(wert))
+    except (TypeError, ValueError):
+        return WARTEZEIT_STANDARD
+    return v if v in WARTEZEITEN else WARTEZEIT_STANDARD
+
+
+def serie_fuer(wartezeit_min: int, takt_sec: int = 300) -> int:
+    """So viele schlechte Stichproben am Stück ergeben die gewählte Wartezeit."""
+    return max(1, round(wartezeit_min * 60 / takt_sec))
+
+
+def verbindungen_knapp(belegt: int, grenze: int) -> bool:
+    return bool(grenze and grenze > 0 and belegt >= grenze * VERBINDUNGEN_KNAPP)
+
+
+def auslastung_grund(rss_mb, limit_mb, frei_mb, gesamt_mb) -> str:
+    """Klartext, wenn Speicher oder Platte knapp sind – sonst leer."""
+    teile = []
+    if rss_mb and limit_mb and limit_mb > 0 and rss_mb >= limit_mb * SPEICHER_KNAPP:
+        teile.append(f"Speicher {int(rss_mb)} von {int(limit_mb)} MB belegt")
+    if frei_mb is not None and gesamt_mb:
+        if frei_mb < PLATTE_KNAPP_MB or frei_mb < gesamt_mb * PLATTE_KNAPP_ANTEIL:
+            teile.append(f"nur noch {int(frei_mb)} MB Platz für die Daten frei")
+    return "; ".join(teile)
+
+
+def zert_tage(ablauf_ts: float, jetzt: float) -> int:
+    return int((ablauf_ts - jetzt) // 86400)
+
+
+def anlass_mail(anlass: str, fehler: str, seit_text: str, behoben: bool, dauer: str = "",
+                panel_url: str = "") -> tuple:
+    """Mail für einen der neuen Anlässe (Betreff, Text) – mit dem, was man tun kann."""
+    was, satz, rat = ANLASS_TEXT[anlass]
+    if behoben:
+        text = f"{was}: wieder in Ordnung.\n\nGestört seit {seit_text} ({dauer}).\n"
+        if fehler:
+            text += f"Zuletzt gemeldet: {fehler}\n"
+        return f"✅ SelfStream: {was} wieder in Ordnung", text + _fuss(panel_url)
+    text = satz.format(seit=seit_text) + "\n\n"
+    if fehler:
+        text += f"Messwert: {fehler}\n\n"
+    text += f"Was du tun kannst: {rat}\n"
+    return f"🟠 SelfStream: {was}", text + _fuss(panel_url)
