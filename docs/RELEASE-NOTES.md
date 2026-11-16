@@ -2,6 +2,32 @@
 
 Ausführliche Release-Notes je Version (bis v1.83 als `CHANGELOG.md` geführt). Kurzfassung zweisprachig: [CHANGELOG.md](../CHANGELOG.md).
 
+<a id="v2-04"></a>
+
+## v2.04 — Catchup wie Live bewertet, leere Segmente getrennt
+
+**Anlass (16.11.2026):** Die Störungsliste zeigte „Anbieter · ein Sender“ für „[Catchup] ZDF HD“
+und „[Catchup] RTL HD“. In sieben Tagen galten 12 von 882 Catchup-Segmenten als spät; das
+langsamste brauchte 2,5 s bei rund 6 s Spielzeit – also kein Ruckeln.
+
+**Ursache:** Der Catchup-Pfad schrieb seine Messwerte selbst und nutzte weiter die starren
+Grenzen von vor 1.91 (über 1 s verzögert, über 2 s langsam).
+
+**Geändert:**
+- `_catchup_festhalten` bewertet mit `qualitaet.stufe` gegen die Spielzeit; dafür werden die
+  `#EXTINF`-Zeiten der Archiv-Playlists gemerkt. Ohne bekannte Spielzeit gelten 1,5 s / 3 s.
+- Neue Spalte `segment_events.catchup`; der Sendername bleibt sauber (ohne „[Catchup] “).
+  Alte Zeilen mit dem Vorsatz werden beim Lesen erkannt und nur ab 3 s Ladezeit gezählt.
+- Störungsliste: eigene Ursache **„Anbieter · Archiv“**; Catchup mischt sich nicht mit Live und
+  kann keine „mehrere Sender → Anbieter oder VPN“-Störung auslösen.
+- Catchup bleibt außen vor bei Alarm-Mails, Test-Download, Auto-Best, Tageszählern und
+  Rückstand (war schon so; jetzt ausdrücklich).
+- **Leer gelieferte Segmente** haben den Typ `leer` (vorher `slow`). In einer Störung zählen
+  sie mit („davon n leer geliefert“), einzeln stehen sie getrennt unter der Liste. In sieben
+  Tagen waren 78 von 82 „langsamen“ Live-Segmenten in Wahrheit leer gelieferte.
+
+**Tests:** `tests/test_qualitaet.py` erweitert.
+
 <a id="v2-03"></a>
 
 ## v2.03 — Alarm nur für die eigene Seite, jeder Anlass wählbar

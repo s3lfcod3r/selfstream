@@ -246,3 +246,31 @@ def test_urteil_nur_ein_geraet_knapp():
 def test_urteil_alles_gut_und_niemand_schaut():
     assert q.urteil("ok", True, True, None, False, [])["text"] == "Alles flüssig."
     assert q.urteil(None, False, False, None, False, [])["level"] == "unbekannt"
+
+
+# ── Catchup (Archiv) und leer gelieferte Segmente (2.04) ────────────────────
+
+def test_catchup_ist_eine_eigene_ursache():
+    cu = [dict(_e(100 + i, channel="ZDF HD"), catchup=True) for i in range(3)]
+    r = q.stoerungen(cu)
+    assert [(s["ursache"], s["sender"]) for s in r["stoerungen"]] == [("archiv", ["ZDF HD"])]
+
+
+def test_catchup_macht_aus_live_keine_stoerung_mit_mehreren_sendern():
+    # zwei späte Live-Stücke auf einem Sender + drei späte Catchup-Stücke auf einem anderen:
+    # Live bleibt unter der Schwelle, Catchup wird als Archiv geführt – kein „Anbieter oder VPN“.
+    ereignisse = [_e(100), _e(105)] + [dict(_e(101 + i, channel="ZDF HD"), catchup=True) for i in range(3)]
+    r = q.stoerungen(ereignisse)
+    assert [s["ursache"] for s in r["stoerungen"]] == ["archiv"] and r["einzelne"] == 2
+
+
+def test_einzelne_leere_werden_getrennt_gezaehlt():
+    r = q.stoerungen([_e(100, "leer"), _e(5000, "slow"), _e(9000, "leer")])
+    assert r["stoerungen"] == [] and r["einzelne"] == 1 and r["leer"] == 2
+
+
+def test_leere_zaehlen_in_einer_stoerung_mit():
+    r = q.stoerungen([_e(100, "leer"), _e(105, "leer"), _e(110, "slow")])
+    assert len(r["stoerungen"]) == 1
+    s0 = r["stoerungen"][0]
+    assert s0["anzahl"] == 3 and s0["leer"] == 2 and r["leer"] == 0

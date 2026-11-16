@@ -786,8 +786,8 @@ class Database:
         """Store a segment timing event in DB for long-term retention."""
         self._spaeter("""
                 INSERT INTO segment_events (ts, user_name, channel, provider_id, type, elapsed, size_kb, mbps, seg,
-                                            dur, out_s, cached, rueck, skip)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            dur, out_s, cached, rueck, skip, catchup)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event.get("time", 0), event.get("user", ""),
                 event.get("channel", ""), event.get("provider_id"),
@@ -795,7 +795,7 @@ class Database:
                 event.get("size_kb", 0), event.get("mbps", 0),
                 event.get("seg", ""),
                 event.get("dur"), event.get("out_s"), 1 if event.get("cached") else 0,
-                event.get("rueck"), int(event.get("skip") or 0),
+                event.get("rueck"), int(event.get("skip") or 0), 1 if event.get("catchup") else 0,
             ))
         # Aufbewahrung erzwingen: gelegentlich alte Zeilen (>30 Tage) löschen,
         # damit die Tabelle nicht unbegrenzt wächst (nicht nur beim Lesen filtern).
@@ -833,7 +833,7 @@ class Database:
                     se.id, se.ts, se.user_name, se.channel,
                     se.provider_id, se.type, se.elapsed,
                     se.size_kb, se.mbps, se.seg,
-                    se.dur, se.out_s, se.cached, se.rueck, se.skip,
+                    se.dur, se.out_s, se.cached, se.rueck, se.skip, se.catchup,
                     se.created_at,
                     p.name as provider_name
                 FROM segment_events se
@@ -909,7 +909,7 @@ class Database:
         cutoff = time.time() - max(1, int(days)) * 86400
         with self.conn() as con:
             rows = con.execute(
-                "SELECT ts, user_name AS user, channel, type, elapsed, dur FROM segment_events "
+                "SELECT ts, user_name AS user, channel, type, elapsed, dur, seg, catchup FROM segment_events "
                 "WHERE ts >= ? AND type != 'ok' ORDER BY ts DESC LIMIT ?", (cutoff, limit)).fetchall()
             return [dict(r) for r in rows]
 
@@ -1623,6 +1623,8 @@ class Database:
                     con.execute("ALTER TABLE segment_events ADD COLUMN rueck INTEGER DEFAULT NULL")
                 if "skip" not in seg_cols:
                     con.execute("ALTER TABLE segment_events ADD COLUMN skip INTEGER DEFAULT 0")
+                if "catchup" not in seg_cols:
+                    con.execute("ALTER TABLE segment_events ADD COLUMN catchup INTEGER DEFAULT 0")
                 # Tageszähler einmalig aus vorhandenen Zeilen füllen – nur Tage/Sender, für die
                 # auch pünktliche Segmente gespeichert sind (Debug-Modus), sonst wäre alles „spät“.
                 if not con.execute("SELECT 1 FROM segment_tage LIMIT 1").fetchone():

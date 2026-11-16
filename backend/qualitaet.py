@@ -192,7 +192,8 @@ def _eintrag(gruppe: list, ursache: str, probe: Optional[dict] = None) -> dict:
     nutzer = sorted({e.get("user") or "?" for e in gruppe})
     return {
         "ursache": ursache, "von": von, "bis": bis, "dauer": int(bis - von),
-        "anzahl": len(gruppe), "sender": sender[:5], "sender_anzahl": len(sender),
+        "anzahl": len(gruppe), "leer": sum(1 for e in gruppe if e.get("type") == "leer"),
+        "sender": sender[:5], "sender_anzahl": len(sender),
         "nutzer": nutzer[:5], "nutzer_anzahl": len(nutzer),
         "probe_mbps": probe.get("mbps") if probe else None, "probe": probe is not None,
     }
@@ -208,14 +209,29 @@ def stoerungen(ereignisse: list, netz_proben: list = (), luecke: float = STOER_L
       'vpn'      mehrere Sender, neutraler Download langsam oder gescheitert
       'netz'     mehrere Sender, keine Probe → Anbieter oder VPN, nicht zu trennen
       'geraet'   nur die Strecke zu einem Nutzer
+      'archiv'   zeitversetztes Schauen (Catchup): das Archiv des Anbieters lieferte zu spät
+    Typ 'leer' = der Anbieter lieferte ein leeres Segment (SelfStream holt es neu). Leere
+    zählen in einer Störung mit, einzeln werden sie getrennt gezählt ("leer").
     """
     netz_proben = list(netz_proben)
-    rein = [e for e in ereignisse if e.get("type") in ("slow", "delayed")]
+    # Live: zu spät ODER leer geliefert. Zeitversetzt (Catchup) läuft getrennt – das Archiv
+    # ist beim Anbieter ein anderer Teil als das Live-Signal und sagt nichts über VPN/Leitung.
+    rein = [e for e in ereignisse if e.get("type") in ("slow", "delayed", "leer") and not e.get("catchup")]
+    archiv = [e for e in ereignisse if e.get("type") in ("slow", "delayed", "leer") and e.get("catchup")]
     raus = [e for e in ereignisse if e.get("type") == "geraet"]
-    liste, einzelne = [], 0
+    liste, einzelne, leer_einzeln = [], 0, 0
+    for g in _gruppen(archiv, luecke):
+        n_leer = sum(1 for e in g if e.get("type") == "leer")
+        if len(g) < STOER_MIN:
+            einzelne += len(g) - n_leer
+            leer_einzeln += n_leer
+        else:
+            liste.append(_eintrag(g, "archiv"))
     for g in _gruppen(rein, luecke):
         if len(g) < STOER_MIN:
-            einzelne += len(g)
+            n_leer = sum(1 for e in g if e.get("type") == "leer")
+            einzelne += len(g) - n_leer
+            leer_einzeln += n_leer
             continue
         if len({e.get("channel") for e in g}) < 2:
             liste.append(_eintrag(g, "sender"))
@@ -238,7 +254,7 @@ def stoerungen(ereignisse: list, netz_proben: list = (), luecke: float = STOER_L
             else:
                 liste.append(_eintrag(g, "geraet"))
     liste.sort(key=lambda s: s["von"], reverse=True)
-    return {"stoerungen": liste, "einzelne": einzelne}
+    return {"stoerungen": liste, "einzelne": einzelne, "leer": leer_einzeln}
 
 
 def rangliste(zeilen: list, mindestens: int = RANG_MIN) -> list:

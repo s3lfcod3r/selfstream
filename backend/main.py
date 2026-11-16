@@ -1782,6 +1782,7 @@ async def proxy_stream(token: str, url: str, utc: str = None, lutc: str = None, 
                     )
 
             # Rewrite segment URLs through our proxy (catchup=True skips session tracking)
+            _segment_dauern_merken(archive_content, archive_url)   # Spielzeiten für die Bewertung
             rewritten = rewrite_hls_playlist(archive_content, archive_url, public_url, token, catchup=True)
             # Extract real catchup time from DVR segment URLs (e.g. dvr-2026/05/01/13/24/...)
             import re as _re_dvr
@@ -2255,6 +2256,33 @@ def _sitzung_rueckstand(sess: dict, url: str) -> tuple:
         return qualitaet.rueckstand(verlauf), skip
     except Exception:
         return None, 0
+
+
+def _catchup_festhalten(user: str, channel: str, provider_id, seg_name: str, size_kb: float,
+                        elapsed: float, dur) -> None:
+    """Ein zeitversetzt geschautes Segment bewerten und festhalten (wirft nie).
+
+    Gleicher Maßstab wie bei Live: Ladezeit gegen die Spielzeit, nicht mehr starr 1 s / 2 s.
+    Catchup bleibt aber für sich: kein Tageszähler, kein Test-Download, kein Rückstand – das
+    Archiv des Anbieters sagt nichts über VPN oder Leitung, und beim zeitversetzten Schauen
+    bestimmt der Zuschauer selbst, wo er ist."""
+    try:
+        typ = qualitaet.stufe(elapsed, dur)
+        if typ == "ok" and db.get_setting("segment_debug", "0") != "1":
+            return
+        mbps = round(min((size_kb * 1024 * 8) / (max(elapsed, 0.001) * 1_000_000), 10000.0), 1)
+        ev = {"time": time.time(), "user": user, "channel": channel, "type": typ,
+              "elapsed": round(elapsed, 2), "size_kb": round(size_kb), "mbps": mbps, "seg": seg_name,
+              "provider_id": provider_id, "dur": round(dur, 2) if dur else None, "catchup": True}
+        _segment_events.append(ev)
+        if len(_segment_events) > 500:
+            _segment_events.pop(0)
+        db.add_segment_event(ev)
+        if typ == "slow":
+            logger.warning(f"⚠️ SLOW CATCHUP [{user}] {seg_name}: {elapsed:.1f}s, {mbps:.1f}Mbit/s")
+            diag_log("WARNING", "segment", f"SLOW CATCHUP [{user}] {seg_name}: {elapsed:.1f}s, {mbps:.1f}Mbit/s")
+    except Exception as e:
+        logger.debug(f"Catchup-Segment nicht festgehalten: {e}")
 
 
 def _segment_festhalten(user: str, channel: str, provider_id, seg_name: str, size_kb: float,
@@ -3676,6 +3704,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                                 _cw_el,
                                 where="nachgelagerte Playlist (.m3u8)",
                             )
+                    _segment_dauern_merken(raw_pl, decoded_url)
                     rewritten = rewrite_hls_playlist(raw_pl, decoded_url, public_url_seg, token, catchup=True)
                     _log_player_request(
                         "segment:catchup_playlist_response",
@@ -3737,39 +3766,8 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
                             _cu_provider_id = _cu_ch_rec.get("provider_id")
                         except Exception:
                             pass
-                    if _cu_elapsed > 2.0:
-                        logger.warning(f"⚠️ SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s")
-                        diag_log(
-                            "WARNING",
-                            "segment",
-                            f"SLOW CATCHUP [{_cu_user}] {_cu_seg}: {_cu_elapsed:.1f}s, {_cu_speed:.1f}Mbit/s",
-                        )
-                        _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
-                                  "type": "slow", "elapsed": round(_cu_elapsed, 2),
-                                  "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
-                                  "seg": _cu_seg, "provider_id": _cu_provider_id}
-                        _segment_events.append(_cu_ev)
-                        if len(_segment_events) > 500: _segment_events.pop(0)
-                        try: db.add_segment_event(_cu_ev)
-                        except Exception: pass
-                    elif _cu_elapsed > 1.0:
-                        _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
-                                  "type": "delayed", "elapsed": round(_cu_elapsed, 2),
-                                  "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
-                                  "seg": _cu_seg, "provider_id": _cu_provider_id}
-                        _segment_events.append(_cu_ev)
-                        if len(_segment_events) > 500: _segment_events.pop(0)
-                        try: db.add_segment_event(_cu_ev)
-                        except Exception: pass
-                    elif db.get_setting("segment_debug", "0") == "1":
-                        _cu_ev = {"time": time.time(), "user": _cu_user, "channel": f"[Catchup] {_cu_ch}",
-                                  "type": "ok", "elapsed": round(_cu_elapsed, 2),
-                                  "size_kb": round(_cu_size_kb), "mbps": round(_cu_speed, 1),
-                                  "seg": _cu_seg, "provider_id": _cu_provider_id}
-                        _segment_events.append(_cu_ev)
-                        if len(_segment_events) > 500: _segment_events.pop(0)
-                        try: db.add_segment_event(_cu_ev)
-                        except Exception: pass
+                    _catchup_festhalten(_cu_user, _cu_ch, _cu_provider_id, _cu_seg, _cu_size_kb,
+                                        _cu_elapsed, _segment_dauer.get(decoded_url))
 
                     async def stream_catchup_ts():
                         chunk_size = 524288
@@ -3818,7 +3816,7 @@ async def proxy_segment(token: str, url: str, sid: str = None, catchup: str = No
             )
             _ev0 = {
                 "time": time.time(), "user": user_name_pf, "channel": channel_name_pf,
-                "type": "slow", "elapsed": round(elapsed_pf, 2),
+                "type": "leer", "elapsed": round(elapsed_pf, 2),
                 "size_kb": round(total_pf / 1024, 1), "mbps": 0.0,
                 "seg": f"⚠️ LEER: {seg_name_pf}", "provider_id": user.get("provider_id")
             }
@@ -7875,6 +7873,8 @@ def get_segment_events(days: int = 30, limit: int = 500, debug: int = 0, _=Depen
             evs = [e for e in evs if e.get("type") != "ok"]
         return evs
 
+CATCHUP_VORSATZ = "[Catchup] "    # so hießen zeitversetzte Sender in Zeilen vor 2.04
+
 _cpu_stand = {"t": 0.0, "cpu": 0.0, "pct": None}
 
 
@@ -7951,8 +7951,17 @@ def get_qualitaet(days: int = 7, verlauf_min: int = 60, _=Depends(check_admin)):
     # Spielzeit: hier mit den Sekunden-Grenzen neu einstufen, sonst entstehen Scheinstörungen.
     spaete = []
     for e in db.get_spaete_segmente(days):
-        if e["type"] in ("slow", "delayed") and not e.get("dur"):
-            neu = qualitaet.stufe(e.get("elapsed") or 0.0, None)
+        kanal = e.get("channel") or ""
+        catchup = bool(e.get("catchup")) or kanal.startswith(CATCHUP_VORSATZ)
+        if catchup:   # alte Zeilen tragen den Vorsatz im Sendernamen
+            e = {**e, "catchup": True, "channel": kanal.removeprefix(CATCHUP_VORSATZ)}
+        if (e.get("seg") or "").startswith("⚠️ LEER") and e["type"] != "geraet":
+            e = {**e, "type": "leer"}     # früher als „slow“ gespeichert
+        elif e["type"] in ("slow", "delayed") and not e.get("dur"):
+            dauer = e.get("elapsed") or 0.0
+            # Catchup ohne bekannte Spielzeit: nur echte Ausreißer zählen (3 s und mehr).
+            neu = ("slow" if dauer >= alerting.OHNE_DAUER_SCHLECHT else "ok") if catchup \
+                else qualitaet.stufe(dauer, None)
             if neu == "ok":
                 continue
             e = {**e, "type": neu}

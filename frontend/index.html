@@ -380,7 +380,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
       <div class="nav-section">System</div>
       <div class="nav-item" onclick="nav('settings',this)" title="Einstellungen"><span class="nav-icon">⚙️</span><span class="nav-label">Einstellungen</span></div>
       <div style="padding:12px 20px;margin-top:auto;border-top:1px solid var(--border);margin-top:8px;">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v2.03</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;">selfstream v2.04</div>
       </div>
     </div>
 
@@ -1252,7 +1252,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
         <!-- Version Info -->
         <div style="margin-top:24px;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v2.03</span>
+            <span style="font-family:var(--mono);font-size:12px;color:var(--teal);">selfstream v2.04</span>
             <span style="color:var(--text3);font-size:11px;">Self-hosted IPTV Proxy</span>
             <a href="https://github.com/s3lfcod3r/selfstream" target="_blank" style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text2);text-decoration:none;">GitHub ↗</a>
           </div>
@@ -1685,7 +1685,7 @@ tr:hover td{background:rgba(255,255,255,.02);}
           </div>
           <div class="form-hint" style="margin-bottom:10px;">
             Späte Bildstücke werden zu einer Störung zusammengefasst. Die Ursache ergibt sich daraus, wer betroffen war:
-            <strong>ein Sender</strong> → Anbieter (dieser Sender) · <strong>mehrere Sender</strong> → Anbieter oder VPN, entschieden durch einen Test-Download durch den Tunnel · <strong>nur ein Zuschauer</strong> fällt zurück, obwohl die Anlieferung pünktlich war → dessen Gerät oder Leitung.
+            <strong>ein Sender</strong> → Anbieter (dieser Sender) · <strong>mehrere Sender</strong> → Anbieter oder VPN, entschieden durch einen Test-Download durch den Tunnel · <strong>zeitversetzt</strong> (Catchup) → Archiv des Anbieters, für sich gezählt · <strong>nur ein Zuschauer</strong> fällt zurück, obwohl die Anlieferung pünktlich war → dessen Gerät oder Leitung.
           </div>
           <div id="q-stoerungen"><div class="empty-state">Lade…</div></div>
         </div>
@@ -5470,6 +5470,7 @@ const Q_URSACHE = {
   vpn:      { name: 'VPN / Leitung',         farbe: '#ef4444' },
   netz:     { name: 'Anbieter oder VPN',     farbe: '#ef4444' },
   geraet:   { name: 'Gerät',                 farbe: '#eab308' },
+  archiv:   { name: 'Anbieter · Archiv',     farbe: '#eab308' },
 };
 
 function qPill(level, text) {
@@ -5564,7 +5565,8 @@ function qZeitraum(von, bis) {
 function qStoerungText(s) {
   const sender = s.sender_anzahl === 1 ? `Nur ${s.sender[0]}` : `${s.sender_anzahl} Sender (${s.sender.join(', ')}${s.sender_anzahl > s.sender.length ? ' …' : ''})`;
   const nutzer = s.nutzer_anzahl === 1 ? s.nutzer[0] : `${s.nutzer_anzahl} Zuschauer`;
-  const stuecke = `${s.anzahl} späte Bildstücke`;
+  const stuecke = `${s.anzahl} späte Bildstücke` + (s.leer ? `, davon ${s.leer} leer geliefert` : '');
+  if (s.ursache === 'archiv') return `Zeitversetztes Schauen: ${sender}, ${nutzer}, ${stuecke}. Das Archiv des Anbieters lieferte zu langsam; das Live-Bild war davon nicht betroffen.`;
   if (s.ursache === 'geraet') return `Nur ${nutzer}. SelfStream hatte die Bildstücke rechtzeitig, das Gerät fiel trotzdem zurück – es oder seine Leitung kam nicht hinterher (${s.anzahl} Bildstücke lang).`;
   let t = `${sender}, ${nutzer}, ${stuecke}.`;
   if (s.ursache === 'anbieter') t += ` Test-Download durch den Tunnel war schnell (${s.probe_mbps} Mbit/s).`;
@@ -5645,7 +5647,10 @@ async function loadQualitaet() {
 
   // Störungen
   const sEl = document.getElementById('q-stoerungen');
-  const einzel = q.einzelne ? `<div style="font-size:11px;color:var(--text3);margin-top:8px;">Dazu ${q.einzelne} einzelne späte Bildstücke ohne Folge (ein Stück allein ruckelt in der Regel nicht).</div>` : '';
+  const einzelTeile = [];
+  if (q.einzelne) einzelTeile.push(`${q.einzelne} einzelne späte Bildstücke ohne Folge (ein Stück allein ruckelt in der Regel nicht)`);
+  if (q.leer) einzelTeile.push(`${q.leer} leer gelieferte Bildstücke, die SelfStream sofort neu geholt hat`);
+  const einzel = einzelTeile.length ? `<div style="font-size:11px;color:var(--text3);margin-top:8px;">Dazu ${einzelTeile.join(' und ')}.</div>` : '';
   if (!q.stoerungen.length) {
     sEl.innerHTML = `<div class="empty-state">Keine Störung im Zeitraum</div>${einzel}`;
   } else {
@@ -5754,6 +5759,9 @@ function renderSegEvents() {
       const seg = e.seg || '';
       const leer = seg.startsWith('⚠️ LEER');
       const cached = !!e.cached || seg.startsWith('⚡');
+      const roh = e.channel || '';
+      const catchup = !!e.catchup || roh.startsWith('[Catchup] ');
+      const sender = esc(roh.replace(/^\[Catchup\] /, '') || '—') + (catchup ? ' <span style="color:var(--text3);font-size:10px;">· zeitversetzt</span>' : '');
       const dur = Number(e.dur) || 0;
       const elapsed = Number(e.elapsed) || 0;
       const res = (zeit) => dur > 0 && zeit > 0 ? Math.min(99, Math.round(dur / zeit * 10) / 10) : null;
@@ -5766,9 +5774,9 @@ function renderSegEvents() {
       return `<tr style="border-bottom:1px solid var(--border);">
         <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;">${timeStr}</td>
         <td style="padding:4px 8px;"><strong>${esc(e.user_name || e.user || '—')}</strong></td>
-        <td style="padding:4px 8px;">${esc(e.channel || '—')}</td>
+        <td style="padding:4px 8px;">${sender}</td>
         <td style="padding:4px 8px;white-space:nowrap;">${rein}</td>
-        <td style="padding:4px 8px;white-space:nowrap;">${raus}</td>
+        <td style="padding:4px 8px;white-space:nowrap;">${catchup ? '<span style="color:var(--text3);" title="Beim zeitversetzten Schauen bestimmt der Zuschauer selbst, wo er ist.">–</span>' : raus}</td>
         <td style="padding:4px 8px;color:var(--text2);white-space:nowrap;">${e.size_kb ? (e.size_kb / 1024).toFixed(1).replace('.', ',') + ' MB' : '—'}</td>
         <td style="padding:4px 8px;color:var(--text3);font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(seg)}">${esc(seg.replace(/^⚡\s*/, '') || '—')}</td>
       </tr>`;
